@@ -162,7 +162,7 @@ for (const p of PROJECTS) {
     start_month: p.start_month, end_month: p.end_month,
     description: p.description, my_contribution: p.my_contribution,
     tools: p.tools, results: p.results, current_status: p.current_status,
-    revenue_note: null, verified_at: null,
+    revenue_note: null, notes: p.notes ?? null, verified_at: null,
   }).select("id").single();
   if (error) throw new Error(`project ${p.name}: ${error.message}`);
   projectIds.set(p.name, data.id);

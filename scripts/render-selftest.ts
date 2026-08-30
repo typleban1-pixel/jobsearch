@@ -1,4 +1,5 @@
 import { toAmericanEnglish, assertAmericanEnglish } from "../lib/render/americanEnglish.ts";
+import { checkClaims } from "../lib/render/claimGuards.ts";
 
 /**
  * The rendering rule has to hold on the two cases that actually matter:
@@ -48,6 +49,28 @@ try { assertAmericanEnglish("We optimized the program at Lorain County Community
 catch { clean = false; }
 console.log(`  ${clean ? "PASS" : "FAIL"}  assert accepts already-American text`);
 if (!clean) failed++;
+
+// Claim guards: the approved wordings must pass, the flattering
+// distortions of them must not.
+const claimCases: Array<[string, boolean]> = [
+  ["Built and grew RentPup, acquiring customers in Cleveland.", true],
+  ["Built RentPup, an independent property-compliance product, in his own time.", false],
+  ["Senior software engineer with full-stack experience.", true],
+  ["Used AI-assisted development to build a working product end to end.", false],
+  ["Created the Video Program internship program from the ground up.", true],
+  ["Generated more than $70,000 in ARR.", true],
+  ["Played a substantial hands-on role in developing, launching, and operating Genius Academy, an education-focused offering that reached a peak of more than $70,000 in annual recurring revenue in 2022.", false],
+  ["Managed a team of 12 employees.", true],
+  ["Supervised the day-to-day work of three student employees.", false],
+  ["Taught and mentored 250+ students.", false],
+];
+console.log("");
+for (const [text, shouldBlock] of claimCases) {
+  const blocked = checkClaims(text).length > 0;
+  const ok = blocked === shouldBlock;
+  if (!ok) failed++;
+  console.log(`  ${ok ? "PASS" : "FAIL"}  ${blocked ? "blocked" : "allowed"}  ${text.slice(0, 52)}`);
+}
 
 console.log(`\n${failed === 0 ? "all passed" : failed + " FAILED"}`);
 process.exit(failed ? 1 : 0);
