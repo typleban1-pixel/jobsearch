@@ -2,6 +2,7 @@ import type {
   JobFeatures, ScoreReason, ScoreResult, ScoringProfile, ScoreDimension,
 } from "./types.ts";
 import type { TermMatcher } from "../matching/match.ts";
+import { classOfKind } from "./kinds.ts";
 
 /**
  * The scorer.
@@ -46,7 +47,31 @@ export function scoreJob(
 
   // ---------------- FIT ----------------
   let unclearRequirements = 0;
+  let unmatchedTraits = 0;
+  let unevaluatedConstraints = 0;
+  let traitsTotal = 0;
+
   for (const r of features.requirements) {
+    const cls = classOfKind(r.kind);
+
+    // Traits and constraints never touch fit, whatever hardness the
+    // posting gave them. A posting can genuinely require a growth
+    // mindset; what it cannot do is make that a skill we could evidence.
+    // Scoring it as a missing hard requirement would penalise the job for
+    // being written expansively, which is noise, not signal.
+    if (cls === "TRAIT") {
+      traitsTotal++;
+      unmatchedTraits++;
+      continue;
+    }
+    if (cls === "CONSTRAINT") {
+      // Real and checkable, just not against a skills table. Recorded as
+      // uncertainty because it is genuinely unevaluated, not because it
+      // is unimportant: "must reside in California" decides the job.
+      unevaluatedConstraints++;
+      continue;
+    }
+
     const m = matcher.match(r.term);
     const matched = m.method !== "NONE";
     if (r.hardness === "HARD") {
@@ -162,6 +187,16 @@ export function scoreJob(
               : "per_unknown_field";
     add("UNCERTAINTY", "UNKNOWN_DATA", w("uncertainty", key), f, `${f} unknown`);
   }
+  if (unmatchedTraits > 0) {
+    add("UNCERTAINTY", "UNKNOWN_DATA",
+        w("uncertainty", "per_unmatched_trait") * unmatchedTraits,
+        `${unmatchedTraits} traits`, "personal qualities with no objective evidence to match against");
+  }
+  if (unevaluatedConstraints > 0) {
+    add("UNCERTAINTY", "UNKNOWN_DATA",
+        w("uncertainty", "per_unevaluated_constraint") * unevaluatedConstraints,
+        `${unevaluatedConstraints} constraints`, "legal or logistical conditions not yet evaluated against the profile");
+  }
   if (unclearRequirements > 0) {
     add("UNCERTAINTY", "HARD_REQUIREMENT_UNCLEAR",
         w("uncertainty", "per_unclear_requirement") * unclearRequirements,
@@ -183,6 +218,8 @@ export function scoreJob(
     uncertainty: sum("UNCERTAINTY"),
     unknownFieldCount: features.unknownFields.length,
     unclearRequirementCount: unclearRequirements,
+    traitCount: traitsTotal,
+    constraintCount: unevaluatedConstraints,
     reasons,
     profileVersion: profile.profileVersion,
     weightsVersion: meta.weightsVersion,

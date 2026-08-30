@@ -19,6 +19,8 @@ const arg = (n: string, d: number) => {
 const limit = arg("limit", 25);
 const commit = process.argv.includes("--commit");
 const pilot = process.argv.includes("--pilot");
+/** Re-run over jobs already extracted, superseding the earlier version. */
+const reextract = process.argv.includes("--reextract");
 const BUDGET_CENTS = arg("budget", 100);
 
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"),
@@ -36,11 +38,18 @@ const matcher = new TermMatcher(
 const { data: candidates, error: candErr } = await db.from("jobs")
   .select("id,company_id,title,eligibility,extracted_at,companies!inner(name)")
   .eq("status", "OPEN").in("eligibility", ["ELIGIBLE", "UNCERTAIN"])
-  .is("extracted_at", null).order("company_id", { ascending: true }).limit(1200);
+  .order("company_id", { ascending: true }).limit(1600);
 if (candErr) throw new Error(candErr.message);
 
+const pool = (candidates ?? []).filter((j: any) =>
+  reextract ? j.extracted_at !== null : j.extracted_at === null);
+if (pool.length === 0) {
+  console.log(reextract ? "no extracted jobs to re-extract" : "no unextracted eligible jobs remain");
+  process.exit(0);
+}
+
 const perCompany = new Map<string, any[]>();
-for (const j of candidates ?? []) {
+for (const j of pool) {
   const arr = perCompany.get(j.company_id) ?? [];
   if (arr.length < 3) { arr.push(j); perCompany.set(j.company_id, arr); }
 }
@@ -116,12 +125,29 @@ for (const [i, job] of selected.entries()) {
   }
 
   if (commit) {
+    // Re-extraction supersedes rather than duplicates. job_extractions is
+    // append-only history, so the earlier attempt stays readable: without
+    // it there would be no evidence that the previous version was wrong,
+    // which is the whole reason the table is separate from
+    // job_requirements.
+    const { data: prior } = await db.from("job_extractions")
+      .select("id").eq("job_id", job.id).is("superseded_by", null);
+
     const { data: ins, error } = await db.from("job_extractions").insert({
       job_id: job.id, extraction_version: EXTRACTION_VERSION, llm_tier: "fast",
       input_hash: await sha(description), output: out as any,
       requirements_extracted: reqs.length, succeeded: true,
     }).select("id").single();
     if (error) throw new Error(`job_extractions: ${error.message}`);
+    for (const p of prior ?? []) {
+      const { error: supErr } = await db.from("job_extractions")
+        .update({ superseded_by: ins.id }).eq("id", p.id);
+      if (supErr) throw new Error(`supersede: ${supErr.message}`);
+    }
+    // job_requirements holds the CURRENT reading and is replaced. The
+    // superseded extraction above still carries the old one verbatim.
+    const { error: delErr } = await db.from("job_requirements").delete().eq("job_id", job.id);
+    if (delErr) throw new Error(`clear requirements: ${delErr.message}`);
     await db.from("llm_calls").insert({
       tier: "fast", purpose: "extract_requirements", subject_type: "JOB", subject_id: job.id,
       input_tokens: usage.inputTokens, output_tokens: usage.outputTokens,

@@ -1,0 +1,20 @@
+-- Adds TRAIT to requirement_kind.
+--
+-- The pilot surfaced the problem this fixes. 25 of 256 extracted
+-- requirements were personal qualities: "growth mindset", "communication
+-- skills", "attention to detail". They are real posting content, they
+-- were quoted correctly, and nothing in a skills table can ever match
+-- them. Under the v1 weights each unmatched HARD requirement costs 18 fit
+-- points, so a posting was being penalised in proportion to how much
+-- personality copy it contained.
+--
+-- The classification is not the thing that was wrong. The posting really
+-- does present these as required, and the hardness recorded against them
+-- stays as extracted: nothing here downgrades HARD to PREFERRED to make
+-- the arithmetic convenient. What changes is that the SCORER stops
+-- treating an unmatched trait as a missing skill.
+--
+-- Alone in its own migration because ALTER TYPE ... ADD VALUE cannot be
+-- used in the same transaction that adds it, and supabase db push wraps
+-- each file in one transaction.
+alter type requirement_kind add value if not exists 'TRAIT';

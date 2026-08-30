@@ -91,6 +91,10 @@ export interface ScoreResult {
   uncertainty: number;
   unknownFieldCount: number;
   unclearRequirementCount: number;
+  /** Soft-trait coverage signal. Reported, never scored against fit. */
+  traitCount: number;
+  /** Legal and logistical conditions awaiting evaluation against the profile. */
+  constraintCount: number;
   reasons: ScoreReason[];
   profileVersion: number;
   weightsVersion: number;

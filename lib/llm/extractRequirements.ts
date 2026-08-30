@@ -8,18 +8,24 @@ import type { LlmProvider } from "./provider.ts";
  * cannot tailor its reading of a posting to what we would like the answer
  * to be, because it does not know what we would like.
  *
+ * kind and hardness answer different questions and must not be conflated.
+ * Hardness is how the POSTING presents the requirement; kind is what sort
+ * of thing it is. A posting can genuinely require a growth mindset, so
+ * that stays HARD, and it is the TRAIT kind, not a downgrade to
+ * PREFERRED, that stops the scorer treating it as a missing skill.
+ *
  * The three-valued hardness is the point of using a model at all. A
  * keyword scan cannot tell "5+ years required" from "5+ years preferred"
  * from "we'd love someone with 5 years", and collapsing those produces
  * either false rejections or false matches.
  */
 
-export const EXTRACTION_VERSION = 1;
+export const EXTRACTION_VERSION = 2;
 
 export interface ExtractedRequirement {
   raw_text: string;
   normalized_term: string;
-  kind: "SKILL" | "TOOL" | "CREDENTIAL" | "EDUCATION" | "EXPERIENCE_YEARS" | "DOMAIN" | "LEGAL" | "LOGISTICAL" | "OTHER";
+  kind: "SKILL" | "TOOL" | "CREDENTIAL" | "EDUCATION" | "EXPERIENCE_YEARS" | "DOMAIN" | "TRAIT" | "LEGAL" | "LOGISTICAL" | "OTHER";
   is_hard_requirement: "HARD" | "PREFERRED" | "UNCLEAR";
   hard_requirement_reason: string;
   minimum_years: number | null;
@@ -54,6 +60,20 @@ Rules, in order of importance:
 5. normalized_term is the short canonical name of the thing (e.g.
    "postgresql", "project management", "cpa"). Lowercase. No qualifiers
    like "strong" or "proven".
+5b. Choose "kind" carefully. Three groups behave very differently:
+   - SKILL, TOOL, CREDENTIAL, EDUCATION, DOMAIN, EXPERIENCE_YEARS are
+     capabilities a person can evidence: "postgresql", "cpa", "5 years in
+     logistics".
+   - TRAIT is a personal quality with no objective evidence: "growth
+     mindset", "attention to detail", "excellent communicator", "thrives
+     in ambiguity", "self-starter", "team player". If a posting presents
+     it as required, still classify hardness as HARD. The kind is what
+     marks it as a trait, not the hardness.
+   - LEGAL and LOGISTICAL are external constraints rather than
+     capabilities: work authorization, visa sponsorship, required
+     residency or location, travel percentage, shift or schedule, lifting
+     or physical requirements. Use these instead of TRAIT for anything
+     that is a condition of the job rather than a quality of the person.
 6. Do not extract company benefits, culture statements, equal-opportunity
    text, or descriptions of what the team does. Only requirements of the
    candidate.
@@ -73,7 +93,7 @@ const SCHEMA: Record<string, unknown> = {
         properties: {
           raw_text: { type: "string", description: "Short verbatim quote from the posting" },
           normalized_term: { type: "string" },
-          kind: { type: "string", enum: ["SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","LEGAL","LOGISTICAL","OTHER"] },
+          kind: { type: "string", enum: ["SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","OTHER"] },
           is_hard_requirement: { type: "string", enum: ["HARD","PREFERRED","UNCLEAR"] },
           hard_requirement_reason: { type: "string", description: "Why you classified it that way, citing the posting's wording" },
           minimum_years: { type: ["number","null"] },

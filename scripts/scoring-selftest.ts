@@ -21,7 +21,8 @@ const WEIGHTS: WeightSet = {
                 narrow_single_domain: -6 },
   specialist: { deep_single_domain: 8, years_requirement_high: 6, breadth_of_domains: -4 },
   uncertainty: { per_unknown_field: 4, per_unclear_requirement: 6, eligibility_uncertain: 15,
-                 salary_unknown: 10, no_requirements_extracted: 35 },
+                 salary_unknown: 10, no_requirements_extracted: 35,
+                 per_unmatched_trait: 1, per_unevaluated_constraint: 3 },
 };
 
 const aliases = SEED_ALIASES.map((a) => ({ alias: a.alias, canonical_term: a.canonical }));
@@ -53,7 +54,10 @@ function features(over: Partial<JobFeatures> = {}): JobFeatures {
       { id: "r1", normalized_term: "postgres", raw_text: "Postgres", is_hard_requirement: "HARD", minimum_years: 3, kind: "TOOL" },
       { id: "r2", normalized_term: "kubernetes", raw_text: "Kubernetes", is_hard_requirement: "HARD", minimum_years: null, kind: "TOOL" },
       { id: "r3", normalized_term: "ts", raw_text: "TypeScript", is_hard_requirement: "PREFERRED", minimum_years: null, kind: "SKILL" },
-      { id: "r4", normalized_term: "leadership", raw_text: "Leadership", is_hard_requirement: "UNCLEAR", minimum_years: null, kind: "OTHER" },
+      // Skill-matchable on purpose. An UNCLEAR TRAIT is skipped before
+      // hardness is ever examined, so using one here would have made this
+      // assertion vacuous.
+      { id: "r4", normalized_term: "salesforce", raw_text: "Salesforce", is_hard_requirement: "UNCLEAR", minimum_years: null, kind: "TOOL" },
     ],
     ...(over as any),
   }) as JobFeatures;
@@ -112,7 +116,10 @@ const unknownSalary = scoreJob(
       { id: "r1", normalized_term: "postgres", raw_text: "Postgres", is_hard_requirement: "HARD", minimum_years: 3, kind: "TOOL" },
       { id: "r2", normalized_term: "kubernetes", raw_text: "Kubernetes", is_hard_requirement: "HARD", minimum_years: null, kind: "TOOL" },
       { id: "r3", normalized_term: "ts", raw_text: "TypeScript", is_hard_requirement: "PREFERRED", minimum_years: null, kind: "SKILL" },
-      { id: "r4", normalized_term: "leadership", raw_text: "Leadership", is_hard_requirement: "UNCLEAR", minimum_years: null, kind: "OTHER" },
+      // Skill-matchable on purpose. An UNCLEAR TRAIT is skipped before
+      // hardness is ever examined, so using one here would have made this
+      // assertion vacuous.
+      { id: "r4", normalized_term: "salesforce", raw_text: "Salesforce", is_hard_requirement: "UNCLEAR", minimum_years: null, kind: "TOOL" },
     ],
   }),
   profile, matcher, WEIGHTS, { weightsVersion: 1, extractionVersion: 1 });
@@ -164,6 +171,62 @@ check("specialist score is descriptive, never a fit penalty", () => {
   const deep = scoreJob({ ...base, deepDomainLanguage: true }, profile, matcher, WEIGHTS,
     { weightsVersion: 1, extractionVersion: 1 });
   return deep.fit === scored.fit;
+});
+
+// The pilot's failure mode, asserted so it cannot come back.
+const withTrait = buildFeatures({
+  job: { eligibility: "ELIGIBLE", seniority: "SENIOR", manages_people: false,
+         salary_min: 140000, salary_max: 170000, remote_policy: "FULLY_REMOTE",
+         metro: "Chicagoland", mentions_equity: true, has_quota_or_commission: false,
+         travel_requirement_pct: 0 },
+  descriptionText: "You will own the roadmap end-to-end and partner with cross-functional teams.",
+  requirements: [
+    { id: "r1", normalized_term: "postgres", raw_text: "Postgres", is_hard_requirement: "HARD", minimum_years: 3, kind: "TOOL" },
+    { id: "t1", normalized_term: "growth mindset", raw_text: "A growth mindset", is_hard_requirement: "HARD", minimum_years: null, kind: "TRAIT" },
+    { id: "t2", normalized_term: "attention to detail", raw_text: "Attention to detail", is_hard_requirement: "HARD", minimum_years: null, kind: "TRAIT" },
+    { id: "c1", normalized_term: "us work authorization", raw_text: "Must be authorized to work in the US", is_hard_requirement: "HARD", minimum_years: null, kind: "LEGAL" },
+  ],
+});
+const traitScored = scoreJob(withTrait, profile, matcher, WEIGHTS, { weightsVersion: 2, extractionVersion: 2 });
+const onlySkill = buildFeatures({
+  job: { eligibility: "ELIGIBLE", seniority: "SENIOR", manages_people: false,
+         salary_min: 140000, salary_max: 170000, remote_policy: "FULLY_REMOTE",
+         metro: "Chicagoland", mentions_equity: true, has_quota_or_commission: false,
+         travel_requirement_pct: 0 },
+  descriptionText: "You will own the roadmap end-to-end and partner with cross-functional teams.",
+  requirements: [
+    { id: "r1", normalized_term: "postgres", raw_text: "Postgres", is_hard_requirement: "HARD", minimum_years: 3, kind: "TOOL" },
+  ],
+});
+const skillOnlyScored = scoreJob(onlySkill, profile, matcher, WEIGHTS, { weightsVersion: 2, extractionVersion: 2 });
+
+check("unmatched HARD traits cost nothing on fit", () => traitScored.fit === skillOnlyScored.fit,
+  `${traitScored.fit} vs ${skillOnlyScored.fit}`);
+check("unevaluated HARD constraints cost nothing on fit", () =>
+  !traitScored.reasons.some((r) => r.dimension === "FIT" && r.subject === "us work authorization"));
+check("traits and constraints raise uncertainty instead", () =>
+  traitScored.uncertainty > skillOnlyScored.uncertainty);
+check("trait hardness is preserved, not downgraded", () =>
+  withTrait.requirements.filter((r) => r.kind === "TRAIT").every((r) => r.hardness === "HARD"));
+check("soft-trait coverage is reported separately", () =>
+  traitScored.traitCount === 2 && traitScored.constraintCount === 1);
+check("trait-aware scoring still reconciles", () => reconcile(traitScored).ok,
+  reconcile(traitScored).problems.join("; "));
+
+// Deliberate: hardness is irrelevant for a requirement that cannot affect
+// fit either way, so an UNCLEAR trait is not counted as unresolved.
+check("an UNCLEAR trait is not counted as an unclear requirement", () => {
+  const f = buildFeatures({
+    job: { eligibility: "ELIGIBLE", seniority: "SENIOR", manages_people: false,
+           salary_min: 140000, salary_max: 170000, remote_policy: "FULLY_REMOTE",
+           metro: "Chicagoland", mentions_equity: true, has_quota_or_commission: false,
+           travel_requirement_pct: 0 },
+    descriptionText: "text",
+    requirements: [{ id: "x", normalized_term: "team player", raw_text: "Team player",
+                     is_hard_requirement: "UNCLEAR", minimum_years: null, kind: "TRAIT" }],
+  });
+  const r = scoreJob(f, profile, matcher, WEIGHTS, { weightsVersion: 2, extractionVersion: 2 });
+  return r.unclearRequirementCount === 0 && r.traitCount === 1 && r.fit === 0;
 });
 
 let failed = 0;
