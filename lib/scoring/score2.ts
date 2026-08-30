@@ -28,7 +28,11 @@ export function scoreJob2(
   profile: ScoringProfile,
   index: CapabilityIndex,
   weights: WeightSet,
-  meta: { weightsVersion: number; extractionVersion: number; title: string; requirements: any[] },
+  meta: {
+    weightsVersion: number; extractionVersion: number; title: string; requirements: any[];
+    credentialDeclarations?: Record<string, string>;
+    profileEducation?: Array<{ level: string; field: string | null }>;
+  },
 ): ScoreResult2 {
   const reasons: ScoreReason[] = [];
   const w = (g: string, k: string) => weights[g]?.[k] ?? 0;
@@ -37,7 +41,7 @@ export function scoreJob2(
     subject: string | null, detail: string | null,
   ) => { if (points !== 0) reasons.push({ dimension, kind, points, subject, detail }); };
 
-  const fb = buildFitBreakdown(meta.requirements, meta.title, index);
+  const fb = buildFitBreakdown(meta.requirements, meta.title, index, meta.credentialDeclarations ?? {}, meta.profileEducation ?? []);
 
   // ---------------- FIT ----------------
   // Coverage first, as a proportion of what the posting actually demands

@@ -2,6 +2,7 @@ import { classifyRequirement, type RequirementClass, type CredentialFamily } fro
 import { resolveConcept, creditFor, type CapabilityIndex, type Resolution } from "./capability.ts";
 import { splitCompound } from "../matching/concepts.ts";
 import { jobFunctionProfile, type BusinessFunction } from "./functions.ts";
+import { assessEducation, type EducationRecord } from "./education.ts";
 
 /**
  * Fit, rebuilt as a measure of DEGREE rather than a penalty counter.
@@ -78,8 +79,13 @@ export function buildFitBreakdown(
   requirements: Array<{ id: string; raw_text: string; normalized_term: string | null; is_hard_requirement: string }>,
   title: string,
   index: CapabilityIndex,
-  /** True once the user has stated which professional credentials he holds. */
-  credentialsDeclared = false,
+  /**
+   * Per-family credential declarations. A family absent from this map, or
+   * present as UNDECLARED, keeps resolving UNKNOWN. Only NOT_HELD makes a
+   * credential requirement a genuine failure.
+   */
+  credentialDeclarations: Record<string, string> = {},
+  profileEducation: EducationRecord[] = [],
 ): FitBreakdown {
   const byConcept = new Map<string, ScorableConcept>();
   const excludedByClass: Record<string, number> = {};
@@ -112,10 +118,26 @@ export function buildFitBreakdown(
         existing.requirementIds.push(r.id);
         continue;
       }
-      const res = resolveConcept(part, index, {
-        isGatingCredential: c.requirementClass === "GATING_CREDENTIAL",
-        credentialsDeclared: credentialsDeclared,
-      });
+      let res;
+      if (c.requirementClass === "GATING_CREDENTIAL") {
+        const fam = c.credentialFamily ?? "OTHER";
+        const declared = credentialDeclarations[fam];
+        res = declared === "NOT_HELD"
+          ? { resolution: "ABSENT" as const, via: null,
+              rationale: `confirmed: holds no ${fam.toLowerCase()} credential` }
+          : { resolution: "UNKNOWN" as const, via: null,
+              rationale: `${fam.toLowerCase()} credentials have not been declared either way` };
+      } else if (c.requirementClass === "EDUCATION") {
+        const e = assessEducation({
+          requiredLevel: c.educationLevel, requiredField: c.educationField,
+          rawText: r.raw_text, profileEducation,
+        });
+        res = e.verdict === "SATISFIED" ? { resolution: "DIRECT" as const, via: "verified education", rationale: e.detail }
+            : e.verdict === "UNKNOWN" ? { resolution: "UNKNOWN" as const, via: null, rationale: e.detail }
+            : { resolution: "ABSENT" as const, via: null, rationale: e.detail };
+      } else {
+        res = resolveConcept(part, index);
+      }
       byConcept.set(part, {
         concept: part, requirementClass: c.requirementClass, hardness,
         resolution: res.resolution, via: res.via, rationale: res.rationale,

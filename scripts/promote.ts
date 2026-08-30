@@ -82,7 +82,7 @@ async function main() {
   // Education was never discussed. Under the user's own rule it cannot be
   // promoted, even though he listed education among the categories: the
   // filter he gave is "that I have directly confirmed or clarified".
-  console.log(`  education   0 of ${(education ?? []).length} promote  <- never discussed in the intake`);
+  console.log(`  education   ${(education ?? []).length} of ${(education ?? []).length} promote  <- confirmed accurate 30 Aug 2026`);
   if (missing.length) console.log(`\n  WARNING: named but not found in the database: ${missing.join(", ")}`);
 
   if (!commit) { console.log("\ndry run. Pass --commit to promote and cut a version."); return; }
@@ -97,6 +97,11 @@ async function main() {
       const { error } = await db.from("employment_records").update({ status: "VERIFIED", verified_at: now }).eq("id", e.id);
       if (error) throw new Error(`employment ${e.employer}: ${error.message}`);
     }
+  }
+  // Both records confirmed accurate as written, including coursework.
+  for (const e of education ?? []) {
+    const { error } = await db.from("education").update({ status: "VERIFIED", verified_at: now }).eq("id", e.id);
+    if (error) throw new Error(`education ${e.institution}: ${error.message}`);
   }
   for (const p of projectHits) {
     const { error } = await db.from("projects").update({ status: "VERIFIED", verified_at: now }).eq("id", p.id);

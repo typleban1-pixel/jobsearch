@@ -60,6 +60,21 @@ const index: CapabilityIndex = {
 };
 console.log(`capability relations usable (target skill verified): ${relations.size} of ${relRows.length}`);
 
+const { data: credDecl } = await db.from("credential_declarations").select("family,status");
+const credentialDeclarations: Record<string, string> = {};
+for (const c of credDecl ?? []) credentialDeclarations[c.family] = c.status;
+const { data: eduRows } = await db.from("education").select("credential,field_of_study,status,completed");
+const profileEducation = (eduRows ?? [])
+  .filter((e: any) => e.status === "VERIFIED" && e.completed)
+  .map((e: any) => ({
+    level: /master|mba/i.test(e.credential ?? "") ? "MASTER"
+         : /doctor|phd/i.test(e.credential ?? "") ? "DOCTORATE"
+         : /associate/i.test(e.credential ?? "") ? "ASSOCIATE" : "BACHELOR",
+    field: e.field_of_study ?? null,
+  }));
+console.log(`credential declarations: ${JSON.stringify(credentialDeclarations)}`);
+console.log(`verified education used for matching: ${profileEducation.length} record(s)`);
+
 const { data: prefs } = await db.from("work_preferences").select("kind,statement,weight");
 const { data: locs } = await db.from("location_preferences").select("metro,stance");
 
@@ -109,6 +124,7 @@ for (const j of jobs) {
   const r = scoreJob2(features, profile, index, weights.weights, {
     weightsVersion: weights.version, extractionVersion: 3,
     title: j.title, requirements: reqsByJob.get(j.id) ?? [],
+    credentialDeclarations, profileEducation,
   });
   if (!reconcile(r).ok) reconcileFailures++;
   results.push({ job: j, features, result: r });

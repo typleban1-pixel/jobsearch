@@ -150,9 +150,25 @@ export function classifyRequirement(rawText: string, normalizedTerm: string): Cl
                 : /\b(master|masters|ms\b|m\.s\.|mba)\b/i.test(haystack) ? "MASTER"
                 : /\b(associate degree|associates degree)\b/i.test(haystack) ? "ASSOCIATE"
                 : "BACHELOR";
-    const m = haystack.match(/\bdegree\s+in\s+(?:a\s+)?([a-z][\w\s,\/&-]{2,50})/i);
-    let field = m?.[1]?.trim().replace(/\b(field|discipline|or related|related)\b.*$/i, "").trim() || null;
-    if (field && field.length < 3) field = null;
+    const m = haystack.match(/\bdegree\s+in\s+(?:a\s+)?([a-z][\w\s,\/&-]{2,60})/i);
+    let field = m?.[1]?.trim() ?? null;
+    if (field) {
+      // Trim at the first word that ends the field name rather than
+      // continues it, and drop degree words the greedy capture swept up.
+      field = field
+        .replace(/\b(field|discipline|area|subject)\b.*$/i, "")
+        .replace(/\b(bachelor|bachelors|master|masters|associate|associates|degree|ba|bs|ms|mba)\b\s*$/i, "")
+        .replace(/\s*[,;]\s*$/, "")
+        .trim();
+      // "a relevant field", "a related discipline", "any field" name no
+      // field at all. Treating them as field-specific turned a generic
+      // requirement into a failure, which is the opposite of what the
+      // posting says.
+      if (/^(?:a\s+)?(?:relevant|related|similar|comparable|applicable|any|other|equivalent|appropriate)$/i.test(field)) {
+        field = null;
+      }
+      if (field !== null && field.length < 3) field = null;
+    }
     return { concept, credentialFamily: null, requirementClass: "EDUCATION", educationField: field, educationLevel: level as any,
              reason: field ? `degree requirement in ${field}` : "generic degree requirement" };
   }
