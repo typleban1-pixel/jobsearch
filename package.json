@@ -9,7 +9,9 @@
     "boards:verify": "node scripts/verify-boards.ts",
     "ingest": "node scripts/ingest.ts",
     "health": "node scripts/health.ts",
-    "verify:pipeline": "node scripts/verify-pipeline.ts"
+    "verify:pipeline": "node scripts/verify-pipeline.ts",
+    "verify:render": "node scripts/render-selftest.ts",
+    "verify:scoring": "node scripts/scoring-selftest.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0"
