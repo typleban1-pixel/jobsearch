@@ -105,4 +105,9 @@ if (!commit) {
     if (error) throw new Error(`persist: ${error.message}`);
   }
   console.log(`\nwrote ${verdicts.length} verdicts (eligibility_version ${ELIGIBILITY_VERSION})`);
+  console.log(
+    `\nNOTE: this pass uses structured fields only and overwrites any\n` +
+    `extraction-informed verdicts. Run scripts/eligibility-refresh.ts --commit\n` +
+    `immediately after, or ~590 jobs will silently revert to a worse answer.`,
+  );
 }

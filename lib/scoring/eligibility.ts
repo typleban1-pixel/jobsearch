@@ -58,7 +58,11 @@ export interface EligibilityInput {
  */
 export interface EligibilityRules {
   targetMetros: string[];
-  /** States a target metro spans, used to judge state-scoped remote roles. */
+  /**
+   * States the target metro spans, used ONLY to judge remote roles whose
+   * scope names specific states. Not used for metro resolution, which has
+   * its own guard against same-named cities elsewhere.
+   */
   targetStates: string[];
   remoteCountry: string;
   acceptOnsiteInTargetMetro: boolean;
@@ -67,7 +71,17 @@ export interface EligibilityRules {
 
 export const PROPOSED_RULES: EligibilityRules = {
   targetMetros: ["Chicagoland"],
-  targetStates: ["IL", "IN", "WI"],
+  // IL and IN only.
+  //
+  // targetStates is used for one thing: judging a remote role whose scope
+  // names specific US states. Living in Chicagoland means a role
+  // restricted to Illinois works, and one restricted to northwest Indiana
+  // plausibly does too, since seven Indiana municipalities are in the
+  // Chicagoland list and are commutable. Wisconsin was in here by
+  // symmetry with nothing: the municipality list contains no Wisconsin
+  // city at all, so WI could only ever admit a role in a state the user
+  // would not be living in.
+  targetStates: ["IL", "IN"],
   remoteCountry: "US",
   acceptOnsiteInTargetMetro: true,
   acceptHybridInTargetMetro: true,

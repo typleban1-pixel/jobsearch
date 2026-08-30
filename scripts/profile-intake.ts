@@ -57,6 +57,10 @@ const { data: prof, error: pe } = await db.from("profile")
     legal_first_name: PROFILE.legal_first_name, legal_last_name: PROFILE.legal_last_name,
     preferred_name: PROFILE.preferred_name, email_job_search: PROFILE.email_job_search,
     city: PROFILE.city, state: PROFILE.state, country: PROFILE.country,
+    // Confirmed, not inferred. The user is deliberately relocating to
+    // Chicagoland, so current Cleveland residence must never count
+    // against a Chicago role.
+    willing_to_relocate: true,
   })
   .eq("singleton", true).select("id,profile_version").single();
 if (pe) throw new Error(`profile: ${pe.message}`);

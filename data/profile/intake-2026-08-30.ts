@@ -56,7 +56,7 @@ export const EMPLOYMENT = [
     ],
     // The user's own correction, recorded so no generated document can
     // later describe this role as owning marketing strategy.
-    notes: "User states explicitly: not the executive setting overall marketing direction. The owner established priorities and delegated objectives; the role was heavily execution-oriented, determining how to accomplish them. Also contributed original ideas including product ideas.",
+    notes: "User states explicitly: did not own Genius One's overall COMPANY marketing strategy. The owner established overall priorities and delegated objectives; the role was heavily execution-oriented, determining how to accomplish them, sometimes requiring research and learning something new. Also contributed original ideas including product ideas, and participated directly in product development, prototyping, testing, marketing, ecommerce and operations. SCOPE: this narrows one company and one level of ownership. It is not evidence of lacking marketing-strategy capability generally.",
   },
   {
     employer: "Anytime Picture LLC",
@@ -329,14 +329,16 @@ export const WORK_PREFERENCES = [
 ];
 
 export const LOCATION_PREFERENCES = [
+  // CONFIRMED by the user on 30 Aug 2026.
   { label: "Chicagoland", stance: "PREFERRED", metro: "Chicagoland", state: "IL", country: "US",
     applies_to_remote: false, max_onsite_days_per_week: 5,
-    notes: "Hybrid and onsite acceptable within Chicagoland" },
+    notes: "Onsite, hybrid and remote all acceptable. Treat Greater Chicagoland as the whole target metro: no neighborhood and no commute radius yet." },
   { label: "Fully remote, United States", stance: "PREFERRED", country: "US",
-    applies_to_remote: true, notes: "Remote roles must be open to US residents generally" },
+    applies_to_remote: true,
+    notes: "Include regardless of where the company is headquartered, provided the role can be worked remotely while living in Chicagoland." },
   { label: "Onsite or hybrid outside Chicagoland", stance: "EXCLUDE", country: "US",
     applies_to_remote: false,
-    notes: "QUESTION: the user currently lives in Cleveland, so this rule excludes local Cleveland onsite work. Confirm that is intended." },
+    notes: "Excluded with no exceptions. Cleveland and northeast Ohio get no special treatment: the user is relocating to Chicagoland within roughly two months and is not looking for a Cleveland-based job." },
 ];
 
 /**
