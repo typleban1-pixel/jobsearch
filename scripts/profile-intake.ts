@@ -162,7 +162,7 @@ for (const m of METRICS) {
     employment_id: m.label.startsWith("Genius Academy") ? null : employmentIds.get(m.employer) ?? null,
   });
   if (error) throw new Error(`metric: ${error.message}`);
-  console.log(`  metric SUGGESTED (unapproved): ${m.label}`);
+  console.log(`  metric ${(m as any).approved === true ? "APPROVED" : "unapproved"}: ${m.label}`);
 }
 
 // Recorded against the Genius One employment record, since that is where
