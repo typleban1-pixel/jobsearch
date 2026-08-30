@@ -21,6 +21,22 @@ export interface Compensation {
 const COMP_CONTEXT =
   /(salary|compensation|base pay|pay range|pay band|annual|per year|hourly|per hour|\bOTE\b|target earnings)/i;
 
+/**
+ * Labels that mean the money is NOT base pay.
+ *
+ * Affirm postings carry "New hire equity: $32,000-$48,000" a few words
+ * from "Annual Refresh", so the positive context test matched and a
+ * Senior Software Engineer was recorded at a 32k to 48k salary and then
+ * excluded by the hard floor. An equity grant, a signing bonus and a 401k
+ * match are all real dollar figures near compensation language, and none
+ * of them is a salary.
+ *
+ * Checked against the text immediately BEFORE the amount, because that is
+ * where the label sits.
+ */
+const NOT_BASE_PAY =
+  /\b(equity|stock|rsus?|restricted stock|options?|refresh|reward|signing bonus|sign-on|retention|401\s?\(?k\)?|match|tuition|stipend|allowance|per diem|budget)\b/i;
+
 export function parseStructuredSalary(input: {
   min?: number | null; max?: number | null; currency?: string | null;
   interval?: string | null; source: string;
@@ -51,6 +67,9 @@ export function parseSalaryFromText(text: string): Compensation | null {
     const start = Math.max(0, m.index - 120);
     const context = text.slice(start, m.index + m[0].length + 120);
     if (!COMP_CONTEXT.test(context)) continue;
+    // The label immediately preceding the number decides what it is.
+    const label = text.slice(Math.max(0, m.index - 70), m.index);
+    if (NOT_BASE_PAY.test(label)) continue;
 
     let lo = Number(m[1]!.replace(/,/g, ""));
     let hi = Number(m[2]!.replace(/,/g, ""));

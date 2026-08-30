@@ -23,7 +23,7 @@ const BASE = "https://boards-api.greenhouse.io/v1/boards";
  */
 export const greenhouse: AtsProvider = {
   name: "GREENHOUSE",
-  normalizerVersion: 3,
+  normalizerVersion: 4,
   fetcherVersion: 1,
 
   boardUrl(token) {

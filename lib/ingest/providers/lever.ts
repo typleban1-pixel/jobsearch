@@ -25,7 +25,7 @@ const BASE = "https://api.lever.co/v0/postings";
  */
 export const lever: AtsProvider = {
   name: "LEVER",
-  normalizerVersion: 3,
+  normalizerVersion: 4,
   fetcherVersion: 1,
 
   boardUrl(token) {

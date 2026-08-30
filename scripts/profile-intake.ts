@@ -61,6 +61,9 @@ const { data: prof, error: pe } = await db.from("profile")
     // Chicagoland, so current Cleveland residence must never count
     // against a Chicago role.
     willing_to_relocate: true,
+    salary_hard_floor: PROFILE.salary_hard_floor,
+    salary_target_min: PROFILE.salary_target_min,
+    salary_target_ideal: PROFILE.salary_target_ideal,
   })
   .eq("singleton", true).select("id,profile_version").single();
 if (pe) throw new Error(`profile: ${pe.message}`);

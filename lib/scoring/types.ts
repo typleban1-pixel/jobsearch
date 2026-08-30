@@ -60,6 +60,8 @@ export interface JobFeatures {
   salaryMin: number | null;
   salaryMax: number | null;
   salaryKnown: boolean;
+  salaryPeriod: string | null;
+  salaryIsEstimated: boolean;
   remotePolicy: string;
   metro: string | null;
   mentionsEquity: boolean | null;

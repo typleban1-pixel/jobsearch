@@ -25,6 +25,8 @@ export interface BuildFeaturesInput {
     manages_people: boolean | null;
     salary_min: number | null;
     salary_max: number | null;
+    salary_period?: string | null;
+    salary_is_estimated?: boolean;
     remote_policy: string | null;
     metro: string | null;
     mentions_equity: boolean | null;
@@ -69,6 +71,8 @@ export function buildFeatures(input: BuildFeaturesInput): JobFeatures {
     salaryMin: job.salary_min,
     salaryMax: job.salary_max,
     salaryKnown: job.salary_min !== null || job.salary_max !== null,
+    salaryPeriod: job.salary_period ?? null,
+    salaryIsEstimated: job.salary_is_estimated ?? false,
     remotePolicy: job.remote_policy ?? "UNCLEAR",
     metro: job.metro,
     mentionsEquity: job.mentions_equity,

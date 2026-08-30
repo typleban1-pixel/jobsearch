@@ -15,11 +15,16 @@
  * withheld, and only on evidence the posting itself states.
  */
 
-export const ELIGIBILITY_VERSION = 1;
+import { compareToFloor } from "./salary.ts";
+
+// 2: the rules changed. A definitively known salary maximum below the
+// hard floor is now a hard exclusion, and targetStates dropped Wisconsin.
+export const ELIGIBILITY_VERSION = 2;
 
 export type EligibilityStatus = "ELIGIBLE" | "UNCERTAIN" | "INELIGIBLE";
 
 export type EligibilityReason =
+  | "SALARY_BELOW_HARD_FLOOR"
   // eligible
   | "REMOTE_US_ELIGIBLE"
   | "IN_TARGET_METRO"
@@ -42,6 +47,10 @@ export interface EligibilityVerdict {
 }
 
 export interface EligibilityInput {
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  salaryPeriod?: string | null;
+  salaryIsEstimated?: boolean;
   city: string | null;
   state: string | null;
   country: string | null;
@@ -65,6 +74,12 @@ export interface EligibilityRules {
    */
   targetStates: string[];
   remoteCountry: string;
+  /**
+   * Excludes a job only when the posted MAXIMUM is definitively below it.
+   * Unknown salary never excludes: the user would rather see a strong-fit
+   * job with undisclosed pay than lose it to a filter.
+   */
+  salaryHardFloor: number | null;
   acceptOnsiteInTargetMetro: boolean;
   acceptHybridInTargetMetro: boolean;
 }
@@ -82,6 +97,7 @@ export const PROPOSED_RULES: EligibilityRules = {
   // city at all, so WI could only ever admit a role in a state the user
   // would not be living in.
   targetStates: ["IL", "IN"],
+  salaryHardFloor: 85_000,
   remoteCountry: "US",
   acceptOnsiteInTargetMetro: true,
   acceptHybridInTargetMetro: true,
@@ -117,6 +133,27 @@ const NON_US_MARKERS = new RegExp(
 export function assessEligibility(
   job: EligibilityInput,
   rules: EligibilityRules = PROPOSED_RULES,
+): EligibilityVerdict {
+  const geo = assessGeography(job, rules);
+  // Geography decides first. Both a Poland role and an underpaid role are
+  // INELIGIBLE, but reporting a Poland role as "below salary floor" makes
+  // the coverage report lie about why the corpus shrank.
+  if (geo.status === "INELIGIBLE") return geo;
+
+  const floor = compareToFloor({
+    salaryMin: job.salaryMin ?? null, salaryMax: job.salaryMax ?? null,
+    period: job.salaryPeriod ?? null, isEstimated: job.salaryIsEstimated ?? false,
+    floor: rules.salaryHardFloor,
+  });
+  if (floor.verdict === "BELOW_FLOOR") {
+    return { status: "INELIGIBLE", reason: "SALARY_BELOW_HARD_FLOOR", detail: floor.detail };
+  }
+  return geo;
+}
+
+function assessGeography(
+  job: EligibilityInput,
+  rules: EligibilityRules,
 ): EligibilityVerdict {
   const haystack = [job.locationRaw, job.remoteRestriction, job.city, job.state, job.country]
     .filter(Boolean).join(" | ");

@@ -21,7 +21,8 @@ const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROL
 // branch still has to satisfy the NOT NULL columns even though only the
 // update branch ever runs.
 const cols = "id,company_id,source,external_id,title,city,state,country,metro,"
-  + "remote_policy,remote_geographic_restriction,location_raw,status";
+  + "remote_policy,remote_geographic_restriction,location_raw,status,"
+  + "salary_min,salary_max,salary_period,salary_is_estimated";
 const jobs: Array<Record<string, any>> = [];
 for (let from = 0; ; from += 1000) {
   const { data, error } = await db.from("jobs").select(cols)
@@ -40,6 +41,8 @@ const verdicts = jobs.map((j) => ({
     city: j.city, state: j.state, country: j.country, metro: j.metro,
     remotePolicy: j.remote_policy, remoteRestriction: j.remote_geographic_restriction,
     locationRaw: j.location_raw,
+    salaryMin: j.salary_min, salaryMax: j.salary_max,
+    salaryPeriod: j.salary_period, salaryIsEstimated: j.salary_is_estimated,
   }),
 }));
 

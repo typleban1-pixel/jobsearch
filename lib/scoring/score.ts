@@ -3,6 +3,7 @@ import type {
 } from "./types.ts";
 import type { TermMatcher } from "../matching/match.ts";
 import { classOfKind } from "./kinds.ts";
+import { annualize, compareToFloor } from "./salary.ts";
 
 /**
  * The scorer.
@@ -101,10 +102,17 @@ export function scoreJob(
 
   // ---------------- OPPORTUNITY ----------------
   if (features.salaryKnown) {
-    const top = features.salaryMax ?? features.salaryMin!;
-    if (profile.salaryHardFloor !== null && top < profile.salaryHardFloor) {
+    // Annualized. A rate of 66 per hour is not below an 85,000 floor.
+    const top = annualize(features.salaryMax ?? features.salaryMin, features.salaryPeriod ?? "YEAR")
+      ?? (features.salaryMax ?? features.salaryMin!);
+    const floor = compareToFloor({
+      salaryMin: features.salaryMin, salaryMax: features.salaryMax,
+      period: features.salaryPeriod ?? null, isEstimated: features.salaryIsEstimated ?? false,
+      floor: profile.salaryHardFloor,
+    });
+    if (floor.verdict === "BELOW_FLOOR") {
       add("OPPORTUNITY", "SALARY_BELOW_FLOOR", w("opportunity", "salary_below_floor"),
-          `${top}`, `below hard floor ${profile.salaryHardFloor}`);
+          `${top}`, floor.detail);
     } else if (profile.salaryTargetIdeal !== null && top >= profile.salaryTargetIdeal) {
       add("OPPORTUNITY", "SALARY_MATCH", w("opportunity", "salary_above_target"),
           `${top}`, `at or above ideal ${profile.salaryTargetIdeal}`);

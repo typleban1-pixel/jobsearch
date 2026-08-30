@@ -31,9 +31,19 @@ export const PROFILE = {
   city: "Cleveland",
   state: "OH",
   country: "US",
-  // Deliberately absent: phone, street address, work authorization,
-  // sponsorship, salary figures, relocation intent. None appear on the
-  // resume and none are inferable from it.
+  // CONFIRMED by the user on 30 Aug 2026. Not on the resume; stated
+  // directly. The floor is a deal breaker and excludes before ranking;
+  // the other two only rank.
+  salary_hard_floor: 85_000,
+  salary_target_min: 100_000,
+  salary_target_ideal: 115_000,
+  // Deliberately still absent: phone, street address, work authorization,
+  // sponsorship. None appear on the resume and none are inferable.
+  //
+  // Explicitly NOT recorded: any prior-compensation benchmark. The user
+  // stated that recent history is overlapping contract work and is not a
+  // clean single-salary figure, so there is no number to anchor on and
+  // none may be invented.
 };
 
 export const EMPLOYMENT = [

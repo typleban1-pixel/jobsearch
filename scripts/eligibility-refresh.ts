@@ -30,7 +30,8 @@ const page = async (t: string, cols: string, extra: (q: any) => any = (q) => q) 
 
 const jobs = await page("jobs",
   "id,company_id,source,external_id,title,city,state,country,metro,remote_policy," +
-  "remote_geographic_restriction,location_raw,eligibility,eligibility_reason,extraction_version");
+  "remote_geographic_restriction,location_raw,eligibility,eligibility_reason,extraction_version," +
+  "salary_min,salary_max,salary_period,salary_is_estimated");
 const ex = await page("job_extractions", "id,job_id,output,succeeded,superseded_by",
   (q) => q.is("superseded_by", null).eq("succeeded", true));
 const exBy = new Map(ex.map((e: any) => [e.job_id, e.output]));
@@ -50,13 +51,18 @@ for (const j of jobs) {
 
   const stated = POLICY[out.remote_policy_stated as string];
   const restriction = out.remote_geographic_restriction ?? j.remote_geographic_restriction;
-  if (!stated && !out.remote_geographic_restriction) continue;
+  // Salary can change the verdict on its own now, so a job with no remote
+  // information still needs re-assessing.
+  if (!stated && !out.remote_geographic_restriction
+      && j.salary_max === null && j.salary_min === null) continue;
 
   const v = assessEligibility({
     city: j.city, state: j.state, country: j.country, metro: j.metro,
     remotePolicy: stated ?? j.remote_policy,
     remoteRestriction: restriction,
     locationRaw: j.location_raw,
+    salaryMin: j.salary_min, salaryMax: j.salary_max,
+    salaryPeriod: j.salary_period, salaryIsEstimated: j.salary_is_estimated,
   }, PROPOSED_RULES);
 
   if (v.status !== j.eligibility || v.reason !== j.eligibility_reason) {
