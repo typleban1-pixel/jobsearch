@@ -46,6 +46,7 @@ export function buildFeatures(input: BuildFeaturesInput): JobFeatures {
   const reqFeatures: RequirementFeature[] = requirements.map((r) => ({
     id: r.id,
     term: r.normalized_term ?? r.raw_text,
+    rawText: r.raw_text,
     kind: r.kind,
     hardness: (r.is_hard_requirement as RequirementFeature["hardness"]) ?? "UNCLEAR",
     minimumYears: r.minimum_years,

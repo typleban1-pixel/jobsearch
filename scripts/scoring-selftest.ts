@@ -38,6 +38,7 @@ const profile: ScoringProfile = {
            { id: "s2", name: "TypeScript", relatedTerms: [], level: "CAPABLE", interest: "POSITIVE", importance: "CORE" }],
   salaryHardFloor: 100000, salaryTargetMin: 120000, salaryTargetIdeal: 150000,
   targetMetros: ["Chicagoland"], acceptsRemote: true, preferences: [],
+  workAuthorization: "US citizen", requiresSponsorship: false, country: "US",
 };
 
 const emptyProfile: ScoringProfile = { ...profile, skills: [], salaryHardFloor: null,
@@ -208,8 +209,13 @@ check("traits and constraints raise uncertainty instead", () =>
   traitScored.uncertainty > skillOnlyScored.uncertainty);
 check("trait hardness is preserved, not downgraded", () =>
   withTrait.requirements.filter((r) => r.kind === "TRAIT").every((r) => r.hardness === "HARD"));
+// The constraint in this fixture is a work-authorization line, which now
+// resolves against verified citizenship instead of sitting unevaluated.
 check("soft-trait coverage is reported separately", () =>
-  traitScored.traitCount === 2 && traitScored.constraintCount === 1);
+  traitScored.traitCount === 2
+  && traitScored.constraintCount === 0
+  && traitScored.satisfiedConstraintCount === 1,
+  `traits=${traitScored.traitCount} unevaluated=${traitScored.constraintCount} satisfied=${traitScored.satisfiedConstraintCount}`);
 check("trait-aware scoring still reconciles", () => reconcile(traitScored).ok,
   reconcile(traitScored).problems.join("; "));
 
@@ -228,6 +234,34 @@ check("an UNCLEAR trait is not counted as an unclear requirement", () => {
   const r = scoreJob(f, profile, matcher, WEIGHTS, { weightsVersion: 2, extractionVersion: 2 });
   return r.unclearRequirementCount === 0 && r.traitCount === 1 && r.fit === 0;
 });
+
+// Constraints resolve only against a verified attribute, never by guess.
+const constraintFeatures = buildFeatures({
+  job: { eligibility: "ELIGIBLE", seniority: "SENIOR", manages_people: false,
+         salary_min: 140000, salary_max: 170000, remote_policy: "FULLY_REMOTE",
+         metro: "Chicagoland", mentions_equity: true, has_quota_or_commission: false,
+         travel_requirement_pct: 0 },
+  descriptionText: "text",
+  requirements: [
+    { id: "c1", normalized_term: "no visa sponsorship", raw_text: "Toast will not sponsor applicants for work visas for this role", is_hard_requirement: "HARD", minimum_years: null, kind: "LEGAL" },
+    { id: "c2", normalized_term: "us work authorization", raw_text: "Must be located within and authorized to work in the United States", is_hard_requirement: "HARD", minimum_years: null, kind: "LEGAL" },
+    { id: "c3", normalized_term: "travel 25%", raw_text: "willingness to travel 25% or more", is_hard_requirement: "HARD", minimum_years: null, kind: "LOGISTICAL" },
+    { id: "c4", normalized_term: "california residency", raw_text: "Must reside and be based in California", is_hard_requirement: "HARD", minimum_years: null, kind: "LOGISTICAL" },
+  ],
+});
+const cScored = scoreJob(constraintFeatures, profile, matcher, WEIGHTS, { weightsVersion: 2, extractionVersion: 3 });
+check("sponsorship and authorization resolve against verified citizenship", () =>
+  cScored.satisfiedConstraintCount === 2, `got ${cScored.satisfiedConstraintCount}`);
+check("travel and state residency stay unevaluated", () =>
+  cScored.constraintCount === 2, `got ${cScored.constraintCount}`);
+check("resolved constraints still cost nothing on fit", () => cScored.fit === 0, `fit=${cScored.fit}`);
+
+const noAuth = { ...profile, workAuthorization: null, requiresSponsorship: null };
+const naScored = scoreJob(constraintFeatures, noAuth, matcher, WEIGHTS, { weightsVersion: 2, extractionVersion: 3 });
+check("without a verified attribute nothing resolves", () =>
+  naScored.satisfiedConstraintCount === 0 && naScored.constraintCount === 4);
+check("resolving constraints lowers uncertainty", () => cScored.uncertainty < naScored.uncertainty,
+  `${cScored.uncertainty} vs ${naScored.uncertainty}`);
 
 let failed = 0;
 console.log("scoring self-test\n");

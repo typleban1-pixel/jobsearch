@@ -64,6 +64,8 @@ const { data: prof, error: pe } = await db.from("profile")
     salary_hard_floor: PROFILE.salary_hard_floor,
     salary_target_min: PROFILE.salary_target_min,
     salary_target_ideal: PROFILE.salary_target_ideal,
+    work_authorization: PROFILE.work_authorization,
+    requires_sponsorship: PROFILE.requires_sponsorship,
   })
   .eq("singleton", true).select("id,profile_version").single();
 if (pe) throw new Error(`profile: ${pe.message}`);

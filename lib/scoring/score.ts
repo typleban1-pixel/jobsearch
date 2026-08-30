@@ -4,6 +4,7 @@ import type {
 import type { TermMatcher } from "../matching/match.ts";
 import { classOfKind } from "./kinds.ts";
 import { annualize, compareToFloor } from "./salary.ts";
+import { evaluateConstraint } from "./constraints.ts";
 
 /**
  * The scorer.
@@ -50,6 +51,7 @@ export function scoreJob(
   let unclearRequirements = 0;
   let unmatchedTraits = 0;
   let unevaluatedConstraints = 0;
+  let satisfiedConstraints = 0;
   let traitsTotal = 0;
 
   for (const r of features.requirements) {
@@ -66,10 +68,23 @@ export function scoreJob(
       continue;
     }
     if (cls === "CONSTRAINT") {
-      // Real and checkable, just not against a skills table. Recorded as
-      // uncertainty because it is genuinely unevaluated, not because it
-      // is unimportant: "must reside in California" decides the job.
-      unevaluatedConstraints++;
+      // Now compared against verified profile attributes where one
+      // exists. A confirmed citizen resolves a no-sponsorship clause
+      // outright; a travel percentage still has nothing to compare to and
+      // keeps raising uncertainty, which is the honest answer.
+      const c = evaluateConstraint(r.rawText ?? r.term, {
+        workAuthorization: profile.workAuthorization,
+        requiresSponsorship: profile.requiresSponsorship,
+        country: profile.country,
+      });
+      if (c.verdict === "VIOLATED") {
+        add("FIT", "HARD_REQUIREMENT_MISSING", w("fit", "hard_requirement_missing"),
+            r.term, `constraint violated: ${c.detail}`, { requirementId: r.id });
+      } else if (c.verdict === "UNEVALUATED") {
+        unevaluatedConstraints++;
+      } else {
+        satisfiedConstraints++;
+      }
       continue;
     }
 
@@ -228,6 +243,7 @@ export function scoreJob(
     unclearRequirementCount: unclearRequirements,
     traitCount: traitsTotal,
     constraintCount: unevaluatedConstraints,
+    satisfiedConstraintCount: satisfiedConstraints,
     reasons,
     profileVersion: profile.profileVersion,
     weightsVersion: meta.weightsVersion,

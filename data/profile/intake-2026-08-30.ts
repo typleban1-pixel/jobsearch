@@ -37,8 +37,12 @@ export const PROFILE = {
   salary_hard_floor: 85_000,
   salary_target_min: 100_000,
   salary_target_ideal: 115_000,
-  // Deliberately still absent: phone, street address, work authorization,
-  // sponsorship. None appear on the resume and none are inferable.
+  // CONFIRMED by the user on 30 Aug 2026. SENSITIVE in the
+  // classification registry: stored, never placed in a prompt, a log or
+  // an audit trail. Only ever reaches an application form.
+  work_authorization: "US citizen",
+  requires_sponsorship: false,
+  // Deliberately still absent: phone and street address.
   //
   // Explicitly NOT recorded: any prior-compensation benchmark. The user
   // stated that recent history is overlapping contract work and is not a

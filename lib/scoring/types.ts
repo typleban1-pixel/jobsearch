@@ -23,6 +23,9 @@ export interface ScoringProfile {
     level: string; interest: string; importance: string;
   }>;
   salaryHardFloor: number | null;
+  workAuthorization: string | null;
+  requiresSponsorship: boolean | null;
+  country: string | null;
   salaryTargetMin: number | null;
   salaryTargetIdeal: number | null;
   targetMetros: string[];
@@ -45,6 +48,8 @@ export interface ScoringProfile {
 export interface RequirementFeature {
   id: string;
   term: string;
+  /** Verbatim posting text. Constraints are evaluated against this, not the term. */
+  rawText?: string;
   kind: string;
   hardness: "HARD" | "PREFERRED" | "UNCLEAR";
   minimumYears: number | null;
@@ -95,8 +100,10 @@ export interface ScoreResult {
   unclearRequirementCount: number;
   /** Soft-trait coverage signal. Reported, never scored against fit. */
   traitCount: number;
-  /** Legal and logistical conditions awaiting evaluation against the profile. */
+  /** Legal and logistical conditions still awaiting a verified attribute. */
   constraintCount: number;
+  /** Constraints resolved against a verified attribute. No longer uncertainty. */
+  satisfiedConstraintCount: number;
   reasons: ScoreReason[];
   profileVersion: number;
   weightsVersion: number;
