@@ -124,8 +124,11 @@ export const EMPLOYMENT = [
       "Supported client acquisition and sales by speaking with prospects, assessing needs, recommending solutions, and closing projects over the phone",
       "Helped develop the company website and researched emerging technologies at industry trade shows",
     ],
-    accomplishments: ["Worked on projects for clients including Cleveland Clinic and Amazon"],
-    notes: "User states the role involved more than camera and edit work: client discovery, feasibility assessment within budget and timeline, approach development, problem solving, plus client acquisition and phone closing, website contribution, technology research, graphics and motion graphics.",
+    accomplishments: [
+      "Worked personally on a video project for Cleveland Clinic showcasing a new laboratory: planning, filming, editing, motion graphics and graphic design",
+      "Worked personally on a video project for Amazon showcasing a newly opened warehouse: planning, filming, editing, motion graphics and graphic design",
+    ],
+    notes: "User states the role involved more than camera and edit work: client discovery, feasibility assessment within budget and timeline, approach development, problem solving, plus client acquisition and phone closing, website contribution, technology research, graphics and motion graphics. CLIENT SCOPE: on the Cleveland Clinic and Amazon projects specifically, someone else at Anytime Picture owned the client relationship. Both may be named; there is no NDA on either. The exact stint for these two projects is not established, so neither is dated.",
   },
   {
     employer: "Anytime Picture LLC", stint: 2,
@@ -431,7 +434,10 @@ export const SKILLS = [
   // Domains, held separately from skills so a domain is never read as a tool.
   { name: "Health science", category: "domain", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING",
     related: ["healthcare","healthtech"],
-    restrictions: ["Academic, from the 2025 BS. Not clinical practice and not healthcare industry employment"] , provenance: "STATED" },
+    restrictions: [
+      "Academic, from the 2025 BS. Not clinical practice and not healthcare industry employment",
+      "The Cleveland Clinic video project is NOT evidence for this skill. Producing a video for a healthcare organization is not healthcare subject-matter experience",
+    ] , provenance: "STATED" },
   { name: "Property compliance", category: "domain", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["proptech","rental compliance"] , provenance: "INFERRED" },
   { name: "Automotive media", category: "domain", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
   { name: "Education", category: "domain", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
@@ -508,6 +514,17 @@ export const POLARITY_EVIDENCE = [
   { polarity: "POSITIVE",
     summary: "Played a substantial hands-on role in building and operating Genius Academy",
     detail: "SCOPE GUARDRAIL: $70,000+ is the OFFERING's total annual recurring revenue. Wording must never imply the user personally generated $70,000 in revenue, and must never imply he independently owned the overall business strategy. The claim is contribution to building and operating, not authorship of the outcome." },
+
+  // Anti-inference rule, and one I got wrong first. I proposed treating
+  // the Cleveland Clinic project as healthcare-domain evidence because
+  // the user has a Health Science degree and named healthtech as
+  // relevant. He rejected it, correctly: producing a video FOR a
+  // healthcare organization is not healthcare subject-matter experience,
+  // and conflating the two is precisely the kind of adjacency inflation
+  // this system exists to prevent. Recorded so no later pass repeats it.
+  { polarity: "POSITIVE",
+    summary: "Personally worked video projects for Cleveland Clinic and Amazon through Anytime Picture",
+    detail: "SCOPE GUARDRAIL: one project each. Cleveland Clinic showcased a new laboratory; Amazon showcased a newly opened warehouse. Responsibilities on both were planning, filming, editing, motion graphics and graphic design. Someone else at Anytime Picture owned the client relationship, so this must never imply the user managed either account. Both may be named publicly; no NDA applies. The Cleveland Clinic project must NOT be classified as healthcare-domain experience or connected to the Health Science degree: it was video production for a healthcare organization and involved no healthcare subject-matter expertise. Those two pieces of evidence stay separate." },
 
   { polarity: "VERIFIED_ABSENCE",
     summary: "Did not own Genius One's overall company marketing strategy",
