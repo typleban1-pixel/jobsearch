@@ -112,11 +112,17 @@ export function scoreJob2(
   else if (span <= 1) add("GENERALIST", "GENERALIST_SIGNAL", w("generalist", "single_function"), `${span} function`, fb.primaryFunction ?? "none identified");
   if (features.ownershipLanguage) add("GENERALIST", "GENERALIST_SIGNAL", w("generalist", "ownership_language"), "ownership", "posting emphasises end-to-end ownership");
 
-  // Depth is independent: a role can be both deep and broad.
+  // Depth is independent, and it describes the JOB rather than the fit.
+  //
+  // Every input below reads job features only: functional span, count of
+  // hard concepts, whether a regulated credential is required at all
+  // (not whether it is met), and depth language in the posting. A
+  // physician role is correctly very high Specialist and very low Fit,
+  // because the two answer different questions. Nothing here consults
+  // the profile, and nothing here should.
   const deepConcepts = fb.concepts.filter((c) => c.weight === 3).length;
   if (span <= 1 && deepConcepts >= 6) add("SPECIALIST", "SPECIALIST_SIGNAL", w("specialist", "deep_single_domain"), `${deepConcepts} hard concepts in one function`, "narrow and demanding");
   if (fb.credentialGates > 0) add("SPECIALIST", "SPECIALIST_SIGNAL", w("specialist", "advanced_credential_required") * Math.min(fb.credentialGates, 3), `${fb.credentialGates} gating credentials`, "regulated credential required");
-  const maxYears = 0;
   if (features.deepDomainLanguage) add("SPECIALIST", "SPECIALIST_SIGNAL", w("specialist", "depth_language"), "depth language", "posting asks for deep or specialist expertise");
 
   // ---------------- UNCERTAINTY ----------------
