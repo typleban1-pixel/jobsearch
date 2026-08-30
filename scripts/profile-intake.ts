@@ -14,6 +14,7 @@ import { required } from "../lib/env.ts";
 import {
   PROFILE, EMPLOYMENT, PROJECTS, METRICS, EDUCATION, SKILLS as RAW_SKILLS,
   WORK_PREFERENCES, LOCATION_PREFERENCES, POLARITY_EVIDENCE, capInferred,
+  GENIUS_ACADEMY_EVIDENCE,
 } from "../data/profile/intake-2026-08-30.ts";
 
 // Applied before anything is written. A skill whose interest or
@@ -137,7 +138,14 @@ for (const m of METRICS) {
     label: m.label, approved_wording: m.approved_wording,
     numeric_value: m.numeric_value, unit: m.unit,
     evidence_id: evId, confidence: "SELF_REPORTED",
-    approved_for_use: false, approved_at: null, context_note: m.context_note,
+    // Approval is an explicit act with a timestamp. Nothing automated
+    // sets this; it is true here only because the user said so in
+    // writing, and only for the wording he wrote.
+    approved_for_use: (m as any).approved === true,
+    approved_at: (m as any).approved === true ? new Date().toISOString() : null,
+    period_start: (m as any).period_start ?? null,
+    period_end: (m as any).period_end ?? null,
+    context_note: m.context_note,
     // metric_belongs_somewhere requires one of these. Genius Academy has
     // a project row of its own; everything else attaches to the job it
     // came from.
@@ -147,6 +155,13 @@ for (const m of METRICS) {
   if (error) throw new Error(`metric: ${error.message}`);
   console.log(`  metric SUGGESTED (unapproved): ${m.label}`);
 }
+
+// Recorded against the Genius One employment record, since that is where
+// the work happened, and linked to the Genius Academy project too.
+for (const line of GENIUS_ACADEMY_EVIDENCE) {
+  await addEvidence(line, "Genius One, Inc. / Genius Academy. Confirmed by the user 30 Aug 2026.");
+}
+console.log(`  Genius Academy evidence: ${GENIUS_ACADEMY_EVIDENCE.length}`);
 
 for (const e of EDUCATION) {
   const { error } = await db.from("education").insert({
