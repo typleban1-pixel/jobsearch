@@ -183,14 +183,13 @@ export const EMPLOYMENT = [
       "Created the Video Program's internship program from the ground up",
       "Coordinated a collaboration with a nationally broadcast television show that aired three seasons on the Sportsman Network, giving students production and editing opportunities, and personally edited portions of the show and created motion graphics for it",
     ],
-    // OPEN: the resume separately claims "student work ultimately
-    // selected for regional television commercials". The user's answer
-    // consolidated the 10+ videos with the NATIONAL television show, and
-    // did not address the REGIONAL commercials line. Those may be the
-    // same thing described differently, or a second unrelated
-    // accomplishment. Held out of the record rather than merged into the
-    // cluster or silently dropped.
-    open_questions: ["Is 'student work selected for regional television commercials' the same experience as the Sportsman Network collaboration, or a separate accomplishment?"],
+    // RESOLVED 30 Aug 2026. The resume's "student work ultimately
+    // selected for regional television commercials" describes the SAME
+    // experience as the Sportsman Network collaboration, and describes it
+    // inaccurately: the work was for the production company behind a
+    // nationally broadcast show, not regional commercials. The wording is
+    // removed rather than kept as a second accomplishment, because
+    // retaining both would double count one thing.
     notes: "User states the significance extends beyond video: supervision, teaching and mentoring, troubleshooting, program creation, technology evaluation and implementation, cross-department collaboration, and managing a production-lab environment.",
   },
 ];
@@ -227,7 +226,7 @@ export const PROJECTS = [
     description: "An internship program for the Video Program at Lorain County Community College, created from the ground up.",
     my_contribution: "Created the program from the ground up and developed real-world student production opportunities.",
     tools: [],
-    results: "Student work ultimately selected for regional television commercials.",
+    results: null,
     current_status: null,
     notes: "Program creation evidence, distinct from teaching. Sits inside the LCCC role rather than replacing it.",
   },

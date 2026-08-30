@@ -66,6 +66,11 @@ export const CLAIM_GUARDS: ClaimGuard[] = [
     reason: "RETRACTED 30 Aug 2026: he did not create the LCCC internship program. His resume says otherwise and the resume is wrong.",
   },
   {
+    subject: "regional television commercials",
+    pattern: /\bregional\s+television\s+commercials?\b/i,
+    reason: "RETRACTED 30 Aug 2026: the work was editing and motion graphics for the production company behind a nationally broadcast Sportsman Network show, not regional commercials. His resume describes it inaccurately.",
+  },
+  {
     subject: "marketing strategy ownership at Genius One",
     pattern: /\b(?:owned|led|set|directed)\s+(?:the\s+)?(?:overall\s+)?(?:company\s+)?marketing strategy\b/i,
     reason: "He did not own Genius One's overall company marketing strategy; the owner set priorities and delegated objectives. This does not limit marketing-strategy claims elsewhere.",
