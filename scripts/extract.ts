@@ -30,6 +30,9 @@ const commit = process.argv.includes("--commit");
 const pilot = process.argv.includes("--pilot");
 const reextract = process.argv.includes("--reextract");
 const staleOnly = process.argv.includes("--stale");
+/** Explicit job-id list, one per line. Used to re-run a review queue only. */
+const idsFileIdx = process.argv.indexOf("--ids-file");
+const idsFile = idsFileIdx > -1 ? process.argv[idsFileIdx + 1] : null;
 
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"),
   { auth: { persistSession: false } });
@@ -53,8 +56,13 @@ for (let from = 0; ; from += 1000) {
   if (data.length < 1000) break;
 }
 
+const targetIds = idsFile
+  ? new Set((await import("node:fs")).readFileSync(idsFile, "utf8").split("\n").map((l) => l.trim()).filter(Boolean))
+  : null;
+
 const pool = candidates.filter((j: any) =>
-  staleOnly ? j.extracted_at !== null && j.extraction_version !== EXTRACTION_VERSION
+  targetIds ? targetIds.has(j.id)
+  : staleOnly ? j.extracted_at !== null && j.extraction_version !== EXTRACTION_VERSION
   : reextract ? j.extracted_at !== null
   : j.extracted_at === null);
 

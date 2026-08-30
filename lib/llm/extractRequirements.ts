@@ -20,7 +20,7 @@ import type { LlmProvider } from "./provider.ts";
  * either false rejections or false matches.
  */
 
-export const EXTRACTION_VERSION = 2;
+export const EXTRACTION_VERSION = 3;
 
 export interface ExtractedRequirement {
   raw_text: string;
@@ -75,8 +75,28 @@ Rules, in order of importance:
      or physical requirements. Use these instead of TRAIT for anything
      that is a condition of the job rather than a quality of the person.
 6. Do not extract company benefits, culture statements, equal-opportunity
-   text, or descriptions of what the team does. Only requirements of the
-   candidate.
+   text, or descriptions of what the TEAM or COMPANY does. Only
+   requirements of the candidate.
+6b. CRITICAL: many postings state requirements as prose describing the
+   ideal person rather than as a list of things. These ARE requirements
+   and must be extracted. Sections headed "Who you are", "What you'll
+   bring", "About you", "The ideal candidate", "Minimum requirements" or
+   similar are requirement sections even when every bullet is a sentence
+   about a person.
+
+   "A deep networking expert with 5+ years troubleshooting connectivity
+   across enterprise environments, with strong knowledge of TCP/IP, DNS,
+   DHCP, VPNs and tools such as Wireshark"
+
+   is not a description of the team. It is several requirements: 5 years
+   of networking experience, TCP/IP, DNS, DHCP, VPNs, Wireshark. Pull the
+   concrete capabilities out of the sentence and emit one requirement per
+   capability, quoting the part of the sentence that supports each.
+
+   Rule 6 exists to keep out marketing copy about the employer. It must
+   never be used to skip a requirements section just because it is
+   written in flowing prose. If a section tells the reader what they need
+   to be or have, it is requirements.
 7. confidence is your confidence in the CLASSIFICATION, 0 to 1. Low
    confidence is useful information, not a failure.
 
@@ -189,7 +209,9 @@ export async function extractRequirements(
     tier: "fast",
     purpose: "extract_requirements",
     system: SYSTEM,
-    maxOutputTokens: 4096,
+    // 8192, not 4096. The longest genuine extraction observed needed more
+    // than 4096 and was silently cut off.
+    maxOutputTokens: 8192,
     temperature: 0,
     jsonSchema: SCHEMA,
     prompt: `Company: ${job.company}

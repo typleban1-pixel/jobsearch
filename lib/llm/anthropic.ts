@@ -93,7 +93,25 @@ export class AnthropicProvider implements LlmProvider {
     const parsed = JSON.parse(text) as {
       content: Array<{ type: string; text?: string; input?: unknown }>;
       usage: { input_tokens: number; output_tokens: number };
+      stop_reason?: string;
     };
+
+    // Truncation must be loud.
+    //
+    // A tool call cut off at max_tokens returns a partial JSON object that
+    // parses into undefined fields, and `out.requirements ?? []` reads
+    // that as "this posting has no requirements". Four postings in the
+    // bulk run were recorded as having zero requirements for exactly this
+    // reason, including a Stripe role with a full "Minimum requirements"
+    // section, and it looked like a comprehension failure for two rounds
+    // of investigation. Silent truncation is worse than an error because
+    // it is indistinguishable from a real empty result.
+    if (parsed.stop_reason === "max_tokens") {
+      throw new Error(
+        `anthropic: output truncated at max_tokens (${parsed.usage.output_tokens}); ` +
+        `result discarded rather than stored as partial`,
+      );
+    }
 
     let content: unknown;
     if (req.jsonSchema) {
