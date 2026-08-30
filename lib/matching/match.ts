@@ -38,6 +38,16 @@ export interface MatchableSkill {
 export interface MatchResult {
   method: MatchMethod;
   status: MatchStatus;
+  /**
+   * Which index the match finally landed in.
+   *
+   * NAME means the skill's own name. RELATED means one of its
+   * related_terms, which is adjacency the profile volunteered rather than
+   * a claim of equivalence. An alias hop can end in either, and treating
+   * both as the same thing granted full credit for "project management"
+   * against verified "Project coordination".
+   */
+  terminal: "NAME" | "RELATED" | null;
   skillId: string | null;
   skillName: string | null;
   matchedTerm: string | null;
@@ -63,9 +73,12 @@ export class TermMatcher {
     }
   }
 
-  private hit(method: MatchMethod, skill: MatchableSkill, matchedTerm: string, query: string): MatchResult {
+  private hit(
+    method: MatchMethod, skill: MatchableSkill, matchedTerm: string,
+    query: string, terminal: "NAME" | "RELATED",
+  ): MatchResult {
     return {
-      method,
+      method, terminal,
       status: skill.status === "SUGGESTED" ? "SUGGESTED" : "VERIFIED",
       skillId: skill.id, skillName: skill.name, matchedTerm, queryTerm: query,
     };
@@ -77,24 +90,26 @@ export class TermMatcher {
 
     for (const v of variants) {
       const found = this.exact.get(v);
-      if (found) return this.hit("EXACT", found, v, query);
+      if (found) return this.hit("EXACT", found, v, query, "NAME");
     }
 
     for (const v of variants) {
       const canonical = this.aliases.get(v);
       if (!canonical) continue;
       for (const cv of termVariants(canonical)) {
-        const found = this.exact.get(cv) ?? this.related.get(cv);
-        if (found) return this.hit("ALIAS", found, canonical, query);
+        const byName = this.exact.get(cv);
+        if (byName) return this.hit("ALIAS", byName, canonical, query, "NAME");
+        const byRelated = this.related.get(cv);
+        if (byRelated) return this.hit("ALIAS", byRelated, canonical, query, "RELATED");
       }
     }
 
     for (const v of variants) {
       const found = this.related.get(v);
-      if (found) return this.hit("RELATED_TERM", found, v, query);
+      if (found) return this.hit("RELATED_TERM", found, v, query, "RELATED");
     }
 
-    return { method: "NONE", status: "NONE", skillId: null, skillName: null, matchedTerm: null, queryTerm: query };
+    return { method: "NONE", status: "NONE", terminal: null, skillId: null, skillName: null, matchedTerm: null, queryTerm: query };
   }
 
   /** Vocabulary size, for reporting how much surface the matcher actually covers. */

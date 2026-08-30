@@ -12,7 +12,10 @@ import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { TermMatcher } from "../lib/matching/match.ts";
 import { buildFeatures } from "../lib/scoring/features.ts";
-import { scoreJob, reconcile, type WeightSet } from "../lib/scoring/score.ts";
+import { reconcile, type WeightSet } from "../lib/scoring/score.ts";
+import { scoreJob2 } from "../lib/scoring/score2.ts";
+import { toConcept } from "../lib/matching/concepts.ts";
+import type { CapabilityIndex } from "../lib/scoring/capability.ts";
 import { FEATURE_VERSION, type ScoringProfile } from "../lib/scoring/types.ts";
 
 const commit = process.argv.includes("--commit");
@@ -41,6 +44,21 @@ const matcher = new TermMatcher(
   allSkills.map((s: any) => ({ id: s.id, name: s.name, relatedTerms: s.related_terms ?? [], status: s.status })),
   aliases as any,
 );
+
+const relRows = await page("capability_relations", "requirement_concept,satisfied_by_skill,relation,rationale");
+const verifiedNames = new Set(verified.map((s: any) => s.name));
+const relations = new Map<string, { skill: string; relation: "DIRECT" | "TRANSFERABLE"; rationale: string }>();
+for (const r of relRows) {
+  // A relation whose target skill is not verified cannot grant credit.
+  if (!verifiedNames.has(r.satisfied_by_skill)) continue;
+  relations.set(toConcept(r.requirement_concept).concept,
+    { skill: r.satisfied_by_skill, relation: r.relation, rationale: r.rationale });
+}
+const index: CapabilityIndex = {
+  relations,
+  matchTerm: (t: string) => { const m = matcher.match(t); return { status: m.status, skillName: m.skillName, method: m.method, terminal: m.terminal }; },
+};
+console.log(`capability relations usable (target skill verified): ${relations.size} of ${relRows.length}`);
 
 const { data: prefs } = await db.from("work_preferences").select("kind,statement,weight");
 const { data: locs } = await db.from("location_preferences").select("metro,stance");
@@ -88,8 +106,10 @@ for (const j of jobs) {
   const features = buildFeatures({
     job: j, descriptionText: descById.get(j.id) ?? "", requirements: reqsByJob.get(j.id) ?? [],
   });
-  const r = scoreJob(features, profile, matcher, weights.weights,
-    { weightsVersion: weights.version, extractionVersion: 3 });
+  const r = scoreJob2(features, profile, index, weights.weights, {
+    weightsVersion: weights.version, extractionVersion: 3,
+    title: j.title, requirements: reqsByJob.get(j.id) ?? [],
+  });
   if (!reconcile(r).ok) reconcileFailures++;
   results.push({ job: j, features, result: r });
 }
@@ -105,9 +125,18 @@ if (commit) {
       eligibility: job.eligibility, features: features as any, computed_at: now,
     })), { onConflict: "job_id" });
   }
-  // One current score per job: clear the flag before inserting.
-  for (let i = 0; i < results.length; i += 200) {
-    const ids = results.slice(i, i + 200).map((r) => r.job.id);
+  // job_scores is unique on (job_id, profile_version, weights_version,
+  // extraction_version), which is exactly right: two different scores
+  // must never claim the same inputs. Re-running the same triple is a
+  // recompute, not a new score, so the previous rows for that triple are
+  // replaced rather than duplicated.
+  for (let i = 0; i < results.length; i += 100) {
+    const ids = results.slice(i, i + 100).map((r) => r.job.id);
+    await db.from("job_scores").delete()
+      .in("job_id", ids)
+      .eq("profile_version", profile.profileVersion)
+      .eq("weights_version", weights.version)
+      .eq("extraction_version", 3);
     await db.from("job_scores").update({ is_current: false }).in("job_id", ids).eq("is_current", true);
   }
   for (const { job, result } of results) {
@@ -118,6 +147,7 @@ if (commit) {
       extraction_version: result.extractionVersion, uncertainty_score: result.uncertainty,
       unknown_field_count: result.unknownFieldCount,
       unclear_requirement_count: result.unclearRequirementCount,
+      scorable: (result as any).scorable, unscorable_reason: (result as any).unscorableReason,
       is_current: true, computed_at: now,
     }).select("id").single();
     if (error) throw new Error(`job_scores: ${error.message}`);
@@ -143,6 +173,23 @@ writeFileSync("/tmp/score-results.json", JSON.stringify(results.map(({ job, feat
   constraintCount: result.constraintCount, satisfied: result.satisfiedConstraintCount,
   unverified: result.unverifiedSkillMatchCount, unclear: result.unclearRequirementCount,
   reqCount: features.requirements.length,
+  scorable: (result as any).scorable,
+  coverage: (result as any).fitBreakdown.coverage,
+  achievable: (result as any).fitBreakdown.achievable,
+  conceptCount: (result as any).fitBreakdown.concepts.length,
+  direct: (result as any).fitBreakdown.concepts.filter((c: any) => c.resolution === "DIRECT" && c.weight > 0).length,
+  transferable: (result as any).fitBreakdown.concepts.filter((c: any) => c.resolution === "TRANSFERABLE" && c.weight > 0).length,
+  absent: (result as any).fitBreakdown.concepts.filter((c: any) => c.resolution === "ABSENT" && c.weight > 0).length,
+  unknownConcepts: (result as any).fitBreakdown.excludedUnknown,
+  credentialGates: (result as any).fitBreakdown.credentialGates,
+  credentialGatesUnmet: (result as any).fitBreakdown.credentialGatesUnmet,
+  credentialFamiliesUnmet: (result as any).fitBreakdown.credentialFamiliesUnmet,
+  educationGatesUnmet: (result as any).fitBreakdown.educationGatesUnmet,
+  functions: (result as any).fitBreakdown.functions,
+  excludedByClass: (result as any).fitBreakdown.excludedByClass,
+  absentConcepts: (result as any).fitBreakdown.concepts.filter((c: any) => c.resolution === "ABSENT" && c.weight > 0).map((c: any) => c.concept),
+  transferableConcepts: (result as any).fitBreakdown.concepts.filter((c: any) => c.resolution === "TRANSFERABLE" && c.weight > 0).map((c: any) => ({ c: c.concept, via: c.via })),
+  directConcepts: (result as any).fitBreakdown.concepts.filter((c: any) => c.resolution === "DIRECT" && c.weight > 0).map((c: any) => ({ c: c.concept, via: c.via })),
   reasons: result.reasons,
 })), null, 0));
 console.log("wrote /tmp/score-results.json");
