@@ -6,3 +6,7 @@ node_modules/
 .DS_Store
 *.log
 /private/
+
+# local validation corpus (file-backed store used when no Supabase creds are present)
+.corpus/
+.corpus-verify/

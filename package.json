@@ -2,8 +2,20 @@
   "name": "jobsearch",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "description": "Personal AI job search, matching and application system. Standalone: shares no infrastructure with any other project.",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "boards:verify": "node scripts/verify-boards.ts",
+    "ingest": "node scripts/ingest.ts",
+    "health": "node scripts/health.ts",
+    "verify:pipeline": "node scripts/verify-pipeline.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
   }
 }
