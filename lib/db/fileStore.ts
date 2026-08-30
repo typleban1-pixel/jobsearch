@@ -161,6 +161,7 @@ export class FileStore implements Store {
           current_version_id: (current?.["id"] as string) ?? null,
           current_version_number: (current?.["version_number"] as number) ?? 0,
           current_normalized: (current?.["normalized"] as NormalizedJob) ?? null,
+          has_payload: this.db.job_raw_payloads.some((p) => p["job_id"] === j["id"]),
         };
       });
   }

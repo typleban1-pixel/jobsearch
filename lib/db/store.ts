@@ -35,6 +35,16 @@ export interface ExistingJob {
   current_version_id: string | null;
   current_version_number: number;
   current_normalized: NormalizedJob | null;
+  /**
+   * Whether any raw payload exists for this job.
+   *
+   * A job is four separate writes (job, description, version, payload)
+   * with no transaction spanning them. A run that dies between the third
+   * and the fourth leaves a job whose content hash matches, so every
+   * later run takes the unchanged path and the source-provenance row is
+   * never written. Carrying this lets the next run notice and repair it.
+   */
+  has_payload: boolean;
 }
 
 export interface FetchRecord {

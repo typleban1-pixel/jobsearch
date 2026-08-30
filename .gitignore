@@ -13,3 +13,6 @@ node_modules/
 
 # Supabase CLI local link state (machine-specific; may hold connection strings)
 supabase/.temp/
+
+# ad-hoc diagnostics, not part of the pipeline
+scripts/diag/

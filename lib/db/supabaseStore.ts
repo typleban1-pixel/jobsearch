@@ -147,173 +147,331 @@ export class SupabaseStore implements Store {
     }
     if (jobs.length === 0) return [];
 
+    // Filtered through a join on the parent rather than by passing job
+    // ids in an .in() list.
+    //
+    // The .in() version failed in production: 500 uuids build a 19,630
+    // character URL and PostgREST rejects anything past the ~16 KB
+    // header limit. Chunking the list would have worked, but it leaves
+    // the bug latent, waiting for whatever chunk size eventually gets
+    // raised. Filtering on jobs.company_id makes the URL a fixed size no
+    // matter how many jobs a company has.
     const versions: Array<Record<string, unknown>> = [];
-    const ids = jobs.map((j) => j["id"] as string);
-    for (let i = 0; i < ids.length; i += 500) {
+    for (let from = 0; ; from += page) {
       const batch = await this.run("listJobsForCompany.versions",
         this.db.from("job_versions")
-          .select("id,job_id,version_number,normalized_cache:description_text,content_hash")
-          .in("job_id", ids.slice(i, i + 500))
-          .eq("is_current", true));
-      versions.push(...((batch ?? []) as Array<Record<string, unknown>>));
+          .select("id,job_id,version_number,jobs!inner(company_id)")
+          .eq("jobs.company_id", companyId)
+          .eq("is_current", true)
+          .order("job_id", { ascending: true })
+          .range(from, from + page - 1));
+      const rows = (batch ?? []) as Array<Record<string, unknown>>;
+      versions.push(...rows);
+      if (rows.length < page) break;
     }
     const byJob = new Map(versions.map((v) => [v["job_id"] as string, v]));
+
+    // Same join trick, same reason: fixed-size URL regardless of how many
+    // jobs the company has.
+    const withPayload = new Set<string>();
+    for (let from = 0; ; from += page) {
+      const batch = await this.run("listJobsForCompany.payloads",
+        this.db.from("job_raw_payloads")
+          .select("job_id,jobs!inner(company_id)")
+          .eq("jobs.company_id", companyId)
+          .order("job_id", { ascending: true })
+          .range(from, from + page - 1));
+      const rows = (batch ?? []) as Array<{ job_id: string }>;
+      for (const r of rows) withPayload.add(r.job_id);
+      if (rows.length < page) break;
+    }
 
     return jobs.map((j) => {
       const v = byJob.get(j["id"] as string);
       return {
         id: j["id"] as string,
         external_id: j["external_id"] as string,
-        content_hash: (j["content_hash"] as string) ?? null,
+        // A job with no current version is reported as having no content
+        // hash, so it routes to the changed path and gets one.
+        //
+        // The four writes behind a job (job, description, version,
+        // payload) are separate PostgREST calls with no transaction
+        // spanning them. If a run dies between them the job row exists
+        // with a content_hash but no version, and matching on that hash
+        // would send it down the unchanged path forever, leaving it
+        // permanently versionless. This makes the next run repair it.
+        content_hash: v ? ((j["content_hash"] as string) ?? null) : null,
         status: j["status"] as ExistingJob["status"],
         consecutive_missing_checks: (j["consecutive_missing_checks"] as number) ?? 0,
         current_version_id: (v?.["id"] as string) ?? null,
         current_version_number: (v?.["version_number"] as number) ?? 0,
-        // The previous normalized object is not loaded here. Change
-        // detection keys on content_hash, and the field-level diff is
-        // rebuilt from the frozen version row only when a hash moved.
+        // Deliberately not loading description_text here. This runs for
+        // every job on every company, and pulling the full frozen text
+        // just to learn a version id was megabytes per company. The diff
+        // reads the previous version only for jobs whose hash moved.
         current_normalized: null,
+        has_payload: withPayload.has(j["id"] as string),
       };
     });
   }
 
+  /**
+   * Batched.
+   *
+   * The first cold load against Supabase ran at 5.8 jobs/sec because
+   * every new or changed job made about five sequential round trips.
+   * 3,841 jobs is roughly 19,000 requests in series, which is eleven
+   * minutes of pure latency for work the database can do in a few dozen
+   * statements. The file-backed store hid this completely: it is
+   * in-memory, so per-row writes cost nothing there.
+   *
+   * Three paths, each batched separately because they need different
+   * statements:
+   *
+   *   unchanged  heartbeat only. No version, no payload, no description
+   *              rewrite. Most jobs take this path every day.
+   *   new        insert job, description, version 1, raw payload.
+   *   changed    supersede the current version, then the same as new
+   *              plus a diff against the frozen previous version.
+   */
   async writeJobs(inputs: JobWriteInput[]): Promise<JobWriteResult[]> {
-    const results: JobWriteResult[] = [];
+    const unchanged = inputs.filter((i) => i.existing && i.existing.content_hash === i.contentHash);
     const newOnes = inputs.filter((i) => !i.existing);
     const changed = inputs.filter((i) => i.existing && i.existing.content_hash !== i.contentHash);
-    const unchanged = inputs.filter((i) => i.existing && i.existing.content_hash === i.contentHash);
 
-    // Unchanged: touch the heartbeat only. No version, no payload row, no
-    // description rewrite. This is the path most jobs take every day and
-    // it is what keeps a daily run cheap.
-    if (unchanged.length) {
-      for (let i = 0; i < unchanged.length; i += 500) {
-        const slice = unchanged.slice(i, i + 500);
-        await this.run("writeJobs.touch",
-          this.db.from("jobs").upsert(slice.map((u) => ({
-            id: u.existing!.id,
-            last_seen_at: u.fetchedAt,
-            last_seen_open_at: u.fetchedAt,
-            consecutive_missing_checks: 0,
-            ...(u.existing!.status !== "OPEN"
-              ? { status: "OPEN", status_changed_at: u.fetchedAt,
-                  closed_detection_reason: "reappeared on board" }
-              : {}),
-          })), { onConflict: "id" }));
+    const results: JobWriteResult[] = [];
+    results.push(...(await this.touchUnchanged(unchanged)));
+    results.push(...(await this.insertNewJobs(newOnes)));
+    results.push(...(await this.updateChangedJobs(changed)));
+    return results;
+  }
+
+  private async touchUnchanged(inputs: JobWriteInput[]): Promise<JobWriteResult[]> {
+    // Repair pass: unchanged content, but the source-provenance row never
+    // landed. Writes the payload against the version that already exists,
+    // without manufacturing a new version for a job that did not change.
+    const needsPayload = inputs.filter((i) => !i.existing!.has_payload);
+    if (needsPayload.length) {
+      const versionIds = new Map<string, string>();
+      for (const i of needsPayload) {
+        if (i.existing!.current_version_id) versionIds.set(i.existing!.id, i.existing!.current_version_id);
       }
-      for (const u of unchanged) {
-        results.push({
-          jobId: u.existing!.id, isNew: false, versionCreated: false,
-          versionNumber: u.existing!.current_version_number, changes: [],
-          duplicateOfJobId: null,
-        });
-      }
+      await this.writePayloads(
+        needsPayload.map((i) => ({ input: i, jobId: i.existing!.id })),
+        versionIds,
+      );
     }
 
-    for (const input of [...newOnes, ...changed]) {
-      results.push(await this.writeOne(input));
+    for (const slice of chunk(inputs, 500)) {
+      await this.run("touchUnchanged",
+        this.db.from("jobs").upsert(slice.map((u) => ({
+          id: u.existing!.id,
+          company_id: u.companyId,
+          source: u.source,
+          external_id: u.normalized.sourceJobId,
+          title: u.normalized.title,
+          last_seen_at: u.fetchedAt,
+          last_seen_open_at: u.fetchedAt,
+          consecutive_missing_checks: 0,
+          ...(u.existing!.status !== "OPEN"
+            ? { status: "OPEN", status_changed_at: u.fetchedAt,
+                closed_detection_reason: "reappeared on board" }
+            : {}),
+        })), { onConflict: "id" }));
+    }
+    return inputs.map((u) => ({
+      jobId: u.existing!.id, isNew: false, versionCreated: false,
+      versionNumber: u.existing!.current_version_number, changes: [],
+      duplicateOfJobId: null,
+    }));
+  }
+
+  private async insertNewJobs(inputs: JobWriteInput[]): Promise<JobWriteResult[]> {
+    const results: JobWriteResult[] = [];
+
+    for (const slice of chunk(inputs, 400)) {
+      const inserted = await this.run("insertNewJobs.jobs",
+        this.db.from("jobs").insert(slice.map((i) => ({
+          ...jobRow(i),
+          company_id: i.companyId, source: i.source, external_id: i.normalized.sourceJobId,
+          first_seen_at: i.fetchedAt, status: "OPEN", consecutive_missing_checks: 0,
+        }))).select("id,source,external_id"));
+
+      // Mapped by natural key rather than by array position: PostgREST
+      // makes no promise that returned rows come back in input order.
+      const idByKey = new Map(
+        (inserted as Array<{ id: string; source: string; external_id: string }>)
+          .map((r) => [`${r.source}::${r.external_id}`, r.id]),
+      );
+      const withIds = slice.map((i) => {
+        const jobId = idByKey.get(`${i.source}::${i.normalized.sourceJobId}`);
+        if (!jobId) throw new Error(`insertNewJobs: no id returned for ${i.source}/${i.normalized.sourceJobId}`);
+        return { input: i, jobId };
+      });
+
+      await this.writeDescriptions(withIds);
+      const versionIds = await this.writeVersions(withIds.map((w) => ({ ...w, versionNumber: 1 })));
+      await this.writePayloads(withIds, versionIds);
+
+      for (const w of withIds) {
+        results.push({
+          jobId: w.jobId, isNew: true, versionCreated: true, versionNumber: 1,
+          changes: [], duplicateOfJobId: null,
+        });
+      }
     }
     return results;
   }
 
-  private async writeOne(input: JobWriteInput): Promise<JobWriteResult> {
-    const n = input.normalized;
-    const row = jobRow(input);
-    let jobId: string;
-    let isNew = false;
+  private async updateChangedJobs(inputs: JobWriteInput[]): Promise<JobWriteResult[]> {
+    const results: JobWriteResult[] = [];
 
-    if (!input.existing) {
-      const data = await this.run("writeOne.insertJob",
-        this.db.from("jobs").insert({
-          ...row,
-          company_id: input.companyId, source: input.source, external_id: n.sourceJobId,
-          first_seen_at: input.fetchedAt, status: "OPEN", consecutive_missing_checks: 0,
-        }).select("id").single());
-      jobId = (data as { id: string }).id;
-      isNew = true;
-    } else {
-      jobId = input.existing.id;
-      await this.run("writeOne.updateJob",
-        this.db.from("jobs").update({
-          ...row,
-          ...(input.existing.status !== "OPEN"
-            ? { status: "OPEN", status_changed_at: input.fetchedAt,
+    // 100, not 200: this path passes version ids through .in(), and the
+    // URL grows with the chunk. 100 uuids is roughly 3.7 KB, comfortably
+    // under the header limit that broke listJobsForCompany.
+    for (const slice of chunk(inputs, 100)) {
+      const withIds = slice.map((i) => ({ input: i, jobId: i.existing!.id }));
+
+      // The frozen previous version, read before it is superseded. The
+      // diff has to compare against what was actually stored, not against
+      // whatever this process happens to hold in memory.
+      const prevIds = slice.map((i) => i.existing!.current_version_id).filter((x): x is string => Boolean(x));
+      const prevRows = prevIds.length
+        ? await this.run("updateChangedJobs.prevVersions",
+            this.db.from("job_versions").select("*").in("id", prevIds))
+        : [];
+      const prevByJob = new Map(
+        (prevRows as Array<Record<string, unknown>>).map((v) => [v["job_id"] as string, v]),
+      );
+
+      // Supersede first. job_versions_one_current is a unique index, so
+      // inserting the new current version before clearing the old one
+      // would be rejected. Only is_current moves, which is the single
+      // column the append-only trigger permits.
+      if (prevIds.length) {
+        await this.run("updateChangedJobs.supersede",
+          this.db.from("job_versions").update({ is_current: false }).in("id", prevIds));
+      }
+
+      await this.run("updateChangedJobs.jobs",
+        this.db.from("jobs").upsert(slice.map((i) => ({
+          id: i.existing!.id,
+          company_id: i.companyId, source: i.source, external_id: i.normalized.sourceJobId,
+          ...jobRow(i),
+          ...(i.existing!.status !== "OPEN"
+            ? { status: "OPEN", status_changed_at: i.fetchedAt,
                 closed_detection_reason: "reappeared on board" }
             : {}),
-        }).eq("id", jobId));
+        })), { onConflict: "id" }));
+
+      await this.writeDescriptions(withIds);
+      const versionIds = await this.writeVersions(
+        withIds.map((w) => ({ ...w, versionNumber: w.input.existing!.current_version_number + 1 })),
+      );
+      await this.writePayloads(withIds, versionIds);
+
+      const changeRows: Array<Record<string, unknown>> = [];
+      for (const w of withIds) {
+        const prev = prevByJob.get(w.jobId);
+        const changes = prev ? detectChanges(versionToNormalized(prev), w.input.normalized) : [];
+        const toVersionId = versionIds.get(w.jobId);
+        for (const c of changes) {
+          changeRows.push({
+            job_id: w.jobId,
+            from_version_id: w.input.existing!.current_version_id,
+            to_version_id: toVersionId,
+            kind: c.kind, field_name: c.fieldName,
+            old_value: c.oldValue, new_value: c.newValue,
+            is_material: c.isMaterial, detected_at: w.input.fetchedAt,
+          });
+        }
+        results.push({
+          jobId: w.jobId, isNew: false, versionCreated: true,
+          versionNumber: w.input.existing!.current_version_number + 1,
+          changes, duplicateOfJobId: null,
+        });
+      }
+      for (const c of chunk(changeRows, 500)) {
+        await this.run("updateChangedJobs.changes", this.db.from("job_changes").insert(c));
+      }
     }
+    return results;
+  }
 
-    await this.run("writeOne.description",
-      this.db.from("job_descriptions").upsert({
-        job_id: jobId, description_text: n.descriptionText,
-        fetched_at: input.fetchedAt, content_hash: input.descriptionHash,
-      }, { onConflict: "job_id" }));
-
-    // Read the previous frozen version before superseding it: the field
-    // diff has to compare against what was actually stored, not against
-    // whatever the last run happened to hold in memory.
-    let prev: NormalizedJob | null = null;
-    if (input.existing?.current_version_id) {
-      const v = await this.run("writeOne.prevVersion",
-        this.db.from("job_versions").select("*").eq("id", input.existing.current_version_id).single());
-      prev = versionToNormalized(v as Record<string, unknown>);
-      await this.run("writeOne.supersede",
-        this.db.from("job_versions").update({ is_current: false })
-          .eq("id", input.existing.current_version_id));
+  private async writeDescriptions(rows: Array<{ input: JobWriteInput; jobId: string }>): Promise<void> {
+    for (const slice of chunk(rows, 200)) {
+      await this.run("writeDescriptions",
+        this.db.from("job_descriptions").upsert(slice.map((w) => ({
+          job_id: w.jobId,
+          description_text: w.input.normalized.descriptionText,
+          fetched_at: w.input.fetchedAt,
+          content_hash: w.input.descriptionHash,
+        })), { onConflict: "job_id" }));
     }
+  }
 
-    const versionNumber = (input.existing?.current_version_number ?? 0) + 1;
-    const versionData = await this.run("writeOne.insertVersion",
-      this.db.from("job_versions").insert({
-        job_id: jobId, version_number: versionNumber,
-        title: n.title, department: n.department,
-        location_raw: n.locationRaw, city: n.city, state: n.state,
-        country: n.country, metro: n.metro,
-        remote_policy: n.remotePolicy, remote_geographic_restriction: n.remoteRestriction,
-        onsite_days_per_week: n.onsiteDaysPerWeek,
-        employment_arrangement: n.employmentArrangement, seniority: n.seniority,
-        salary_min: n.salaryMin, salary_max: n.salaryMax,
-        salary_currency: n.salaryCurrency, salary_period: n.salaryPeriod,
-        salary_is_estimated: n.salaryIsEstimated,
-        is_individual_contributor: n.isIndividualContributor,
-        manages_people: n.managesPeople,
-        travel_requirement_pct: n.travelRequirementPct,
-        has_quota_or_commission: n.hasQuotaOrCommission,
-        mentions_equity: n.mentionsEquity,
-        description_text: n.descriptionText,
-        requirements_snapshot: [],
-        content_hash: input.contentHash,
-        normalizer_version: input.normalizerVersion,
-        observed_at: input.fetchedAt, is_current: true,
-      }).select("id").single());
-    const versionId = (versionData as { id: string }).id;
-
-    const changes = prev ? detectChanges(prev, n) : [];
-    if (changes.length) {
-      await this.run("writeOne.changes",
-        this.db.from("job_changes").insert(changes.map((c) => ({
-          job_id: jobId, from_version_id: input.existing!.current_version_id,
-          to_version_id: versionId, kind: c.kind, field_name: c.fieldName,
-          old_value: c.oldValue, new_value: c.newValue, is_material: c.isMaterial,
-          detected_at: input.fetchedAt,
-        }))));
+  private async writeVersions(
+    rows: Array<{ input: JobWriteInput; jobId: string; versionNumber: number }>,
+  ): Promise<Map<string, string>> {
+    const byJob = new Map<string, string>();
+    for (const slice of chunk(rows, 200)) {
+      const inserted = await this.run("writeVersions",
+        this.db.from("job_versions").insert(slice.map((w) => {
+          const n = w.input.normalized;
+          return {
+            job_id: w.jobId, version_number: w.versionNumber,
+            title: n.title, department: n.department,
+            location_raw: n.locationRaw, city: n.city, state: n.state,
+            country: n.country, metro: n.metro,
+            remote_policy: n.remotePolicy,
+            remote_geographic_restriction: n.remoteRestriction,
+            onsite_days_per_week: n.onsiteDaysPerWeek,
+            employment_arrangement: n.employmentArrangement, seniority: n.seniority,
+            salary_min: n.salaryMin, salary_max: n.salaryMax,
+            salary_currency: n.salaryCurrency, salary_period: n.salaryPeriod,
+            salary_is_estimated: n.salaryIsEstimated,
+            is_individual_contributor: n.isIndividualContributor,
+            manages_people: n.managesPeople,
+            travel_requirement_pct: n.travelRequirementPct,
+            has_quota_or_commission: n.hasQuotaOrCommission,
+            mentions_equity: n.mentionsEquity,
+            description_text: n.descriptionText,
+            requirements_snapshot: [],
+            content_hash: w.input.contentHash,
+            normalizer_version: w.input.normalizerVersion,
+            observed_at: w.input.fetchedAt, is_current: true,
+          };
+        })).select("id,job_id"));
+      for (const r of inserted as Array<{ id: string; job_id: string }>) {
+        byJob.set(r.job_id, r.id);
+      }
     }
+    return byJob;
+  }
 
-    // unique (job_id, raw_fragment_hash) makes this idempotent: an
-    // unchanged raw fragment inserts nothing.
-    await this.run("writeOne.payload",
-      this.db.from("job_raw_payloads").upsert({
-        job_id: jobId, job_version_id: versionId, source_fetch_id: input.fetchId,
-        ingest_run_id: input.runId, source: input.source,
-        source_job_id: n.sourceJobId, source_url: n.url,
-        raw_fragment: input.raw, raw_fragment_hash: input.rawFragmentHash,
-        raw_fragment_bytes: JSON.stringify(input.raw).length,
-        normalized: n, normalizer_version: input.normalizerVersion,
-        normalization_warnings: n.normalizationWarnings,
-        content_hash: input.contentHash, fetched_at: input.fetchedAt,
-      }, { onConflict: "job_id,raw_fragment_hash", ignoreDuplicates: true }));
-
-    return { jobId, isNew, versionCreated: true, versionNumber, changes, duplicateOfJobId: null };
+  private async writePayloads(
+    rows: Array<{ input: JobWriteInput; jobId: string }>,
+    versionIds: Map<string, string>,
+  ): Promise<void> {
+    // Smaller chunks: a raw fragment averages ~11 KB and the normalized
+    // object rides alongside it, so 100 rows is already a few megabytes.
+    for (const slice of chunk(rows, 100)) {
+      await this.run("writePayloads",
+        this.db.from("job_raw_payloads").upsert(slice.map((w) => {
+          const n = w.input.normalized;
+          return {
+            job_id: w.jobId,
+            job_version_id: versionIds.get(w.jobId) ?? null,
+            source_fetch_id: w.input.fetchId, ingest_run_id: w.input.runId,
+            source: w.input.source, source_job_id: n.sourceJobId, source_url: n.url,
+            raw_fragment: w.input.raw, raw_fragment_hash: w.input.rawFragmentHash,
+            raw_fragment_bytes: JSON.stringify(w.input.raw).length,
+            normalized: n, normalizer_version: w.input.normalizerVersion,
+            normalization_warnings: n.normalizationWarnings,
+            content_hash: w.input.contentHash, fetched_at: w.input.fetchedAt,
+          };
+        }), { onConflict: "job_id,raw_fragment_hash", ignoreDuplicates: true }));
+    }
   }
 
   async markMissing(input: {
@@ -381,6 +539,12 @@ export class SupabaseStore implements Store {
       duplicate_relations: await count("job_relations", (q) => q.eq("relation", "DUPLICATE_OF")),
     };
   }
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
 }
 
 function jobRow(input: JobWriteInput): Record<string, unknown> {
