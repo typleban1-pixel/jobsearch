@@ -1,0 +1,9 @@
+{
+  "name": "jobsearch",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Personal AI job search, matching and application system. Standalone: shares no infrastructure with any other project.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
