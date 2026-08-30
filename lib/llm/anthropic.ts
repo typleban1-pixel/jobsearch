@@ -56,21 +56,38 @@ export class AnthropicProvider implements LlmProvider {
       body["tool_choice"] = { type: "tool", name: "emit" };
     }
 
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": this.key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
-    });
+    // Retry only what is worth retrying. 429 and 529 are the API asking
+    // us to slow down, and 5xx is transient; a 400 is a bad request that
+    // will be exactly as bad the second time, so retrying it just burns
+    // latency and hides the bug.
+    let res: Response;
+    let text = "";
+    let attempt = 0;
+    for (;;) {
+      attempt++;
+      res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": this.key,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120_000),
+      });
+      text = await res.text();
+      if (res.ok) break;
 
-    const text = await res.text();
-    if (!res.ok) {
-      // Body only, and truncated. Never the headers: they carry the key.
-      throw new Error(`anthropic ${res.status}: ${text.slice(0, 400)}`);
+      const retriable = res.status === 429 || res.status === 529 || res.status >= 500;
+      if (!retriable || attempt >= 5) {
+        // Body only, and truncated. Never the headers: they carry the key.
+        throw new Error(`anthropic ${res.status} after ${attempt} attempt(s): ${text.slice(0, 300)}`);
+      }
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : Math.min(30_000, 2 ** attempt * 1000) + Math.random() * 500;
+      await new Promise((r) => setTimeout(r, waitMs));
     }
 
     const parsed = JSON.parse(text) as {

@@ -109,6 +109,73 @@ const SCHEMA: Record<string, unknown> = {
   required: ["requirements","remote_policy_stated","remote_geographic_restriction","notes"],
 };
 
+const VALID_KINDS = new Set([
+  "SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","OTHER",
+]);
+const VALID_HARDNESS = new Set(["HARD","PREFERRED","UNCLEAR"]);
+
+export interface Coercion { field: string; got: string; used: string }
+
+/**
+ * Validates and coerces one requirement before it is trusted.
+ *
+ * A schema-constrained tool call is a strong constraint, not a guarantee.
+ * The bulk run proved it: the model returned kind "PREFERRED", putting a
+ * hardness value in the kind field, and Postgres rejected the enum. Every
+ * field coming out of a model is now checked at the boundary rather than
+ * at the database, and anything corrected is reported instead of being
+ * quietly accepted.
+ */
+export function sanitizeRequirement(
+  raw: Partial<ExtractedRequirement>,
+): { requirement: ExtractedRequirement; coercions: Coercion[] } | null {
+  const coercions: Coercion[] = [];
+  const rawText = String(raw.raw_text ?? "").trim();
+  const term = String(raw.normalized_term ?? "").trim().toLowerCase();
+  // Without a quote or a term there is nothing to ground or match. Dropped
+  // rather than stored as an empty requirement.
+  if (!rawText || !term) return null;
+
+  let kind = String(raw.kind ?? "").toUpperCase();
+  if (!VALID_KINDS.has(kind)) {
+    // The specific confusion seen in production: a hardness value in the
+    // kind field. Recorded so the prompt can be judged on real evidence.
+    const swapped = VALID_HARDNESS.has(kind);
+    coercions.push({ field: "kind", got: kind || "(empty)", used: swapped ? "OTHER (hardness value in kind field)" : "OTHER" });
+    kind = "OTHER";
+  }
+
+  let hardness = String(raw.is_hard_requirement ?? "").toUpperCase();
+  if (!VALID_HARDNESS.has(hardness)) {
+    coercions.push({ field: "is_hard_requirement", got: hardness || "(empty)", used: "UNCLEAR" });
+    hardness = "UNCLEAR";
+  }
+
+  let years: number | null = null;
+  if (raw.minimum_years !== null && raw.minimum_years !== undefined) {
+    const y = Number(raw.minimum_years);
+    if (Number.isFinite(y) && y >= 0 && y <= 50) years = y;
+    else coercions.push({ field: "minimum_years", got: String(raw.minimum_years), used: "null" });
+  }
+
+  let conf = Number(raw.confidence);
+  if (!Number.isFinite(conf)) { coercions.push({ field: "confidence", got: String(raw.confidence), used: "0.5" }); conf = 0.5; }
+  conf = Math.max(0, Math.min(1, conf));
+
+  return {
+    requirement: {
+      raw_text: rawText.slice(0, 2000),
+      normalized_term: term.slice(0, 300),
+      kind: kind as ExtractedRequirement["kind"],
+      is_hard_requirement: hardness as ExtractedRequirement["is_hard_requirement"],
+      hard_requirement_reason: String(raw.hard_requirement_reason ?? "").slice(0, 2000),
+      minimum_years: years,
+      confidence: conf,
+    },
+    coercions,
+  };
+}
+
 export async function extractRequirements(
   llm: LlmProvider,
   job: { title: string; company: string; descriptionText: string },

@@ -20,8 +20,18 @@ export interface GroundingResult {
   detail: string;
 }
 
-export function checkGrounding(description: string, req: ExtractedRequirement): GroundingResult {
-  const haystack = normalizeTerm(description);
+export function checkGrounding(
+  description: string,
+  req: ExtractedRequirement,
+  /** The posting's title. Part of the posting, and quotable from. */
+  title = "",
+): GroundingResult {
+  // The title has to be in scope. The bulk run flagged three requirements
+  // as ungrounded and all three were quoted from the title rather than
+  // the body: "Spanish/Bilingual" and "Night Shift" from
+  // "... - El Paso (Spanish/Bilingual)" and "FSQA Supervisor - Night
+  // Shift". The model was right and the check was wrong.
+  const haystack = normalizeTerm(`${title}\n${description}`);
   const quote = normalizeTerm(req.raw_text);
   const term = normalizeTerm(req.normalized_term);
 
