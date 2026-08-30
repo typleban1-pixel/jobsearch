@@ -31,6 +31,31 @@ export interface EducationRecord { level: string; field: string | null }
 
 export type EducationVerdict = "SATISFIED" | "NOT_SATISFIED" | "UNKNOWN";
 
+/**
+ * Broad categories that genuinely encompass a Health Science degree.
+ *
+ * Matched as whole alternatives inside the posting's field list, so
+ * "science, engineering, technology, or mathematics" qualifies on
+ * "science" while "computer science" does not qualify on the substring.
+ */
+const ENCOMPASSING_FIELDS: Array<[string, RegExp]> = [
+  ["science", /(?:^|[,\/]|\bor\b|\band\b)\s*science\s*(?:$|[,\/]|\bor\b|\band\b)/i],
+  ["health science", /\bhealth\s+sciences?\b/i],
+  ["health", /(?:^|[,\/]|\bor\b)\s*health\s*(?:$|[,\/]|\bor\b)/i],
+  ["life sciences", /\blife\s+sciences?\b/i],
+  ["public health", /\bpublic\s+health\b/i],
+];
+
+/** Fields the degree does NOT satisfy, checked first so a list containing both fails safe. */
+function fieldSatisfiedBy(requiredField: string, profileEducation: EducationRecord[]): string | null {
+  const isHealthScience = profileEducation.some((e) => /health\s*science/i.test(e.field ?? ""));
+  if (!isHealthScience) return null;
+  for (const [label, re] of ENCOMPASSING_FIELDS) {
+    if (re.test(requiredField)) return label;
+  }
+  return null;
+}
+
 export function assessEducation(input: {
   requiredLevel: string | null;
   requiredField: string | null;
@@ -55,9 +80,25 @@ export function assessEducation(input: {
     return { verdict: "UNKNOWN",
              detail: `field-specific but the posting accepts equivalent experience, so experience is judged instead of the degree title` };
   }
-  // Field-specific with no escape clause. Field equivalence mappings are
-  // deliberately NOT applied here yet: the user asked to see them before
-  // they affect any score.
+  // Field equivalence, approved 30 Aug 2026 and deliberately narrow.
+  //
+  // A BS in Health Science satisfies a field requirement only where the
+  // posting itself names a broad category the degree genuinely sits
+  // inside, or lists such a category among its alternatives. Everything
+  // else fails, including engineering, computer science, quantitative,
+  // finance and supply chain.
+  //
+  // Two things it explicitly does NOT do. A bare "STEM" requirement is
+  // not satisfied: whether Health Science counts as STEM depends on the
+  // employer, and guessing would be the adjacency inflation this system
+  // exists to prevent. And "or related field" does not broaden anything,
+  // because "related" is a word the posting used, not a relationship we
+  // can defend.
+  const satisfying = fieldSatisfiedBy(requiredField, profileEducation);
+  if (satisfying) {
+    return { verdict: "SATISFIED",
+             detail: `posting accepts "${satisfying}", which encompasses the verified degree` };
+  }
   return { verdict: "NOT_SATISFIED",
            detail: `requires a degree in ${requiredField}; verified education is in a different field` };
 }
