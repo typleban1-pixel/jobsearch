@@ -173,10 +173,27 @@ export const PROJECTS = [
 export const METRICS = [
   {
     label: "Genius Academy annual recurring revenue",
-    approved_wording: "Built and supported Genius Academy, an education-focused offering that grew to more than $70,000 in annual recurring revenue",
+    // The user's own sentence, kept verbatim. It is careful in exactly
+    // the right places: "played a substantial hands-on role in building
+    // and operating" claims contribution rather than authorship, and
+    // "an offering that reached" attributes the revenue to the offering
+    // rather than to him.
+    //
+    // Still approved_for_use FALSE. Two gaps remain and both are the kind
+    // an interviewer asks about in the next breath: which year, and what
+    // "substantial hands-on role" concretely means. A claim that cannot
+    // survive the obvious follow-up is not ready to be used.
+    approved_wording: "Played a substantial hands-on role in building and operating Genius Academy, an education-focused offering that reached more than $70,000 in annual recurring revenue",
     numeric_value: 70000, unit: "USD_ARR",
     employer: "Genius One, Inc.",
-    context_note: "QUESTION: is this the offering's ARR rather than a personal quota, is it current or peak, in which year, and what specifically was your contribution to the growth as opposed to the build? 'Built and supported' is doing a lot of work in that sentence.",
+    context_note: [
+      "CONFIRMED 30 Aug 2026: $70,000+ is Genius Academy's TOTAL annual recurring revenue, not revenue personally attributable to the user.",
+      "CONFIRMED: the role was not merely supporting an existing program.",
+      "STILL OPEN: is $70,000+ current ARR or peak ARR?",
+      "STILL OPEN: which year was it reached?",
+      "STILL OPEN: who originated the concept and set the direction?",
+      "STILL OPEN: what specifically did the user do? Without this, 'substantial hands-on role' cannot be substantiated under questioning.",
+    ].join(" | "),
   },
   {
     label: "Students taught and mentored",
@@ -383,6 +400,15 @@ export const POLARITY_EVIDENCE = [
   // CORRECTED. Narrowed from "did not set overall marketing direction",
   // which read as an absence of marketing-strategy capability in general.
   // The verified fact is specific to one company and one scope.
+  // Two scope guardrails on the Genius Academy figure. Stored as POSITIVE
+  // evidence with the ceiling attached, the same pattern as the RentPup
+  // guardrail: a limit on how far a claim may reach is not a missing
+  // skill, and modelling it as an absence would suppress a real
+  // accomplishment.
+  { polarity: "POSITIVE",
+    summary: "Played a substantial hands-on role in building and operating Genius Academy",
+    detail: "SCOPE GUARDRAIL: $70,000+ is the OFFERING's total annual recurring revenue. Wording must never imply the user personally generated $70,000 in revenue, and must never imply he independently owned the overall business strategy. The claim is contribution to building and operating, not authorship of the outcome." },
+
   { polarity: "VERIFIED_ABSENCE",
     summary: "Did not own Genius One's overall company marketing strategy",
     detail: "The owner established overall priorities and delegated objectives; the role was execution-oriented in determining how to accomplish them. SCOPE: this is a fact about ownership of company-level marketing strategy at Genius One only. It is NOT evidence that the user lacks marketing-strategy capability or experience generally, and must never be used to score down a marketing-strategy requirement." },
