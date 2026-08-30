@@ -66,6 +66,21 @@ export const CLAIM_GUARDS: ClaimGuard[] = [
     reason: "RETRACTED 30 Aug 2026: he did not create the LCCC internship program. His resume says otherwise and the resume is wrong.",
   },
   {
+    subject: "Asana at Holley",
+    pattern: /\b(?:introduc|implement|brought|select|chose|adopt|rolled out|deploy)\w*\s+(?:\w+\s+){0,3}Asana\b|\bAsana\b[^.]{0,30}\b(?:I|he)\s+(?:introduced|selected|chose|brought in)\b/i,
+    reason: "Asana was already in use at Holley. The contribution was identifying and implementing unused automation capability in a system already there, not introducing or selecting the platform.",
+  },
+  {
+    subject: "product origination at Genius One",
+    pattern: /\b(?:invented|conceived|originated|came up with)\b[^.]{0,40}\b(?:Lit Box|Genius Grow Grinder|Genius Academy)\b/i,
+    reason: "The owner originated these product and offering concepts. The evidence is working out how to design, make and operate them, not originating the idea.",
+  },
+  {
+    subject: "LCCC equipment budget",
+    pattern: /\b(?:budget|equipment)\b[^.]{0,30}\$\s?\d|\$\s?[\d,]+[^.]{0,30}\b(?:equipment|budget)\b/i,
+    reason: "No dollar figure is established for the LCCC equipment budget and none may be stated.",
+  },
+  {
     subject: "regional television commercials",
     pattern: /\bregional\s+television\s+commercials?\b/i,
     reason: "RETRACTED 30 Aug 2026: the work was editing and motion graphics for the production company behind a nationally broadcast Sportsman Network show, not regional commercials. His resume describes it inaccurately.",
