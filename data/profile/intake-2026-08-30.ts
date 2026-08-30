@@ -50,13 +50,36 @@ export const PROFILE = {
   // none may be invented.
 };
 
+/**
+ * Employment, corrected by the user on 30 Aug 2026.
+ *
+ * Two corrections mattered more than the rest.
+ *
+ * Holley ran 2022 to 2024, not 2021 to 2023 as the resume says. The
+ * resume is wrong.
+ *
+ * The three roles were NOT concurrent. Genius One and Anytime Picture
+ * were paused while he relocated to Kentucky for Holley, then resumed
+ * afterwards. Storing one row per employer would have claimed continuous
+ * engagement across a period he was working full time in another state,
+ * so each paused-and-resumed engagement is two stints. Two rows for one
+ * employer is correct data here, not a duplicate.
+ *
+ * Every date is YEAR precision. The user supplied years and asked to be
+ * asked rather than have months invented, so the stored day and month are
+ * padding and start_precision says so. No generated document may render a
+ * month from these.
+ */
 export const EMPLOYMENT = [
   {
-    employer: "Genius One, Inc.",
+    employer: "Genius One, Inc.", stint: 1,
     actual_title: "Digital Marketing, Product & Operations Specialist (Contract)",
     location: "Highland Heights, OH",
-    start_month: "2019-01-01", end_month: null, is_current: true,
-    employment_type: "CONTRACT",
+    start_month: "2019-01-01", start_precision: "YEAR",
+    end_month: "2022-01-01", end_precision: "YEAR",
+    is_current: false, employment_type: "CONTRACT",
+    stint_note: "Approximately full-time hours, concurrent with part-time Anytime Picture work. Ended on relocating to Bowling Green, Kentucky for Holley.",
+    departure_reason: "Relocated to Bowling Green, Kentucky to take the Holley position.",
     responsibilities: [
       "Execute marketing, product, ecommerce, creative, and operational initiatives based on company priorities, taking loosely defined objectives from idea through implementation",
       "Contribute directly to product ideation and development, including identifying product opportunities and developing original concepts",
@@ -65,19 +88,35 @@ export const EMPLOYMENT = [
       "Attend industry trade shows to research emerging products, technologies, equipment, competitors, and trends",
       "Coordinate with the owner, a small internal team, partners, instructors, customers, and other stakeholders",
     ],
-    accomplishments: [
-      "Built and supported Genius Academy, an education-focused offering",
-    ],
-    // The user's own correction, recorded so no generated document can
-    // later describe this role as owning marketing strategy.
-    notes: "User states explicitly: did not own Genius One's overall COMPANY marketing strategy. The owner established overall priorities and delegated objectives; the role was heavily execution-oriented, determining how to accomplish them, sometimes requiring research and learning something new. Also contributed original ideas including product ideas, and participated directly in product development, prototyping, testing, marketing, ecommerce and operations. SCOPE: this narrows one company and one level of ownership. It is not evidence of lacking marketing-strategy capability generally.",
+    accomplishments: ["Built and supported Genius Academy, an education-focused offering"],
+    notes: "User states explicitly: did not own Genius One's overall COMPANY marketing strategy. The owner established overall priorities and delegated objectives; the role was heavily execution-oriented, determining how to accomplish them, sometimes requiring research and learning something new. Also contributed original ideas including product ideas. SCOPE: this narrows one company and one level of ownership. It is not evidence of lacking marketing-strategy capability generally.",
   },
   {
-    employer: "Anytime Picture LLC",
+    employer: "Genius One, Inc.", stint: 2,
+    actual_title: "Digital Marketing, Product & Operations Specialist (Contract)",
+    location: "Highland Heights, OH",
+    start_month: "2024-01-01", start_precision: "YEAR",
+    end_month: null, end_precision: null,
+    is_current: true, employment_type: "CONTRACT",
+    stint_note: "Resumed after returning to Ohio, initially at approximately full-time hours. CURRENTLY PART-TIME contract work. The user does not currently hold a full-time position.",
+    departure_reason: null,
+    responsibilities: [
+      "Execute marketing, product, ecommerce, creative, and operational initiatives based on company priorities",
+      "Contribute to product ideation and development",
+      "Execute digital marketing and ecommerce work",
+    ],
+    accomplishments: [],
+    notes: "Same role and employer as stint 1. Currently part-time.",
+  },
+  {
+    employer: "Anytime Picture LLC", stint: 1,
     actual_title: "Video Production & Client Solutions Specialist (Contract)",
     location: "Cleveland, OH",
-    start_month: "2019-01-01", end_month: "2025-12-01", is_current: false,
-    employment_type: "CONTRACT",
+    start_month: "2019-01-01", start_precision: "YEAR",
+    end_month: "2022-01-01", end_precision: "YEAR",
+    is_current: false, employment_type: "CONTRACT",
+    stint_note: "Generally part-time, concurrent with Genius One. Ended on relocating to Kentucky for Holley.",
+    departure_reason: "Relocated to Bowling Green, Kentucky to take the Holley position.",
     responsibilities: [
       "Translated client goals into practical production solutions within budget, timeline, creative, and technical constraints",
       "Worked directly with clients to understand business needs, develop solutions, troubleshoot challenges, and deliver finished projects",
@@ -85,17 +124,32 @@ export const EMPLOYMENT = [
       "Supported client acquisition and sales by speaking with prospects, assessing needs, recommending solutions, and closing projects over the phone",
       "Helped develop the company website and researched emerging technologies at industry trade shows",
     ],
-    accomplishments: [
-      "Worked on projects for clients including Cleveland Clinic and Amazon",
-    ],
+    accomplishments: ["Worked on projects for clients including Cleveland Clinic and Amazon"],
     notes: "User states the role involved more than camera and edit work: client discovery, feasibility assessment within budget and timeline, approach development, problem solving, plus client acquisition and phone closing, website contribution, technology research, graphics and motion graphics.",
   },
   {
-    employer: "Holley Performance",
+    employer: "Anytime Picture LLC", stint: 2,
+    actual_title: "Video Production & Client Solutions Specialist (Contract)",
+    location: "Cleveland, OH",
+    start_month: "2024-01-01", start_precision: "YEAR",
+    end_month: "2025-01-01", end_precision: "YEAR",
+    is_current: false, employment_type: "CONTRACT",
+    stint_note: "Resumed part-time after returning to Ohio. Work ended in 2025.",
+    departure_reason: null,
+    responsibilities: ["Part-time video production and client solutions work"],
+    accomplishments: [],
+    notes: "Same role and employer as stint 1.",
+  },
+  {
+    employer: "Holley Performance", stint: 1,
     actual_title: "Videographer & Editor",
-    location: null,                  // not stated on the resume
-    start_month: "2021-01-01", end_month: "2023-12-01", is_current: false,
-    employment_type: null,           // not stated on the resume
+    location: "Bowling Green, KY",
+    // Corrected. The resume says 2021 to 2023 and that is wrong.
+    start_month: "2022-01-01", start_precision: "YEAR",
+    end_month: "2024-01-01", end_precision: "YEAR",
+    is_current: false, employment_type: "FULL_TIME",
+    stint_note: "Direct W-2 position, NOT work performed through Anytime Picture. Relocated to Bowling Green, Kentucky for it. Genius One and Anytime Picture were both paused for its duration.",
+    departure_reason: "Not dissatisfaction with the work, which the user liked. Layoffs were occurring and he was concerned about the company and job outlook, so he proactively decided to leave and move back to Ohio.",
     responsibilities: [
       "Produced creative work across multiple brands, internal teams, and concurrent projects with shifting priorities and deadlines",
       "Collaborated cross-functionally with marketing and other teams to determine creative approaches and execute projects from planning through delivery",
@@ -106,11 +160,13 @@ export const EMPLOYMENT = [
     notes: "User states the title understates the role: worked across multiple teams and simultaneous fast-paced projects and supported broader marketing initiatives.",
   },
   {
-    employer: "Lorain County Community College",
+    employer: "Lorain County Community College", stint: 1,
     actual_title: "Video Production Lab Instructor",
     location: "Elyria, OH",
-    start_month: "2016-01-01", end_month: "2019-12-01", is_current: false,
-    employment_type: null,
+    start_month: "2016-01-01", start_precision: "YEAR",
+    end_month: "2019-01-01", end_precision: "YEAR",
+    is_current: false, employment_type: null,
+    stint_note: null, departure_reason: null,
     responsibilities: [
       "Managed day-to-day lab operations and maintained and troubleshot professional production technology",
       "Supervised three staff members",
@@ -138,7 +194,7 @@ export const PROJECTS = [
     current_status: "Active",
     // Recorded verbatim because it is the single most likely place for a
     // generated document to overreach.
-    notes: "User states explicitly: evidence of product building, technical problem solving, rapid learning and systems thinking. It must NOT be converted into a claim of being a professional software engineer or expert programmer. It is a project and must never be promoted to employment.",
+    notes: "User states explicitly: evidence of product building, technical problem solving, rapid learning and systems thinking. It must NOT be converted into a claim of being a professional software engineer or expert programmer. Built independently in spare time: it must never imply employment by RentPup, and must never be used to suggest it replaced or substituted for full-time employment. It is a project and must never be promoted to employment.",
   },
   {
     name: "Genius Academy",

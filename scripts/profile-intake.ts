@@ -108,13 +108,22 @@ for (const e of EMPLOYMENT) {
     is_current: e.is_current, location: e.location,
     employment_type: e.employment_type, responsibilities: e.responsibilities,
     accomplishments: e.accomplishments, notes: e.notes, verified_at: null,
+    // YEAR precision throughout: the stored day and month are padding.
+    start_precision: (e as any).start_precision ?? "MONTH",
+    end_precision: (e as any).end_precision ?? null,
+    stint: (e as any).stint ?? 1,
+    stint_note: (e as any).stint_note ?? null,
+    departure_reason: (e as any).departure_reason ?? null,
   }).select("id").single();
   if (error) throw new Error(`employment: ${error.message}`);
-  employmentIds.set(e.employer, data.id);
+  // Keyed by employer AND stint: two rows for one employer is correct
+  // data here, so the plain employer name would collide.
+  employmentIds.set(`${e.employer}#${(e as any).stint ?? 1}`, data.id);
+  if (!employmentIds.has(e.employer)) employmentIds.set(e.employer, data.id);
   for (const r of [...e.responsibilities, ...e.accomplishments]) {
     await addEvidence(r, `${e.employer}: ${e.actual_title}`);
   }
-  console.log(`  employment SUGGESTED: ${e.employer}`);
+  console.log(`  employment SUGGESTED: ${e.employer} (stint ${(e as any).stint ?? 1}, ${String(e.start_month).slice(0,4)} to ${e.end_month ? String(e.end_month).slice(0,4) : "present"})`);
 }
 
 const projectIds = new Map<string, string>();
