@@ -25,6 +25,11 @@ export type EligibilityStatus = "ELIGIBLE" | "UNCERTAIN" | "INELIGIBLE";
 
 export type EligibilityReason =
   | "SALARY_BELOW_HARD_FLOOR"
+  // Role-shape exclusions. Not decidable before extraction, so these are
+  // applied by the refresh pass rather than the structured-field gate.
+  | "SPLIT_SHIFT_REQUIRED"
+  | "PRIMARY_QUOTA_SALES_ROLE"
+  | "PRIMARILY_COMMISSION_COMPENSATION"
   // eligible
   | "REMOTE_US_ELIGIBLE"
   | "IN_TARGET_METRO"

@@ -40,6 +40,8 @@ export const PROFILE = {
   // CONFIRMED by the user on 30 Aug 2026. SENSITIVE in the
   // classification registry: stored, never placed in a prompt, a log or
   // an audit trail. Only ever reaches an application form.
+  phone: "210-577-4548",
+  linkedin_url: "https://www.linkedin.com/in/tylerpleban/",
   work_authorization: "US citizen",
   requires_sponsorship: false,
   // Deliberately still absent: phone and street address.
@@ -390,7 +392,9 @@ export const SKILLS = [
   { name: "Conversion testing", category: "marketing", level: "EXPERIENCED", interest: "POSITIVE", importance: "SUPPORTING", related: ["ab testing","a/b testing"] , provenance: "INFERRED" },
   { name: "Campaign execution", category: "marketing", level: "EXPERIENCED", interest: "POSITIVE", importance: "SUPPORTING" , provenance: "INFERRED" },
   { name: "CMS platforms", category: "marketing", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
-  { name: "Phone sales", category: "sales", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND", related: ["inside sales","closing"] , provenance: "INFERRED" },
+  { name: "Phone sales", category: "sales", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND",
+    related: ["inside sales","closing"],
+    restrictions: ["Real evidence, but must never be read as wanting a quota-carrying sales role. The user has explicitly ruled that out as a career direction"], provenance: "INFERRED" },
 
   // Product and prototyping. Repeated professional use at Genius One.
   { name: "Product ideation", category: "product", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE" , provenance: "INFERRED" },
@@ -515,6 +519,22 @@ export const WORK_PREFERENCES = [
   { kind: "WANT", statement: "AI-enabled operations and AI-assisted product work", weight: 9 },
   { kind: "WANT", statement: "Startup and generalist roles", weight: 8 },
   { kind: "WANT", statement: "Healthcare, healthtech, medical technology and healthcare operations, without limiting the search to them", weight: 6 },
+  // Confirmed 30 Aug 2026. These are PREFERENCES and must never make a
+  // job ineligible. The user was explicit: he will trade schedule and
+  // travel disruption for a substantially better opportunity or higher
+  // compensation, which is what an Opportunity adjustment expresses and
+  // an eligibility gate structurally cannot.
+  { kind: "WANT", statement: "Conventional working hours and days, preferred but not required", weight: 4 },
+  { kind: "WANT", statement: "Lower travel, preferred but not required. Extensive travel is acceptable when compensation justifies it", weight: 3 },
+  { kind: "WANT", statement: "Contract work is acceptable and must never be excluded", weight: 2 },
+  { kind: "WANT", statement: "Security clearance requirements are acceptable and must not be penalized", weight: 2 },
+
+  // The three actual hard negatives, recorded as preferences too so the
+  // reasoning survives even if the detection code is rewritten.
+  { kind: "AVOID", statement: "True split-shift work", weight: 10 },
+  { kind: "AVOID", statement: "Roles whose primary function is quota-carrying sales", weight: 10 },
+  { kind: "AVOID", statement: "Compensation that is primarily commission-based", weight: 10 },
+
   { kind: "AVOID", statement: "Roles where video production is the primary discipline", weight: 8 },
   { kind: "AVOID", statement: "Deep single-specialty roles that do not use breadth", weight: 6 },
 ];
@@ -594,6 +614,14 @@ export const POLARITY_EVIDENCE = [
   { polarity: "POSITIVE",
     summary: "Genius Academy was built on Vimeo OTT",
     detail: "SCOPE GUARDRAIL: Genius Academy's website and platform evidence attaches to Vimeo OTT only. It must NOT be attributed to Shopify, BigCommerce or Webflow merely because the user has experience with those tools elsewhere. How payments, subscriptions and other configuration were handled in Vimeo OTT is not established and must be asked rather than inferred." },
+
+  { polarity: "POSITIVE",
+    summary: "Sales-adjacent capability is real and must not be read as wanting a sales career",
+    detail: "SCOPE GUARDRAIL: the user has legitimate evidence in customer acquisition, business development, partnerships, client development, revenue responsibility and occasional selling, including phone sales at Anytime Picture. None of that may be used to conclude that a primary quota-carrying sales role is a desirable career path. The distinction is whether carrying an individual quota is the CORE PURPOSE of the position." },
+
+  { polarity: "POSITIVE",
+    summary: "Work-related travel and event experience",
+    detail: "Trade shows at Genius One and Anytime Picture, and major automotive events at Holley. There is no travel ceiling: extensive travel is acceptable, particularly where compensation justifies it. Travel must never make a job ineligible." },
 
   { polarity: "VERIFIED_ABSENCE",
     summary: "Did not own Genius One's overall company marketing strategy",

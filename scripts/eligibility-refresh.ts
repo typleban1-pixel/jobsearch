@@ -13,6 +13,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { assessEligibility, ELIGIBILITY_VERSION, PROPOSED_RULES } from "../lib/scoring/eligibility.ts";
+import { assessRoleShape } from "../lib/scoring/roleShape.ts";
 
 const commit = process.argv.includes("--commit");
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"),
@@ -42,8 +43,23 @@ const POLICY: Record<string, string> = {
   FULLY_REMOTE: "FULLY_REMOTE", HYBRID: "HYBRID", ONSITE: "ONSITE",
 };
 
+// Requirement text and descriptions, needed for the role-shape rules.
+const allReqs = await page("job_requirements", "job_id,raw_text");
+const reqsByJob = new Map<string, string[]>();
+for (const r of allReqs) {
+  const arr = reqsByJob.get(r.job_id) ?? [];
+  arr.push(r.raw_text); reqsByJob.set(r.job_id, arr);
+}
+const descById = new Map<string, string>();
+const exIds = [...exBy.keys()];
+for (let i = 0; i < exIds.length; i += 100) {
+  const { data } = await db.from("job_descriptions").select("job_id,description_text").in("job_id", exIds.slice(i, i + 100));
+  for (const d of data ?? []) descById.set(d.job_id, d.description_text ?? "");
+}
+
 const changes: Array<{ job: any; from: string; to: string; reason: string; why: string }> = [];
 const updates: any[] = [];
+const roleShapeCounts: Record<string, number> = {};
 
 for (const j of jobs) {
   const out = exBy.get(j.id);
@@ -56,7 +72,17 @@ for (const j of jobs) {
   if (!stated && !out.remote_geographic_restriction
       && j.salary_max === null && j.salary_min === null) continue;
 
-  const v = assessEligibility({
+  // Role shape first: a quota-carrying sales role is excluded whatever
+  // its geography says.
+  const shape = assessRoleShape({
+    title: j.title, descriptionText: descById.get(j.id) ?? "",
+    requirementTexts: reqsByJob.get(j.id) ?? [],
+    salaryMin: j.salary_min, salaryMax: j.salary_max,
+  });
+
+  const v = shape.flags.length > 0
+    ? { status: "INELIGIBLE" as const, reason: shape.flags[0]!, detail: shape.detail.join("; ") }
+    : assessEligibility({
     city: j.city, state: j.state, country: j.country, metro: j.metro,
     remotePolicy: stated ?? j.remote_policy,
     remoteRestriction: restriction,
@@ -64,6 +90,7 @@ for (const j of jobs) {
     salaryMin: j.salary_min, salaryMax: j.salary_max,
     salaryPeriod: j.salary_period, salaryIsEstimated: j.salary_is_estimated,
   }, PROPOSED_RULES);
+  for (const f of shape.flags) roleShapeCounts[f] = (roleShapeCounts[f] ?? 0) + 1;
 
   if (v.status !== j.eligibility || v.reason !== j.eligibility_reason) {
     changes.push({
@@ -89,6 +116,13 @@ console.log(`eligibility changed:                       ${changes.length}\n`);
 for (const [k, n] of Object.entries(moved).sort((a, b) => b[1] - a[1])) {
   console.log(`  ${String(n).padStart(4)}  ${k}`);
 }
+if (Object.keys(roleShapeCounts).length) {
+  console.log(`\nrole-shape exclusions (hard negatives, not geography):`);
+  for (const [k, n] of Object.entries(roleShapeCounts).sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(n).padStart(4)}  ${k}`);
+  }
+}
+
 console.log(`\nsamples:`);
 for (const c of changes.slice(0, 12)) {
   console.log(`  ${c.from} -> ${c.to}  [${c.reason}]  ${coName.get(c.job.company_id)} — ${String(c.job.title).slice(0, 46)}`);

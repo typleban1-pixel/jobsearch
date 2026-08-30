@@ -65,6 +65,14 @@ const { data: prof, error: pe } = await db.from("profile")
     salary_hard_floor: PROFILE.salary_hard_floor,
     salary_target_min: PROFILE.salary_target_min,
     salary_target_ideal: PROFILE.salary_target_ideal,
+    // SENSITIVE: only ever reaches an application form.
+    phone: PROFILE.phone,
+    // Stored for contact and application use only. The LinkedIn profile's
+    // CONTENTS are explicitly not authoritative truth-profile evidence,
+    // and a discrepancy there must never overwrite a verified fact. The
+    // user says the profile needs updating; the truth profile is the
+    // source of truth, not the other way round.
+    linkedin_url: PROFILE.linkedin_url,
     work_authorization: PROFILE.work_authorization,
     requires_sponsorship: PROFILE.requires_sponsorship,
   })
