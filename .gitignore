@@ -10,3 +10,6 @@ node_modules/
 # local validation corpus (file-backed store used when no Supabase creds are present)
 .corpus/
 .corpus-verify/
+
+# Supabase CLI local link state (machine-specific; may hold connection strings)
+supabase/.temp/
