@@ -85,6 +85,27 @@ console.log(`profile updated (still version ${prof.profile_version}; not bumped,
 // every employment record. SUGGESTED rows are proposals, so clearing them
 // is safe; VERIFIED rows are never touched here.
 if (process.argv.includes("--reset")) {
+  // Guard added after the intake diverged from this file.
+  //
+  // This script rebuilds the profile from the original resume parse. That
+  // was safe while everything was SUGGESTED, and became dangerous the
+  // moment the interview started producing VERIFIED rows: levels the user
+  // argued for, restrictions in his own words, a retraction, three skills
+  // that were never on the resume at all. None of that lives here, so a
+  // reset would silently destroy it and leave a profile that looks
+  // complete and is months out of date.
+  const { count: verifiedCount } = await db.from("skills")
+    .select("*", { count: "exact", head: true }).eq("status", "VERIFIED");
+  if ((verifiedCount ?? 0) > 0) {
+    console.error(
+      `refusing to --reset: ${verifiedCount} skills are VERIFIED.\n` +
+      `This file only knows the original resume parse. Resetting would discard every\n` +
+      `level, restriction and retraction established during the interview.\n` +
+      `If you genuinely mean to start over, demote them deliberately first.`,
+    );
+    process.exit(1);
+  }
+
   await db.from("metrics").delete().eq("approved_for_use", false);
   await db.from("skill_evidence").delete().neq("skill_id", "00000000-0000-0000-0000-000000000000");
   await db.from("employment_records").delete().eq("status", "SUGGESTED");
