@@ -104,6 +104,8 @@ export interface ScoreResult {
   constraintCount: number;
   /** Constraints resolved against a verified attribute. No longer uncertainty. */
   satisfiedConstraintCount: number;
+  /** Requirements that hit a SUGGESTED skill: unknown, never a gap. */
+  unverifiedSkillMatchCount: number;
   reasons: ScoreReason[];
   profileVersion: number;
   weightsVersion: number;

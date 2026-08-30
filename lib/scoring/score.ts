@@ -52,6 +52,7 @@ export function scoreJob(
   let unmatchedTraits = 0;
   let unevaluatedConstraints = 0;
   let satisfiedConstraints = 0;
+  let unverifiedSkillHits = 0;
   let traitsTotal = 0;
 
   for (const r of features.requirements) {
@@ -89,7 +90,19 @@ export function scoreJob(
     }
 
     const m = matcher.match(r.term);
-    const matched = m.method !== "NONE";
+    const matched = m.status === "VERIFIED";
+
+    // A requirement that matches a SUGGESTED skill is UNKNOWN, not a gap.
+    // The user named this rule directly: an unverified skill must never
+    // behave as a confirmed absence. Without it a conservative first
+    // profile manufactures thousands of fake skill gaps, and the scores
+    // end up measuring how much of the profile has been reviewed rather
+    // than anything about the person.
+    if (m.status === "SUGGESTED") {
+      unverifiedSkillHits++;
+      continue;
+    }
+
     if (r.hardness === "HARD") {
       if (matched) {
         add("FIT", "HARD_REQUIREMENT_MET", w("fit", "hard_requirement_met"),
@@ -210,6 +223,11 @@ export function scoreJob(
               : "per_unknown_field";
     add("UNCERTAINTY", "UNKNOWN_DATA", w("uncertainty", key), f, `${f} unknown`);
   }
+  if (unverifiedSkillHits > 0) {
+    add("UNCERTAINTY", "UNKNOWN_DATA",
+        w("uncertainty", "per_unverified_skill_match") * unverifiedSkillHits,
+        `${unverifiedSkillHits} requirements`, "matched a skill that is proposed but not yet verified");
+  }
   if (unmatchedTraits > 0) {
     add("UNCERTAINTY", "UNKNOWN_DATA",
         w("uncertainty", "per_unmatched_trait") * unmatchedTraits,
@@ -244,6 +262,7 @@ export function scoreJob(
     traitCount: traitsTotal,
     constraintCount: unevaluatedConstraints,
     satisfiedConstraintCount: satisfiedConstraints,
+    unverifiedSkillMatchCount: unverifiedSkillHits,
     reasons,
     profileVersion: profile.profileVersion,
     weightsVersion: meta.weightsVersion,
