@@ -179,8 +179,16 @@ export const EMPLOYMENT = [
     ],
     accomplishments: [
       "Created the Video Program's internship program from the ground up",
-      "Developed real-world student production opportunities, with student work ultimately selected for regional television commercials",
+      "Coordinated a collaboration with a nationally broadcast television show that aired three seasons on the Sportsman Network, giving students production and editing opportunities, and personally edited portions of the show and created motion graphics for it",
     ],
+    // OPEN: the resume separately claims "student work ultimately
+    // selected for regional television commercials". The user's answer
+    // consolidated the 10+ videos with the NATIONAL television show, and
+    // did not address the REGIONAL commercials line. Those may be the
+    // same thing described differently, or a second unrelated
+    // accomplishment. Held out of the record rather than merged into the
+    // cluster or silently dropped.
+    open_questions: ["Is 'student work selected for regional television commercials' the same experience as the Sportsman Network collaboration, or a separate accomplishment?"],
     notes: "User states the significance extends beyond video: supervision, teaching and mentoring, troubleshooting, program creation, technology evaluation and implementation, cross-department collaboration, and managing a production-lab environment.",
   },
 ];
@@ -256,24 +264,42 @@ export const METRICS = [
   },
   {
     label: "Students taught and mentored",
+    // APPROVED 30 Aug 2026.
     approved_wording: "Taught and mentored 250+ students",
     numeric_value: 250, unit: "students",
+    period_start: "2016-01-01", period_end: "2019-01-01",
+    approved: true,
     employer: "Lorain County Community College",
-    context_note: "QUESTION: over the full 2016 to 2019 period, or per year?",
+    context_note: "CONFIRMED: approximately 250+ students in total across the full 2016 to 2019 period, not per year. The user is comfortable with this exact wording.",
   },
   {
-    label: "Staff supervised",
-    approved_wording: "Supervised three staff members",
-    numeric_value: 3, unit: "people",
+    label: "Student employees supervised",
+    // APPROVED 30 Aug 2026 in the user's own wording. "Student employees"
+    // and "day-to-day work" are both doing real work in that sentence:
+    // this is genuine supervision evidence and it is not people
+    // management of professional staff, and the phrasing says so without
+    // needing a caveat bolted on afterwards.
+    approved_wording: "Supervised the day-to-day work of three student employees",
+    numeric_value: 3, unit: "student employees",
+    approved: true,
     employer: "Lorain County Community College",
-    context_note: "QUESTION: direct reports, or student workers? This is the only people-management evidence in the profile, so its exact nature matters.",
+    context_note: "CONFIRMED: three STUDENT WORKERS whose day-to-day work the user oversaw. Must NOT be represented as managing three full-time professional employees, and must NOT be used as evidence of large-team people management. It is legitimate supervision evidence at its actual scope.",
   },
   {
-    label: "Videos produced in cross-department collaboration",
-    approved_wording: "A first-of-its-kind collaboration that produced 10+ videos",
-    numeric_value: 10, unit: "videos",
+    label: "Video deliverables in the national television collaboration",
+    // APPROVED 30 Aug 2026. "First-of-its-kind" is dropped: the user was
+    // comfortable losing it and the underlying facts are both stronger
+    // and easier to defend without it.
+    //
+    // Deliberately ONE metric, tied to one collaboration. Splitting the
+    // 10+ videos from the national-television facts would let the same
+    // experience be counted twice in a generated resume, which is a way
+    // of inflating a record without stating anything false.
+    approved_wording: "Coordinated a college and industry collaboration involving 10+ video deliverables",
+    numeric_value: 10, unit: "video deliverables",
+    approved: true,
     employer: "Lorain County Community College",
-    context_note: "First-of-its-kind is the resume's claim; confirm it is accurate as written.",
+    context_note: "CONFIRMED and consolidated: a national television show that aired three seasons on the Sportsman Network partnered with LCCC so students could participate in editing and production work. The user helped coordinate the collaboration AND personally edited portions of the show and created motion graphics for it. The 10+ figure is tied to this collaboration only and must never be presented as a separate accomplishment alongside the television facts.",
   },
 ];
 
@@ -433,6 +459,9 @@ export const SKILLS = [
   { name: "Teaching and mentoring", category: "operations", level: "EXPERIENCED", interest: "POSITIVE", importance: "SUPPORTING" , provenance: "INFERRED" },
   { name: "Staff supervision", category: "operations", level: "CAPABLE", interest: "NEUTRAL", importance: "SUPPORTING",
     restrictions: ["Evidence is three staff at LCCC, 2016 to 2019. Not evidence of managing a large team"] , provenance: "INFERRED" },
+  { name: "External partnership coordination", category: "operations", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING",
+    related: ["industry partnership","partnership development"],
+    restrictions: ["Evidence is the LCCC and Sportsman Network collaboration: connecting an educational program with real-world industry work"], provenance: "INFERRED" },
   { name: "Program creation", category: "operations", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING" , provenance: "INFERRED" },
 
 
@@ -550,6 +579,13 @@ export const POLARITY_EVIDENCE = [
   { polarity: "POSITIVE",
     summary: "Personally worked video projects for Cleveland Clinic and Amazon through Anytime Picture",
     detail: "SCOPE GUARDRAIL: one project each. Cleveland Clinic showcased a new laboratory; Amazon showcased a newly opened warehouse. Responsibilities on both were planning, filming, editing, motion graphics and graphic design. Someone else at Anytime Picture owned the client relationship, so this must never imply the user managed either account. Both may be named publicly; no NDA applies. The Cleveland Clinic project must NOT be classified as healthcare-domain experience or connected to the Health Science degree: it was video production for a healthcare organization and involved no healthcare subject-matter expertise. Those two pieces of evidence stay separate." },
+
+  // ONE cluster, deliberately. The user was explicit that the 10+ videos
+  // and the national-television facts are the same experience, and that
+  // splitting them would let a generated resume count it twice.
+  { polarity: "POSITIVE",
+    summary: "Coordinated a college and industry collaboration with a nationally broadcast television show, and contributed production work to it",
+    detail: "A national television show that aired for three seasons on the Sportsman Network partnered with Lorain County Community College so students could participate in editing and production work. The user helped coordinate the collaboration, and was personally hands-on: he directly edited portions of the show and created motion graphics for it. The collaboration involved 10+ video deliverables. SCOPE GUARDRAIL: this supports cross-functional and external collaboration, project coordination, student mentorship, professional production workflows, editing, motion graphics, and connecting an educational program with real-world industry work. It supports nothing beyond those. The 10+ figure belongs to this collaboration and must never appear as a separate accomplishment alongside the television facts." },
 
   { polarity: "POSITIVE",
     summary: "Ran email marketing at Genius One in Omnisend across lists totaling more than 100,000 contacts",
