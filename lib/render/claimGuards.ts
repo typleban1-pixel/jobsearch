@@ -66,6 +66,11 @@ export const CLAIM_GUARDS: ClaimGuard[] = [
     reason: "RETRACTED 30 Aug 2026: he did not create the LCCC internship program. His resume says otherwise and the resume is wrong.",
   },
   {
+    subject: "Adobe certification",
+    pattern: /\b(?:premiere\s*pro|after\s*effects|photoshop|illustrator|adobe)\b[^.]{0,20}\bcertifi\w*|\bcertifi\w*[^.]{0,20}\b(?:premiere\s*pro|after\s*effects|adobe)\b/i,
+    reason: "He holds passed LinkedIn Skill Assessments, which are not Adobe or vendor certifications. Any employer-facing use must state the LinkedIn provenance explicitly.",
+  },
+  {
     subject: "Asana at Holley",
     pattern: /\b(?:introduc|implement|brought|select|chose|adopt|rolled out|deploy)\w*\s+(?:\w+\s+){0,3}Asana\b|\bAsana\b[^.]{0,30}\b(?:I|he)\s+(?:introduced|selected|chose|brought in)\b/i,
     reason: "Asana was already in use at Holley. The contribution was identifying and implementing unused automation capability in a system already there, not introducing or selecting the platform.",

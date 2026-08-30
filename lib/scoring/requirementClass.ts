@@ -38,7 +38,14 @@ export const TAXONOMY_VERSION = 1;
 export type CredentialFamily = "CLINICAL" | "LEGAL" | "FINANCE" | "ENGINEERING" | "OTHER";
 
 const CREDENTIAL_FAMILIES: Array<[CredentialFamily, RegExp]> = [
-  ["CLINICAL", /\b(rn|nurse|aprn|lpn|fnp|np license|physician|medical|usmle|comlex|nclex|dea|acls|bls|pals|pharmacist|pharmd|clinical|lcsw|lpc|psychologist|residency|fellowship|board certif)\b/i],
+  // Board certifications are clinical whatever specialty they name. The
+  // first version matched "board certif" only as a bare phrase, so
+  // "board certification in obesity medicine" and "ABMS or AOA board
+  // certification" fell through to OTHER, which made OTHER look like a
+  // catch-all when it was really a gap.
+  ["CLINICAL", /\b(rn|nurse|aprn|lpn|fnp|np license|physician|medical|usmle|comlex|nclex|dea|acls|bls|pals|pharmacist|pharmd|clinical|lcsw|lpc|psychologist|residency|fellowship)\b/i],
+  ["CLINICAL", /\bboard[- ]certif\w*/i],
+  ["CLINICAL", /\b(abms|aoa)\b/i],
   ["LEGAL", /\b(bar admission|admitted to the bar|licensed attorney)\b/i],
   ["FINANCE", /\b(cpa|certified public accountant|series 7|series 63|series 65|finra|insurance license|cfa|cfp)\b/i],
   ["ENGINEERING", /\b(pe license|professional engineer)\b/i],
