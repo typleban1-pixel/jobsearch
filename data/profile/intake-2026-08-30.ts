@@ -219,91 +219,91 @@ export const EDUCATION = [
  */
 export const SKILLS = [
   // Video and creative. Deepest evidence, deliberately capped appetite.
-  { name: "Video production", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING" },
-  { name: "Video editing", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING" },
-  { name: "Adobe Premiere Pro", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING", related: ["premiere"] },
-  { name: "Adobe After Effects", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING", related: ["after effects"] },
-  { name: "Motion graphics", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING" },
-  { name: "Graphic design", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING" },
-  { name: "Adobe Photoshop", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING", related: ["photoshop"] },
-  { name: "Adobe Illustrator", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING", related: ["illustrator"] },
-  { name: "Adobe InDesign", category: "creative", level: "CAPABLE", interest: "AVOID_SPECIALIST", importance: "BACKGROUND", related: ["indesign"] },
-  { name: "Adobe Lightroom", category: "creative", level: "CAPABLE", interest: "AVOID_SPECIALIST", importance: "BACKGROUND", related: ["lightroom"] },
-  { name: "Compositing", category: "creative", level: "CAPABLE", interest: "AVOID_SPECIALIST", importance: "BACKGROUND" },
-  { name: "Photography", category: "creative", level: "CAPABLE", interest: "AVOID_SPECIALIST", importance: "BACKGROUND" },
+  { name: "Video production", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING" , provenance: "STATED" },
+  { name: "Video editing", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING" , provenance: "STATED" },
+  { name: "Adobe Premiere Pro", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING", related: ["premiere"] , provenance: "STATED" },
+  { name: "Adobe After Effects", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING", related: ["after effects"] , provenance: "STATED" },
+  { name: "Motion graphics", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING" , provenance: "STATED" },
+  { name: "Graphic design", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING" , provenance: "STATED" },
+  { name: "Adobe Photoshop", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING", related: ["photoshop"] , provenance: "STATED" },
+  { name: "Adobe Illustrator", category: "creative", level: "EXPERIENCED", interest: "AVOID_SPECIALIST", importance: "SUPPORTING", related: ["illustrator"] , provenance: "STATED" },
+  { name: "Adobe InDesign", category: "creative", level: "CAPABLE", interest: "AVOID_SPECIALIST", importance: "BACKGROUND", related: ["indesign"] , provenance: "STATED" },
+  { name: "Adobe Lightroom", category: "creative", level: "CAPABLE", interest: "AVOID_SPECIALIST", importance: "BACKGROUND", related: ["lightroom"] , provenance: "STATED" },
+  { name: "Compositing", category: "creative", level: "CAPABLE", interest: "AVOID_SPECIALIST", importance: "BACKGROUND" , provenance: "STATED" },
+  { name: "Photography", category: "creative", level: "CAPABLE", interest: "AVOID_SPECIALIST", importance: "BACKGROUND" , provenance: "STATED" },
 
   // Marketing and growth. Executed repeatedly across three roles.
-  { name: "SEO", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "CORE", related: ["search engine optimization"] },
-  { name: "Email marketing", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING" },
-  { name: "Google Analytics", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["ga4","analytics"] },
-  { name: "Ecommerce", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "CORE", related: ["e-commerce","online storefront"] },
-  { name: "Customer acquisition", category: "marketing", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE", related: ["client acquisition","digital acquisition"] },
-  { name: "Direct mail marketing", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["direct-mail"] },
-  { name: "Conversion testing", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["ab testing","a/b testing"] },
-  { name: "Campaign execution", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING" },
-  { name: "CMS platforms", category: "marketing", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" },
-  { name: "Phone sales", category: "sales", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND", related: ["inside sales","closing"] },
+  { name: "SEO", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "CORE", related: ["search engine optimization"] , provenance: "INFERRED" },
+  { name: "Email marketing", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING" , provenance: "INFERRED" },
+  { name: "Google Analytics", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["ga4","analytics"] , provenance: "INFERRED" },
+  { name: "Ecommerce", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "CORE", related: ["e-commerce","online storefront"] , provenance: "INFERRED" },
+  { name: "Customer acquisition", category: "marketing", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE", related: ["client acquisition","digital acquisition"] , provenance: "INFERRED" },
+  { name: "Direct mail marketing", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["direct-mail"] , provenance: "INFERRED" },
+  { name: "Conversion testing", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["ab testing","a/b testing"] , provenance: "INFERRED" },
+  { name: "Campaign execution", category: "marketing", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING" , provenance: "INFERRED" },
+  { name: "CMS platforms", category: "marketing", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
+  { name: "Phone sales", category: "sales", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND", related: ["inside sales","closing"] , provenance: "INFERRED" },
 
   // Product and prototyping. Repeated professional use at Genius One.
-  { name: "Product ideation", category: "product", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE" },
-  { name: "Functional prototyping", category: "product", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE", related: ["prototyping"] },
-  { name: "Iterative product development", category: "product", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE" },
-  { name: "FDM 3D printing", category: "product", level: "EXPERIENCED", interest: "POSITIVE", importance: "SUPPORTING", related: ["3d printing","additive manufacturing"] },
-  { name: "Parametric CAD", category: "product", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["cad"] },
-  { name: "Onshape", category: "product", level: "CAPABLE", interest: "POSITIVE", importance: "BACKGROUND" },
-  { name: "Tinkercad", category: "product", level: "EXPOSURE", interest: "NEUTRAL", importance: "BACKGROUND" },
-  { name: "Slicer configuration", category: "product", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" },
-  { name: "Tolerance testing", category: "product", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" },
-  { name: "Material selection", category: "product", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND", related: ["polymer knowledge"] },
+  { name: "Product ideation", category: "product", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE" , provenance: "INFERRED" },
+  { name: "Functional prototyping", category: "product", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE", related: ["prototyping"] , provenance: "INFERRED" },
+  { name: "Iterative product development", category: "product", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE" , provenance: "INFERRED" },
+  { name: "FDM 3D printing", category: "product", level: "EXPERIENCED", interest: "POSITIVE", importance: "SUPPORTING", related: ["3d printing","additive manufacturing"] , provenance: "INFERRED" },
+  { name: "Parametric CAD", category: "product", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["cad"] , provenance: "INFERRED" },
+  { name: "Onshape", category: "product", level: "CAPABLE", interest: "POSITIVE", importance: "BACKGROUND" , provenance: "INFERRED" },
+  { name: "Tinkercad", category: "product", level: "EXPOSURE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
+  { name: "Slicer configuration", category: "product", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
+  { name: "Tolerance testing", category: "product", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
+  { name: "Material selection", category: "product", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND", related: ["polymer knowledge"] , provenance: "INFERRED" },
 
   // Digital and technical. All from RentPup: one project, 2026 to now.
   // Capped at CAPABLE with an explicit restriction, because the user drew
   // this line himself and it is the easiest place to overreach.
   { name: "Claude Code", category: "technical", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE",
-    restrictions: ["Used heavily on one project (RentPup) since 2026, not across multiple employers"] },
+    restrictions: ["Used heavily on one project (RentPup) since 2026, not across multiple employers"] , provenance: "STATED" },
   { name: "AI-assisted development", category: "technical", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE",
-    related: ["ai-assisted","ai enabled"] },
+    related: ["ai-assisted","ai enabled"] , provenance: "STATED" },
   { name: "Supabase", category: "technical", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING",
-    restrictions: ["Would not want an advanced backend or database engineering interview on this"] },
-  { name: "Vercel", category: "technical", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING" },
-  { name: "GitHub", category: "technical", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["git"] },
+    restrictions: ["Would not want an advanced backend or database engineering interview on this"] , provenance: "INFERRED" },
+  { name: "Vercel", category: "technical", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING" , provenance: "INFERRED" },
+  { name: "GitHub", category: "technical", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["git"] , provenance: "INFERRED" },
   { name: "Stripe", category: "technical", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING",
-    restrictions: ["Integration-level use, not payments engineering"] },
-  { name: "Sentry", category: "technical", level: "EXPOSURE", interest: "NEUTRAL", importance: "BACKGROUND" },
-  { name: "Resend", category: "technical", level: "EXPOSURE", interest: "NEUTRAL", importance: "BACKGROUND" },
-  { name: "Third-party service integration", category: "technical", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE" },
-  { name: "Requirements definition", category: "product", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE" },
-  { name: "Workflow design", category: "operations", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE" },
+    restrictions: ["Integration-level use, not payments engineering"] , provenance: "INFERRED" },
+  { name: "Sentry", category: "technical", level: "EXPOSURE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
+  { name: "Resend", category: "technical", level: "EXPOSURE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
+  { name: "Third-party service integration", category: "technical", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE" , provenance: "INFERRED" },
+  { name: "Requirements definition", category: "product", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE" , provenance: "INFERRED" },
+  { name: "Workflow design", category: "operations", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE" , provenance: "INFERRED" },
   { name: "Tool and service evaluation", category: "operations", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE",
-    related: ["technology evaluation","vendor evaluation"] },
+    related: ["technology evaluation","vendor evaluation"] , provenance: "INFERRED" },
 
   // Tools listed on the resume with no supporting bullet anywhere.
   // UNKNOWN on purpose: listing a tool is not evidence of using it.
   { name: "Shopify", category: "ecommerce", level: "UNKNOWN", interest: "NEUTRAL", importance: "BACKGROUND",
-    restrictions: ["QUESTION: depth not established by the resume"] },
+    restrictions: ["QUESTION: depth not established by the resume"] , provenance: "INFERRED" },
   { name: "BigCommerce", category: "ecommerce", level: "UNKNOWN", interest: "NEUTRAL", importance: "BACKGROUND",
-    restrictions: ["QUESTION: depth not established by the resume"] },
+    restrictions: ["QUESTION: depth not established by the resume"] , provenance: "INFERRED" },
   { name: "Webflow", category: "ecommerce", level: "UNKNOWN", interest: "NEUTRAL", importance: "BACKGROUND",
-    restrictions: ["QUESTION: depth not established by the resume"] },
+    restrictions: ["QUESTION: depth not established by the resume"] , provenance: "INFERRED" },
 
   // Operations, teaching, supervision.
-  { name: "Client needs assessment", category: "operations", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE" },
-  { name: "Solution development", category: "operations", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE" },
-  { name: "Project coordination", category: "operations", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE", related: ["project management"] },
-  { name: "Process improvement", category: "operations", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE" },
-  { name: "Cross-department collaboration", category: "operations", level: "EXPERIENCED", interest: "POSITIVE", importance: "CORE", related: ["cross-functional collaboration"] },
-  { name: "Teaching and mentoring", category: "operations", level: "EXPERIENCED", interest: "POSITIVE", importance: "SUPPORTING" },
+  { name: "Client needs assessment", category: "operations", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE" , provenance: "INFERRED" },
+  { name: "Solution development", category: "operations", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE" , provenance: "INFERRED" },
+  { name: "Project coordination", category: "operations", level: "EXPERIENCED", interest: "ACTIVELY_SEEK", importance: "CORE", related: ["project management"] , provenance: "INFERRED" },
+  { name: "Process improvement", category: "operations", level: "CAPABLE", interest: "ACTIVELY_SEEK", importance: "CORE" , provenance: "INFERRED" },
+  { name: "Cross-department collaboration", category: "operations", level: "EXPERIENCED", interest: "POSITIVE", importance: "CORE", related: ["cross-functional collaboration"] , provenance: "INFERRED" },
+  { name: "Teaching and mentoring", category: "operations", level: "EXPERIENCED", interest: "POSITIVE", importance: "SUPPORTING" , provenance: "INFERRED" },
   { name: "Staff supervision", category: "operations", level: "CAPABLE", interest: "NEUTRAL", importance: "SUPPORTING",
-    restrictions: ["Evidence is three staff at LCCC, 2016 to 2019. Not evidence of managing a large team"] },
-  { name: "Program creation", category: "operations", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING" },
+    restrictions: ["Evidence is three staff at LCCC, 2016 to 2019. Not evidence of managing a large team"] , provenance: "INFERRED" },
+  { name: "Program creation", category: "operations", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING" , provenance: "INFERRED" },
 
   // Domains, held separately from skills so a domain is never read as a tool.
   { name: "Health science", category: "domain", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING",
     related: ["healthcare","healthtech"],
-    restrictions: ["Academic, from the 2025 BS. Not clinical practice and not healthcare industry employment"] },
-  { name: "Property compliance", category: "domain", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["proptech","rental compliance"] },
-  { name: "Automotive media", category: "domain", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" },
-  { name: "Education", category: "domain", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" },
+    restrictions: ["Academic, from the 2025 BS. Not clinical practice and not healthcare industry employment"] , provenance: "STATED" },
+  { name: "Property compliance", category: "domain", level: "CAPABLE", interest: "POSITIVE", importance: "SUPPORTING", related: ["proptech","rental compliance"] , provenance: "INFERRED" },
+  { name: "Automotive media", category: "domain", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
+  { name: "Education", category: "domain", level: "CAPABLE", interest: "NEUTRAL", importance: "BACKGROUND" , provenance: "INFERRED" },
 ];
 
 /**
@@ -352,8 +352,49 @@ export const POLARITY_EVIDENCE = [
     detail: "Stated directly: the volume of video evidence reflects years worked in the field, not desired direction. Capability is real; appetite is not." },
   { polarity: "PREFERENCE_AGAINST", summary: "Does not want to be positioned as a deep specialist",
     detail: "Self-describes as a cross-functional generalist rather than a deep specialist in every field listed. Breadth must not be translated into unsupported expertise." },
-  { polarity: "VERIFIED_ABSENCE", summary: "Not a professional software engineer or expert programmer",
-    detail: "Stated directly about RentPup. The project is evidence of product building, technical problem solving, rapid learning and systems thinking, and nothing beyond that." },
-  { polarity: "VERIFIED_ABSENCE", summary: "Did not set overall marketing direction at Genius One",
-    detail: "The owner established priorities and delegated objectives. The role was execution-oriented, not strategy-owning." },
+
+  // CORRECTED. This was a broad VERIFIED_ABSENCE saying "not a
+  // professional software engineer". That was wrong twice over: it
+  // recorded an absence the user never asserted about himself in general,
+  // and a blanket absence would suppress real, verifiable technical
+  // capability. The intended meaning is a CEILING on what one body of
+  // evidence may be stretched to support, so it is stored as positive
+  // evidence with the ceiling attached rather than as a missing skill.
+  { polarity: "POSITIVE",
+    summary: "RentPup supports AI-assisted product building, third-party integration, technical problem solving, and systems thinking",
+    detail: "SCOPE GUARDRAIL: this evidence may support AI-assisted product building, integrations, technical problem solving, systems thinking, and the specific tools and capabilities the user verifies individually. It must NOT be inflated into professional software-engineering or expert-programming experience. The guardrail limits how far this evidence reaches; it is not a claim that the user lacks technical ability." },
+
+  // CORRECTED. Narrowed from "did not set overall marketing direction",
+  // which read as an absence of marketing-strategy capability in general.
+  // The verified fact is specific to one company and one scope.
+  { polarity: "VERIFIED_ABSENCE",
+    summary: "Did not own Genius One's overall company marketing strategy",
+    detail: "The owner established overall priorities and delegated objectives; the role was execution-oriented in determining how to accomplish them. SCOPE: this is a fact about ownership of company-level marketing strategy at Genius One only. It is NOT evidence that the user lacks marketing-strategy capability or experience generally, and must never be used to score down a marketing-strategy requirement." },
 ];
+
+/**
+ * Where a proposed interest or importance actually came from.
+ *
+ *   STATED    the user said it, or said something that maps to it directly
+ *   INFERRED  I read it off the evidence
+ *
+ * The user's instruction: do not infer that a skill is CORE or
+ * ACTIVELY_SEEK merely because it is strongly evidenced. Evidence
+ * strength says what has been done, not what is wanted next, and those
+ * are the two columns this profile keeps separate on purpose.
+ *
+ * So the rule is enforced in code rather than left to my judgement each
+ * time: an INFERRED proposal is capped at POSITIVE interest and
+ * SUPPORTING importance. Only a statement from the user can reach
+ * ACTIVELY_SEEK or CORE.
+ */
+export type Provenance = "STATED" | "INFERRED";
+
+export function capInferred<T extends { interest: string; importance: string; provenance?: Provenance }>(s: T): T {
+  if ((s.provenance ?? "INFERRED") === "STATED") return s;
+  return {
+    ...s,
+    interest: s.interest === "ACTIVELY_SEEK" ? "POSITIVE" : s.interest,
+    importance: s.importance === "CORE" ? "SUPPORTING" : s.importance,
+  };
+}

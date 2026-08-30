@@ -12,9 +12,14 @@
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import {
-  PROFILE, EMPLOYMENT, PROJECTS, METRICS, EDUCATION, SKILLS,
-  WORK_PREFERENCES, LOCATION_PREFERENCES, POLARITY_EVIDENCE,
+  PROFILE, EMPLOYMENT, PROJECTS, METRICS, EDUCATION, SKILLS as RAW_SKILLS,
+  WORK_PREFERENCES, LOCATION_PREFERENCES, POLARITY_EVIDENCE, capInferred,
 } from "../data/profile/intake-2026-08-30.ts";
+
+// Applied before anything is written. A skill whose interest or
+// importance I inferred from the evidence cannot reach ACTIVELY_SEEK or
+// CORE, no matter how strong that evidence is.
+const SKILLS = (RAW_SKILLS as any[]).map(capInferred);
 
 const commit = process.argv.includes("--commit");
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"),
@@ -150,7 +155,9 @@ for (const s of SKILLS as any[]) {
     level: s.level, interest: s.interest, importance: s.importance,
     restrictions: s.restrictions ?? [], related_terms: s.related ?? [],
     evidence_confidence: "SELF_REPORTED",
-    suggested_rationale: "Parsed from the 2026 resume and the user's interpretation notes",
+    suggested_rationale: s.provenance === "STATED"
+      ? "Level from resume evidence. Interest and importance proposed from something the user stated directly."
+      : "Level from resume evidence. Interest and importance are MY INFERENCE and are capped below ACTIVELY_SEEK and CORE until confirmed.",
     suggested_at: new Date().toISOString(), verified_at: null,
   });
   if (error) throw new Error(`skill ${s.name}: ${error.message}`);
