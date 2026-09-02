@@ -14,6 +14,8 @@ import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { assessEligibility, ELIGIBILITY_VERSION, PROPOSED_RULES } from "../lib/scoring/eligibility.ts";
 import { assessRoleShape } from "../lib/scoring/roleShape.ts";
+import { loadCompensationByOpening, salaryInputForJob, hasStatedCompensation }
+  from "../lib/scoring/openingCompensation.ts";
 
 const commit = process.argv.includes("--commit");
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"),
@@ -32,18 +34,40 @@ const page = async (t: string, cols: string, extra: (q: any) => any = (q) => q) 
 const jobs = await page("jobs",
   "id,company_id,source,external_id,title,city,state,country,metro,remote_policy," +
   "remote_geographic_restriction,location_raw,eligibility,eligibility_reason,extraction_version," +
-  "salary_min,salary_max,salary_period,salary_is_estimated");
+  "salary_min,salary_max,salary_period,salary_is_estimated,canonical_opening_id");
+
+// The same employer-stated compensation the base pass uses. Without this
+// the refresh overwrote the base pass's correct verdict: Flexport was
+// correctly excluded on its $27.69/hour, then refreshed back to ELIGIBLE
+// on geography alone.
+const compByOpening = await loadCompensationByOpening(db, (m) => console.log(`  (${m})`));
+if (compByOpening.size) console.log(`employer-stated compensation on ${compByOpening.size} opening(s)`);
 const ex = await page("job_extractions", "id,job_id,output,succeeded,superseded_by",
   (q) => q.is("superseded_by", null).eq("succeeded", true));
 const exBy = new Map(ex.map((e: any) => [e.job_id, e.output]));
-const { data: cos } = await db.from("companies").select("id,name");
-const coName = new Map((cos ?? []).map((c: any) => [c.id, c.name]));
+const cos = await page("companies", "id,name");  // paged: 4,221 rows exceeds the 1000-row cap
+const coName = new Map(cos.map((c: any) => [c.id, c.name]));
 
 const POLICY: Record<string, string> = {
   FULLY_REMOTE: "FULLY_REMOTE", HYBRID: "HYBRID", ONSITE: "ONSITE",
 };
 
 // Requirement text and descriptions, needed for the role-shape rules.
+// The normalized location set. Authoritative for geography; the singular
+// city/state/metro columns are passed alongside only for jobs that have
+// no normalized rows at all.
+const allLocations = await page("job_locations",
+  "job_id,position,city,state,region,country,metro,is_remote,remote_scope,provenance,confidence,raw_segment");
+const locationsByJob = new Map<string, any[]>();
+for (const l of allLocations) {
+  const a = locationsByJob.get(l.job_id) ?? [];
+  a.push({ city: l.city, state: l.state, region: l.region, country: l.country, metro: l.metro,
+           isRemote: l.is_remote, remoteScope: l.remote_scope, provenance: l.provenance,
+           confidence: l.confidence, rawSegment: l.raw_segment, position: l.position });
+  locationsByJob.set(l.job_id, a);
+}
+for (const a of locationsByJob.values()) a.sort((x, y) => x.position - y.position);
+
 const allReqs = await page("job_requirements", "job_id,raw_text");
 const reqsByJob = new Map<string, string[]>();
 for (const r of allReqs) {
@@ -70,14 +94,15 @@ for (const j of jobs) {
   // Salary can change the verdict on its own now, so a job with no remote
   // information still needs re-assessing.
   if (!stated && !out.remote_geographic_restriction
-      && j.salary_max === null && j.salary_min === null) continue;
+      && j.salary_max === null && j.salary_min === null
+      && !hasStatedCompensation(j, compByOpening)) continue;
 
   // Role shape first: a quota-carrying sales role is excluded whatever
   // its geography says.
   const shape = assessRoleShape({
     title: j.title, descriptionText: descById.get(j.id) ?? "",
     requirementTexts: reqsByJob.get(j.id) ?? [],
-    salaryMin: j.salary_min, salaryMax: j.salary_max,
+    ...(({ salaryMin, salaryMax }) => ({ salaryMin, salaryMax }))(salaryInputForJob(j, compByOpening)),
   });
 
   const v = shape.flags.length > 0
@@ -87,8 +112,8 @@ for (const j of jobs) {
     remotePolicy: stated ?? j.remote_policy,
     remoteRestriction: restriction,
     locationRaw: j.location_raw,
-    salaryMin: j.salary_min, salaryMax: j.salary_max,
-    salaryPeriod: j.salary_period, salaryIsEstimated: j.salary_is_estimated,
+    locations: locationsByJob.get(j.id) ?? [],
+    ...salaryInputForJob(j, compByOpening),
   }, PROPOSED_RULES);
   for (const f of shape.flags) roleShapeCounts[f] = (roleShapeCounts[f] ?? 0) + 1;
 

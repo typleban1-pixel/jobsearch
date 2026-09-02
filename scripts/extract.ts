@@ -13,7 +13,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { AnthropicProvider, modelForTier } from "../lib/llm/anthropic.ts";
-import { extractRequirements, sanitizeRequirement, EXTRACTION_VERSION } from "../lib/llm/extractRequirements.ts";
+import { extractRequirements, sanitizeRequirement, reconcileHardness, dedupeRequirements,
+  EXTRACTION_VERSION } from "../lib/llm/extractRequirements.ts";
 import { checkGrounding, findUncoveredRequirementSentences } from "../lib/llm/grounding.ts";
 import { TermMatcher } from "../lib/matching/match.ts";
 import { classOfKind } from "../lib/scoring/kinds.ts";
@@ -60,11 +61,71 @@ const targetIds = idsFile
   ? new Set((await import("node:fs")).readFileSync(idsFile, "utf8").split("\n").map((l) => l.trim()).filter(Boolean))
   : null;
 
+// An extraction stays valid while its inputs do.
+//
+// Selection used to ask only whether a job had ever been extracted, so a
+// posting whose description was rewritten kept its old requirements
+// forever, and a daily ingest of an unchanged posting was only spared a
+// second paid call because "extracted_at !== null" happened to hold.
+// Validity is now the thing it actually depends on: the description that
+// was read, the prompt and schema that read it, and the tier that ran.
+//
+// Note what is NOT re-extracted: eligibility already filtered this list
+// to ELIGIBLE and UNCERTAIN, so a job deterministic rules have ruled out
+// never reaches a paid call at all. See the eligibility gate above.
+const current = new Map<string, { version: number; hash: string; tier: string }>();
+for (let from = 0; ; from += 1000) {
+  const { data, error } = await db.from("job_extractions")
+    .select("job_id,extraction_version,input_hash,llm_tier,succeeded")
+    .is("superseded_by", null).eq("succeeded", true)
+    .order("job_id", { ascending: true }).range(from, from + 999);
+  if (error) throw new Error(`job_extractions: ${error.message}`);
+  for (const e of data ?? []) {
+    current.set(e.job_id, { version: e.extraction_version, hash: e.input_hash ?? "", tier: e.llm_tier ?? "" });
+  }
+  if ((data ?? []).length < 1000) break;
+}
+
+const liveHash = new Map<string, string>();
+for (let i = 0; i < candidates.length; i += 100) {
+  const ids = candidates.slice(i, i + 100).map((c: any) => c.id);
+  const { data, error } = await db.from("job_descriptions").select("job_id,description_text").in("job_id", ids);
+  if (error) throw new Error(`descriptions: ${error.message}`);
+  for (const d of data ?? []) liveHash.set(d.job_id, await sha(d.description_text ?? ""));
+}
+
+const staleReason = (j: any): string | null => {
+  const cur = current.get(j.id);
+  if (!cur) return "never extracted";
+  if (cur.version !== EXTRACTION_VERSION) return `extraction v${cur.version} < v${EXTRACTION_VERSION}`;
+  const live = liveHash.get(j.id);
+  if (live && cur.hash && live !== cur.hash) return "description changed since extraction";
+  if (cur.tier && cur.tier !== "fast") return `tier ${cur.tier}`;
+  return null;
+};
+
 const pool = candidates.filter((j: any) =>
   targetIds ? targetIds.has(j.id)
-  : staleOnly ? j.extracted_at !== null && j.extraction_version !== EXTRACTION_VERSION
+  : staleOnly ? j.extracted_at !== null && staleReason(j) !== null
   : reextract ? j.extracted_at !== null
-  : j.extracted_at === null);
+  : staleReason(j) !== null);
+
+// An ids-file entry that is INELIGIBLE never appears in candidates, so
+// say so rather than silently extracting fewer jobs than were asked for.
+if (targetIds) {
+  const missing = [...targetIds].filter((id) => !candidates.some((c: any) => c.id === id));
+  if (missing.length) {
+    console.log(`note: ${missing.length} requested id(s) skipped; not OPEN and ELIGIBLE/UNCERTAIN`);
+  }
+}
+
+{
+  const reasons: Record<string, number> = {};
+  for (const j of pool) { const r = staleReason(j) ?? "requested"; reasons[r] = (reasons[r] ?? 0) + 1; }
+  console.log(`selection reasons: ${JSON.stringify(reasons)}`);
+  const reusable = candidates.length - pool.length;
+  console.log(`reusing ${reusable} valid extraction(s); no paid call for those`);
+}
 
 if (pool.length === 0) { console.log("nothing to extract for this selection"); process.exit(0); }
 
@@ -103,6 +164,7 @@ console.log(`selection: ${staleOnly ? "stale version" : reextract ? "re-extract"
 
 let spentCents = 0;
 let attempted = 0, succeeded = 0, failed = 0, totalReqs = 0, groundingFlags = 0, coercionCount = 0, persistFailed = 0;
+let hardnessCorrections = 0, duplicatesRemoved = 0;
 let budgetStopped = false;
 const usages: LlmUsage[] = [];
 const failures: Array<{ job: string; company: string; error: string }> = [];
@@ -168,8 +230,25 @@ await Promise.all(Array.from({ length: Math.min(concurrency, selected.length) },
         coercionCount++;
         anomalies.push({ job: job.title, company, note: `coerced ${c.field}: "${c.got}" -> ${c.used}` });
       }
+      // The quote outranks the label. A requirement whose own words say
+      // "minimum of" cannot be optional, whatever the model called it.
+      const rec = reconcileHardness(clean.requirement as any);
+      if (rec.corrected) {
+        hardnessCorrections++;
+        anomalies.push({ job: job.title, company,
+          note: `PREFERRED -> HARD on mandatory wording: "${String(clean.requirement.raw_text).slice(0, 60)}"` });
+        (clean.requirement as any).is_hard_requirement = rec.hardness;
+      }
       reqs.push(clean.requirement);
     }
+    // Same capability twice is one requirement, not two.
+    const deduped = dedupeRequirements(reqs as any[]);
+    if (deduped.removed > 0) {
+      duplicatesRemoved += deduped.removed;
+      anomalies.push({ job: job.title, company, note: `${deduped.removed} duplicate requirement(s) collapsed` });
+    }
+    reqs.length = 0;
+    reqs.push(...(deduped.kept as any[]));
     totalReqs += reqs.length;
     for (const r of reqs) classCounts[classOfKind(r.kind)] = (classCounts[classOfKind(r.kind)] ?? 0) + 1;
 
@@ -255,6 +334,8 @@ console.log(`failed                ${failed}`);
 console.log(`requirements          ${totalReqs}  (avg ${(totalReqs / Math.max(1, succeeded)).toFixed(1)}/job)`);
 console.log(`grounding flags       ${groundingFlags} of ${totalReqs}`);
 console.log(`field coercions       ${coercionCount}`);
+console.log(`hardness corrections  ${hardnessCorrections}  (PREFERRED -> HARD on mandatory wording)`);
+console.log(`duplicates collapsed  ${duplicatesRemoved}`);
 console.log(`persist failures      ${persistFailed}`);
 console.log(`class distribution    ${JSON.stringify(classCounts)}`);
 console.log(`tokens                in ${totalIn.toLocaleString()}  out ${totalOut.toLocaleString()}`);

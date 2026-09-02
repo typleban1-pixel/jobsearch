@@ -14,6 +14,8 @@ import { TermMatcher } from "../lib/matching/match.ts";
 import { buildFeatures } from "../lib/scoring/features.ts";
 import { reconcile, type WeightSet } from "../lib/scoring/score.ts";
 import { scoreJob2 } from "../lib/scoring/score2.ts";
+import { buildFitBreakdown, FIT_FORMULA_VERSION } from "../lib/scoring/fit.ts";
+import { statisticsHash, toCorpusStatistics } from "../lib/scoring/corpusStats.ts";
 import { toConcept } from "../lib/matching/concepts.ts";
 import type { CapabilityIndex } from "../lib/scoring/capability.ts";
 import { FEATURE_VERSION, type ScoringProfile } from "../lib/scoring/types.ts";
@@ -111,6 +113,24 @@ for (let i = 0; i < jobs.length; i += 100) {
   for (const d of data ?? []) descById.set(d.job_id, d.description_text ?? "");
 }
 
+// Pass one: document frequencies over exactly the corpus being scored.
+//
+// Computed here rather than read from a table because the corpus IS the
+// set of jobs this run scores. Freezing it below is what lets a
+// historical score be defended after the corpus grows.
+const dfCounts: Record<string, number> = {};
+for (const j of jobs) {
+  const b = buildFitBreakdown(reqsByJob.get(j.id) ?? [], j.title, index, credentialDeclarations, profileEducation);
+  for (const c of new Set(b.concepts.map((x: any) => x.concept as string))) {
+    dfCounts[c] = (dfCounts[c] ?? 0) + 1;
+  }
+}
+const INFO_FLOOR = (weights.weights as any).fit?.info_weight_floor ?? 0.25;
+const corpus = toCorpusStatistics(dfCounts, jobs.length, INFO_FLOOR);
+const corpusHash = statisticsHash(dfCounts, jobs.length);
+console.log(`corpus statistics: ${Object.keys(dfCounts).length} concepts over ${jobs.length} jobs, hash ${corpusHash.slice(0, 12)}`);
+console.log(`fit formula version ${FIT_FORMULA_VERSION}, smoothing k ${(weights.weights as any).fit?.coverage_smoothing_k ?? 0}, info floor ${INFO_FLOOR}`);
+
 console.log(`profile version ${profile.profileVersion}, weights version ${weights.version}`);
 console.log(`verified skills ${verified.length}, suggested ${allSkills.length - verified.length}`);
 console.log(`scoring ${jobs.length} ELIGIBLE open jobs\n`);
@@ -124,7 +144,7 @@ for (const j of jobs) {
   const r = scoreJob2(features, profile, index, weights.weights, {
     weightsVersion: weights.version, extractionVersion: 3,
     title: j.title, requirements: reqsByJob.get(j.id) ?? [],
-    credentialDeclarations, profileEducation,
+    credentialDeclarations, profileEducation, corpus,
   });
   if (!reconcile(r).ok) reconcileFailures++;
   results.push({ job: j, features, result: r });
@@ -134,6 +154,27 @@ console.log(`scored ${results.length}, reconciliation failures ${reconcileFailur
 
 if (commit) {
   const now = new Date().toISOString();
+
+  // The frozen corpus, written before any score cites it. Reused when an
+  // identical snapshot already exists, so re-running a scoring pass over
+  // an unchanged corpus does not accumulate duplicates.
+  const { data: existingStats } = await db.from("corpus_statistics")
+    .select("id").eq("statistics_hash", corpusHash).maybeSingle();
+  let corpusStatsId = existingStats?.id as string | undefined;
+  if (!corpusStatsId) {
+    const { data: cs, error: csErr } = await db.from("corpus_statistics").insert({
+      label: `scoring run ${now}`,
+      document_frequencies: dfCounts,
+      job_count: jobs.length,
+      concept_count: Object.keys(dfCounts).length,
+      statistics_hash: corpusHash,
+    }).select("id").single();
+    if (csErr) throw new Error(`corpus_statistics: ${csErr.message}`);
+    corpusStatsId = cs.id;
+    console.log(`froze corpus statistics ${corpusStatsId}`);
+  } else {
+    console.log(`reusing identical corpus statistics ${corpusStatsId}`);
+  }
   for (let i = 0; i < results.length; i += 200) {
     const slice = results.slice(i, i + 200);
     await db.from("job_features").upsert(slice.map(({ job, features }) => ({
@@ -146,13 +187,31 @@ if (commit) {
   // must never claim the same inputs. Re-running the same triple is a
   // recompute, not a new score, so the previous rows for that triple are
   // replaced rather than duplicated.
+  // Retire every current score for a job this run did NOT score.
+  //
+  // A job that leaves the eligible set keeps its last score row, and that
+  // row stays flagged current unless something clears it. 121 rows from
+  // weights v4 / formula 1 were sitting in exactly that state after the
+  // location work changed eligibility, which would have put scores from a
+  // retired formula on screen beside scores from the current one.
+  const scoredIds = new Set(results.map((r) => r.job.id));
+  const { data: currentRows } = await db.from("job_scores").select("id,job_id").eq("is_current", true);
+  const orphaned = (currentRows ?? []).filter((r: any) => !scoredIds.has(r.job_id)).map((r: any) => r.id);
+  for (let i = 0; i < orphaned.length; i += 200) {
+    const { error } = await db.from("job_scores").update({ is_current: false }).in("id", orphaned.slice(i, i + 200));
+    if (error) throw new Error(`retiring orphaned scores: ${error.message}`);
+  }
+  if (orphaned.length) console.log(`retired ${orphaned.length} current scores for jobs no longer scored`);
+
   for (let i = 0; i < results.length; i += 100) {
     const ids = results.slice(i, i + 100).map((r) => r.job.id);
     await db.from("job_scores").delete()
       .in("job_id", ids)
       .eq("profile_version", profile.profileVersion)
       .eq("weights_version", weights.version)
-      .eq("extraction_version", 3);
+      .eq("extraction_version", 3)
+      .eq("fit_formula_version", FIT_FORMULA_VERSION)
+      .eq("corpus_statistics_id", corpusStatsId);
     await db.from("job_scores").update({ is_current: false }).in("job_id", ids).eq("is_current", true);
   }
   for (const { job, result } of results) {
@@ -163,6 +222,49 @@ if (commit) {
       extraction_version: result.extractionVersion, uncertainty_score: result.uncertainty,
       unknown_field_count: result.unknownFieldCount,
       unclear_requirement_count: result.unclearRequirementCount,
+      fit_formula_version: FIT_FORMULA_VERSION,
+      corpus_statistics_id: corpusStatsId,
+      // Stored so the portal can explain a rank without recomputing the
+      // score and risking a number that disagrees with this row.
+      fit_breakdown: (() => {
+        const b = (result as any).fitBreakdown;
+        if (!b) return null;
+        const scoring = b.concepts.filter((c: any) => c.weight > 0 && c.credit !== null);
+        // The DISPLAY label, not the raw concept. For a requirement with
+        // alternatives the raw concept is one branch of a list, and
+        // showing it asserts a qualification in that branch's field.
+        const named = (r: string) =>
+          scoring.filter((c: any) => c.resolution === r).map((c: any) => c.displayLabel ?? c.concept);
+        return {
+          coverage: b.coverage,
+          evidence: b.evidence,
+          achievable: b.achievable,
+          achieved: b.achieved,
+          evaluableConcepts: scoring.length,
+          creditedConcepts: scoring.filter((c: any) => c.credit > 0).length,
+          totalConcepts: b.concepts.length,
+          excludedUnknown: b.excludedUnknown,
+          excludedByClass: b.excludedByClass,
+          direct: named("DIRECT"),
+          // Why each concept resolved as it did, so the portal can show
+          // the reasoning without recomputing and possibly disagreeing.
+          conceptDetail: scoring.map((c: any) => ({
+            concept: c.concept, label: c.displayLabel ?? c.concept,
+            resolution: c.resolution, requirementClass: c.requirementClass,
+            alternatives: c.alternatives ?? null, satisfiedBranch: c.satisfiedBranch ?? null,
+            // Which extracted rows this one concept stands for. More
+            // than one means several rows expressed a single demand.
+            requirementIds: c.requirementIds,
+            educationLevel: c.educationLevel ?? null, hardness: c.hardness,
+            rationale: c.rationale,
+          })),
+          transferable: named("TRANSFERABLE"),
+          absent: named("ABSENT"),
+          credentialFamiliesUnmet: b.credentialFamiliesUnmet,
+          credentialFamiliesUndeclared: b.credentialFamiliesUndeclared,
+          educationGatesUnmet: b.educationGatesUnmet,
+        };
+      })(),
       scorable: (result as any).scorable, unscorable_reason: (result as any).unscorableReason,
       is_current: true, computed_at: now,
     }).select("id").single();

@@ -7,8 +7,11 @@ import type {
 /**
  * Anthropic implementation of the provider interface.
  *
- * The ONLY file in the system that names a model or knows a price. Call
- * sites declare a tier and a purpose; what that costs is configuration.
+ * The ONLY file in the system that names a default model or knows a
+ * price. Call sites declare a tier and a purpose; what that costs is
+ * configuration. One call site may name a model explicitly, for
+ * benchmarking, and an unpriced model is estimated at its tier's price
+ * and flagged rather than silently recorded as free.
  *
  * The key is read through env.ts and never appears in a log, an error
  * message, or a stored row. Errors deliberately surface status and a
@@ -35,7 +38,9 @@ export class AnthropicProvider implements LlmProvider {
   }
 
   async complete<T = string>(req: CompletionRequest): Promise<CompletionResult<T>> {
-    const model = MODELS[req.tier];
+    // The override exists for benchmarking; the tier is still what
+    // every ordinary call site declares.
+    const model = req.model ?? MODELS[req.tier];
     const started = Date.now();
 
     const body: Record<string, unknown> = {
@@ -77,6 +82,20 @@ export class AnthropicProvider implements LlmProvider {
       });
       text = await res.text();
       if (res.ok) break;
+
+      // One 400 IS worth retrying, once, and only this one.
+      //
+      // Newer models reject `temperature` outright rather than ignoring
+      // it, and the whole request fails: every reasoning-tier call in the
+      // system returned "`temperature` is deprecated for this model"
+      // until this was added. Dropping the parameter and retrying is
+      // correct rather than a workaround, because a model that refuses
+      // the parameter is a model with one fixed sampling behaviour, which
+      // is what temperature 0 was asking for.
+      if (res.status === 400 && /temperature/.test(text) && "temperature" in body) {
+        delete body["temperature"];
+        continue;
+      }
 
       const retriable = res.status === 429 || res.status === 529 || res.status >= 500;
       if (!retriable || attempt >= 5) {
@@ -124,7 +143,10 @@ export class AnthropicProvider implements LlmProvider {
       content = parsed.content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
     }
 
-    const price = PRICING[model] ?? { in: 0, out: 0 };
+    // An unknown model is an overridden one. Estimating it at zero would
+    // make a benchmark run look free, so it falls back to its tier's
+    // price, which is an estimate that is wrong in the honest direction.
+    const price = PRICING[model] ?? PRICING[MODELS[req.tier]] ?? { in: 0, out: 0 };
     const usage: LlmUsage = {
       provider: this.name,
       model,

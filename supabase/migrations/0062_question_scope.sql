@@ -1,0 +1,42 @@
+-- A reuse scope for "this exact question, wherever it is asked".
+--
+-- Separate migration, and it contains exactly one statement, because
+-- ALTER TYPE ... ADD VALUE may not be used in the same transaction that
+-- adds it. 0039 split for the same reason. 0063 uses this value.
+--
+-- Why the scope is needed. The feedback architecture keys everything it
+-- learns on an intent: semantic_mappings map a wording TO an intent, and
+-- contextual_answers store an answer FOR an intent. That covers every
+-- question the catalog recognises and none of the questions it does not.
+-- "Do you have 5+ years of SEO experience?" has no intent, will never
+-- have one that is honest, and is exactly the kind of question a human
+-- has to answer and would rather not answer twice.
+--
+-- The safe unit for such a question is the one semantic_mappings already
+-- uses: the exact normalized wording. QUESTION means the answer may be
+-- reused wherever that exact wording appears, on any ATS and for any
+-- employer, and nowhere else. It is deliberately NOT semantic similarity:
+-- a stored answer to "Do you have SEO experience?" does not answer
+-- "Do you have 5+ years of SEO experience?", because the duration
+-- qualifier is part of the proposition and nothing has confirmed it.
+--
+-- Placed before INTENT in the enum because SCOPE_ORDER is narrowest
+-- first and this is narrower: INTENT reaches every wording that means
+-- the same thing, QUESTION reaches one wording.
+
+alter type feedback_reuse_scope add value if not exists 'QUESTION' before 'INTENT';
+
+-- And a classification for an answer that belongs in the question bank.
+--
+-- The bank is where the resolver looks first for a question the catalog
+-- recognises, so it is the reuse home for a stable intent. The learning
+-- layer had no path to it: an answer to a recognised, non-contextual
+-- question was classified ONE_OFF and thrown away, which is why ticking
+-- "reuse this answer" did nothing for exactly the questions most worth
+-- reusing.
+--
+-- Distinct from PROFILE_FACT on purpose. A profile fact is truth about
+-- the person that any form may be answered from. A bank answer is a
+-- reply the person has approved for one question, and it never becomes
+-- the other.
+alter type feedback_classification add value if not exists 'BANK_ANSWER';

@@ -1,0 +1,685 @@
+<title>Ty Pleban</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500,50;9..144,700,50&family=Figtree:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --bench: #FDFBF6;
+    --bench-2: #F4EFE3;
+    --ink: #201E1B;
+    --muted: #6B645B;
+    --faint: #A79F93;
+    --rule: #E5DECE;
+    --shadow: 62 48 30;
+    /* Object colours. These are the palette; there is no single accent. */
+    --plastic: #F4703A;
+    --plastic-mid: #E05A22;
+    --plastic-dark: #B8410F;
+    --barrel: #23262B;
+    --glass: #4C7FB5;
+    --paper: #FCFAF5;
+    --board: #2F5D4B;
+    --card-a: #4A2C66;
+    --card-b: #E3B85A;
+    --manila: #EBD9A9;
+    --manila-dark: #C8AE73;
+    --pencil: #55524E;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bench: #1A1916;
+      --bench-2: #14130F;
+      --ink: #F2EEE6;
+      --muted: #A79F94;
+      --faint: #6E675E;
+      --rule: #33302A;
+      --shadow: 0 0 0;
+      --paper: #EDE7DA;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bench: #1A1916; --bench-2: #14130F; --ink: #F2EEE6; --muted: #A79F94;
+    --faint: #6E675E; --rule: #33302A; --shadow: 0 0 0; --paper: #EDE7DA;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background-color: var(--bench);
+    background-image: none;
+    color: var(--ink);
+    font-family: Figtree, ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.5;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1.1rem, 4vw, 2.2rem); }
+
+  /* ---------------- hero: four lines, then stop ---------------- */
+  header { padding: clamp(2.4rem, 8vh, 4.4rem) 0 1.2rem; }
+  h1 {
+    font-family: Fraunces, Georgia, serif;
+    font-variation-settings: "SOFT" 50, "opsz" 90;
+    font-weight: 700; letter-spacing: -0.02em;
+    font-size: clamp(3rem, 11vw, 6.2rem); line-height: 0.88; margin: 0;
+  }
+  .disciplines {
+    font-size: clamp(0.95rem, 2.4vw, 1.15rem); font-weight: 500;
+    letter-spacing: 0.01em; margin-top: 0.7rem; color: var(--ink);
+  }
+  .disciplines span { color: var(--faint); padding: 0 0.15rem; }
+  .move { font-size: clamp(0.9rem, 2.2vw, 1.02rem); color: var(--muted); margin-top: 0.2rem; }
+  .say { margin: 1.1rem 0 0; font-size: clamp(1rem, 2.4vw, 1.18rem); max-width: 30ch; }
+  .links { display: flex; gap: 0.55rem; flex-wrap: wrap; margin-top: 1.35rem; }
+  .lnk {
+    display: inline-block; padding: 0.55rem 1rem; border-radius: 999px;
+    font-size: 0.9rem; font-weight: 600; text-decoration: none;
+    background: var(--ink); color: var(--bench);
+    transition: transform .14s cubic-bezier(.2,.9,.3,1.4);
+  }
+  .lnk.alt { background: transparent; color: var(--ink); border: 1.5px solid var(--rule); }
+  .lnk:hover { transform: translateY(-2px) rotate(-1deg); }
+
+  /* ---------------- the bench ---------------- */
+  .benchwrap { position: relative; margin-top: clamp(0.5rem, 3vh, 1.4rem); }
+  .hint {
+    font-family: Fraunces, Georgia, serif; font-style: italic; font-size: 0.98rem;
+    color: var(--faint); margin: 0 0 0.2rem;
+    padding-left: max(calc(50vw - 590px + 1.1rem), clamp(1.1rem, 4vw, 2.2rem));
+  }
+  .hint b { color: var(--muted); font-weight: 400; }
+
+  /* The bench is the page. A frame around it made the whole thing read
+     as a canvas widget instead of a surface with things on it. */
+  .benchwrap { margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw); width: 100vw; }
+  #bench {
+    position: relative; width: 100%;
+    height: clamp(520px, 76vh, 780px);
+    background:
+      radial-gradient(120% 80% at 50% 42%, var(--bench) 52%, var(--bench-2) 100%);
+    overflow: hidden;
+    touch-action: manipulation;
+  }
+
+  .obj {
+    position: absolute; left: 0; top: 0;
+    transform-origin: 50% 50%;
+    cursor: grab; user-select: none; -webkit-user-select: none;
+    touch-action: none;
+    will-change: transform;
+  }
+  .obj:active { cursor: grabbing; }
+  .obj svg { display: block; overflow: visible; pointer-events: none; }
+  .obj .art {
+    filter: drop-shadow(0 2px 1px rgb(var(--shadow) / 0.16)) drop-shadow(0 10px 16px rgb(var(--shadow) / 0.13));
+    transition: filter .18s ease, transform .18s cubic-bezier(.2,.9,.3,1.4);
+  }
+  .obj.held .art { filter: drop-shadow(0 3px 2px rgb(var(--shadow) / 0.1)) drop-shadow(0 26px 34px rgb(var(--shadow) / 0.24)); transform: scale(1.04); }
+  .obj:focus-visible { outline: none; }
+  .obj:focus-visible .art { filter: drop-shadow(0 0 0 3px var(--glass)); }
+
+  /* the small always-visible label on each object's face */
+  /* Not captions. Things jotted on the bench beside the object, which
+     is why they sit off to one side and lean. */
+  .tag {
+    position: absolute; white-space: nowrap; pointer-events: none;
+    font-family: Fraunces, Georgia, serif; font-style: italic;
+    font-size: 1rem; color: var(--muted);
+  }
+
+  /* the reveal, pinned to its object, counter-rotated so text stays level */
+  .say-more {
+    position: absolute; left: 50%; top: 100%;
+    transform: translate(-50%, 22px);
+    width: max(190px, 15rem);
+    background: var(--bench); border: 1.5px solid var(--rule);
+    border-radius: 12px; padding: 0.62rem 0.75rem;
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: opacity .2s ease, transform .2s cubic-bezier(.2,.9,.3,1.4);
+    box-shadow: 0 8px 18px rgb(var(--shadow) / 0.12);
+    z-index: 5;
+  }
+  .obj.open .say-more { opacity: 1; visibility: visible; transform: translate(-50%, 14px); }
+  .say-more p { margin: 0; font-size: 0.87rem; line-height: 1.4; }
+  .say-more .n {
+    display: inline-block; margin-top: 0.4rem; font-weight: 600;
+    font-size: 0.78rem;
+    color: var(--muted); border-top: 1px solid var(--rule); padding-top: 0.35rem;
+  }
+
+  /* the pencil note that only appears when the lens meets the clipboard */
+  #note {
+    position: absolute; z-index: 8; pointer-events: none;
+    font-family: Fraunces, Georgia, serif; font-style: italic;
+    font-size: 0.95rem; color: var(--pencil);
+    opacity: 0; transform: translate(-50%, -50%) rotate(-6deg);
+    transition: opacity .5s ease;
+  }
+  #note.on { opacity: 1; }
+
+  /* ---------------- footer ---------------- */
+  footer { padding: 1.5rem 0 3.4rem; }
+  .where { font-size: 0.9rem; color: var(--muted); line-height: 1.9; }
+  .where b { color: var(--ink); font-weight: 500; }
+  .where i { color: var(--faint); font-style: normal; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  @media (max-width: 720px) {
+    #bench { height: 74vh; border-radius: 14px; }
+    .say-more { width: 12.5rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .01ms !important; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Ty Pleban</h1>
+    <div class="disciplines">Marketing <span>·</span> Product <span>·</span> Operations</div>
+    <div class="move">Cleveland, OH → Chicago, IL</div>
+    <p class="say">Figuring out how is usually my favorite part.</p>
+    <div class="links">
+      <a class="lnk" href="mailto:typleban1@gmail.com">Email me</a>
+      <a class="lnk alt" href="https://www.linkedin.com/in/tylerpleban" target="_blank" rel="noopener">LinkedIn</a>
+    </div>
+  </header>
+
+  <div class="benchwrap">
+    <div class="hint">Pick things up. Throw them if you want.</div>
+
+    <div id="bench" role="group" aria-label="Six things Ty has worked on. Each can be picked up and moved.">
+      <div id="note" aria-hidden="true">taught them on this exact lens</div>
+    </div>
+
+    <!-- Everything on the bench, in plain text, for anyone who never
+         touches it and for screen readers. -->
+    <div class="sr">
+      3D printing: design it, print it, find out why it doesn't fit, print it again.
+      Video: Holley Performance and Anytime Picture. Shoots, edits, events, and the
+      workflow work behind them. Email: roughly 100,000 contacts. Teaching: 250 plus
+      students at Lorain County Community College. Genius Academy: helped turn an idea
+      into a product people paid for, 70,000 dollars peak annual recurring revenue in 2022.
+      RentPup: an independent project that watches Cleveland rental compliance. No revenue yet.
+    </div>
+  </div>
+
+  <footer>
+    <div class="where">
+      <b>Genius One</b> <i>2019–now</i> &nbsp;·&nbsp;
+      <b>Holley Performance</b> <i>2022–24</i> &nbsp;·&nbsp;
+      <b>Anytime Picture</b> <i>2019–25</i> &nbsp;·&nbsp;
+      <b>Lorain County Community College</b> <i>2016–19</i>
+    </div>
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const bench = document.getElementById("bench");
+  const note = document.getElementById("note");
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* =========================================================
+     THE OBJECTS
+     Art first. Each carries its own mass, drag and spin, so a
+     printed bracket does not move like a paper envelope.
+     ========================================================= */
+  const P = {
+    plastic: getComputedStyle(document.documentElement).getPropertyValue("--plastic").trim(),
+  };
+
+  const OBJECTS = [
+    {
+      id: "bracket", w: 205, h: 168, mass: 3.4, drag: 0.86, spin: 0.15, bounce: 0.22, r: 70,
+      note: "printed this six times", nx: -8, ny: 14, na: -5,
+      say: "Design it. Print it. Find out why it doesn't fit. Print it again.",
+      art: `
+        <defs>
+          <clipPath id="cp-br">
+            <path d="M20 30 h92 a13 13 0 0 1 13 13 v64 h54 a13 13 0 0 1 13 13 v34 a13 13 0 0 1-13 13 H33
+                     a13 13 0 0 1-13-13 V43 a13 13 0 0 1 13-13 z"/>
+          </clipPath>
+          <linearGradient id="pl" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="var(--plastic)"/><stop offset="1" stop-color="var(--plastic-mid)"/>
+          </linearGradient>
+        </defs>
+        <g class="art">
+          <path d="M20 30 h92 a13 13 0 0 1 13 13 v64 h54 a13 13 0 0 1 13 13 v34 a13 13 0 0 1-13 13 H33
+                   a13 13 0 0 1-13-13 V43 a13 13 0 0 1 13-13 z" fill="url(#pl)"/>
+          <g clip-path="url(#cp-br)">
+            <g stroke="var(--plastic-dark)" stroke-width="1" opacity="0.34">
+              ${Array.from({length: 34}, (_, i) => `<line x1="14" y1="${32 + i*4}" x2="192" y2="${32 + i*4}"/>`).join("")}
+            </g>
+            <!-- the seam where the two arms meet, and a squashed first layer -->
+            <line x1="125" y1="30" x2="125" y2="107" stroke="var(--plastic-dark)" stroke-width="1.6" opacity="0.5"/>
+            <rect x="14" y="147" width="180" height="10" fill="var(--plastic-dark)" opacity="0.18"/>
+          </g>
+          <path d="M20 30 h92 a13 13 0 0 1 13 13 v64 h54 a13 13 0 0 1 13 13 v34 a13 13 0 0 1-13 13 H33
+                   a13 13 0 0 1-13-13 V43 a13 13 0 0 1 13-13 z"
+                fill="none" stroke="var(--plastic-dark)" stroke-width="2.6"/>
+          <circle cx="66" cy="72" r="15" fill="var(--bench)" stroke="var(--plastic-dark)" stroke-width="2.6"/>
+          <circle cx="66" cy="72" r="15" fill="none" stroke="#fff" stroke-width="1" opacity="0.4" transform="translate(0,-1.5)"/>
+          <circle cx="153" cy="137" r="11" fill="var(--bench)" stroke="var(--plastic-dark)" stroke-width="2.6"/>
+          <!-- a wisp of stringing between the arms -->
+          <path d="M124 112 q14 7 26 3" fill="none" stroke="var(--plastic-dark)" stroke-width="1.1" opacity="0.55"/>
+          <!-- the corner that lifted -->
+          <path d="M24 148 q16 13 35 9" fill="none" stroke="var(--plastic-dark)" stroke-width="3" stroke-linecap="round" opacity="0.75"/>
+          <text class="ver mono-stamp" x="112" y="140" font-family="DM Mono, monospace" font-size="13"
+                fill="#7C2C08" opacity="0.8" text-anchor="middle">v2</text>
+        </g>`,
+    },
+    {
+      id: "lens", w: 275, h: 150, mass: 3.0, drag: 0.955, spin: 0.5, bounce: 0.3, r: 88, rolls: true,
+      note: "the good one", nx: 10, ny: -4, na: 4,
+      say: "Holley and Anytime Picture. Shoots, edits, events, and the workflow work nobody sees.",
+      art: `
+        <defs>
+          <radialGradient id="glass" cx="0.38" cy="0.32" r="0.85">
+            <stop offset="0" stop-color="#8FC0EE"/><stop offset="0.45" stop-color="#3F6FA8"/>
+            <stop offset="1" stop-color="#1B2E4A"/>
+          </radialGradient>
+        </defs>
+        <g class="art">
+          <!-- bayonet mount -->
+          <rect x="14" y="46" width="10" height="58" rx="2" fill="#8D939B"/>
+          <rect x="22" y="40" width="20" height="70" rx="4" fill="#9BA2AA"/>
+          <rect x="22" y="40" width="20" height="70" rx="4" fill="none" stroke="#5C626A" stroke-width="1.5"/>
+          <rect x="30" y="34" width="6" height="9" rx="2" fill="#7C838B"/>
+          <rect x="30" y="107" width="6" height="9" rx="2" fill="#7C838B"/>
+          <!-- barrel, stepped -->
+          <rect x="40" y="36" width="96" height="78" rx="7" fill="var(--barrel)"/>
+          <rect x="132" y="28" width="76" height="94" rx="9" fill="#2B3037"/>
+          <!-- rubber grip -->
+          <rect x="58" y="36" width="46" height="78" fill="#191C21"/>
+          <g stroke="#4A525C" stroke-width="2">
+            ${Array.from({length: 15}, (_, i) => `<line x1="${61 + i*3}" y1="38" x2="${61 + i*3}" y2="112"/>`).join("")}
+          </g>
+          <!-- engraved focal length -->
+          <text x="118" y="62" font-family="Figtree, sans-serif" font-weight="600" font-size="12"
+                fill="#D3D9E0" text-anchor="middle">24-70</text>
+          <g font-family="DM Mono, monospace" font-size="10" fill="#98A1AC">
+            <line x1="108" y1="76" x2="132" y2="76" stroke="#575F69" stroke-width="1.2"/>
+            <text x="110" y="92">∞</text><text x="124" y="92">3</text>
+          </g>
+          <!-- front element -->
+          <ellipse cx="212" cy="75" rx="21" ry="47" fill="#0A0C0F"/>
+          <ellipse cx="214" cy="75" rx="16" ry="40" fill="url(#glass)"/>
+          <path d="M206 44 q-9 30 2 60" fill="none" stroke="#CFE4F7" stroke-width="4" opacity="0.5" stroke-linecap="round"/>
+          <ellipse cx="214" cy="75" rx="16" ry="40" fill="none" stroke="#7FA8D0" stroke-width="1.2" opacity="0.8"/>
+          <rect x="40" y="36" width="168" height="78" rx="7" fill="none" stroke="#0A0C0F" stroke-width="1.6"/>
+        </g>`,
+    },
+    {
+      id: "envelope", w: 290, h: 195, mass: 0.85, drag: 0.9, spin: 1.5, bounce: 0.14, r: 92,
+      note: "100,000 of these", nx: 6, ny: 12, na: 3,
+      say: "Segmented funnels for roughly 100,000 contacts. A lot of inboxes.",
+      num: "~100K contacts",
+      art: `
+        <g class="art">
+          <rect x="16" y="38" width="258" height="146" rx="6" fill="#E9DCC0"/>
+          <rect x="16" y="38" width="258" height="146" rx="6" fill="none" stroke="var(--manila-dark)" stroke-width="1.8"/>
+          <g opacity="0.55">
+            <rect x="40" y="64" width="86" height="6" rx="3" fill="#9C8B62"/>
+            <rect x="40" y="80" width="60" height="6" rx="3" fill="#9C8B62"/>
+            <rect x="40" y="96" width="72" height="6" rx="3" fill="#9C8B62"/>
+          </g>
+          <rect x="152" y="104" width="104" height="58" rx="4" fill="#F6EEDA" stroke="var(--manila-dark)" stroke-width="1.4"/>
+          <text x="204" y="132" font-family="Figtree, sans-serif" font-weight="600" font-size="13"
+                fill="#6E6047" text-anchor="middle">TO</text>
+          <text x="204" y="150" font-family="Figtree, sans-serif" font-size="12"
+                fill="#8A7A5C" text-anchor="middle">100,000 people</text>
+          <path class="flap" d="M16 38 L145 122 L274 38 z" fill="#E4D5B4"
+                stroke="var(--manila-dark)" stroke-width="1.8" style="transform-origin: 145px 38px"/>
+          <circle class="seal" cx="145" cy="112" r="13" fill="#B0472F"/>
+          <circle class="seal" cx="145" cy="112" r="9" fill="none" stroke="#8A3421" stroke-width="1.4"/>
+          <g class="slip" opacity="0">
+            <rect x="44" y="10" width="202" height="86" rx="4" fill="#FDFBF5" stroke="var(--rule)" stroke-width="1.6"/>
+            <line x1="60" y1="40" x2="230" y2="40" stroke="#E0D8C6" stroke-width="1"/>
+            <line x1="60" y1="62" x2="230" y2="62" stroke="#E0D8C6" stroke-width="1"/>
+            <text x="145" y="35" font-family="Figtree, sans-serif" font-size="14" fill="var(--ink)" text-anchor="middle">Designed, segmented,</text>
+            <text x="145" y="57" font-family="Figtree, sans-serif" font-size="14" fill="var(--ink)" text-anchor="middle">and actually sent.</text>
+          </g>
+        </g>`,
+    },
+    {
+      id: "clipboard", w: 215, h: 262, mass: 2.1, drag: 0.9, spin: 0.55, bounce: 0.18, r: 88,
+      note: "250 of them", nx: -12, ny: 10, na: -4,
+      say: "250+ students. Teaching video mostly means fixing whatever just broke.",
+      num: "Lorain County Community College",
+      art: `
+        <g class="art">
+          <rect x="14" y="28" width="186" height="222" rx="9" fill="#7A6A52"/>
+          <rect x="14" y="28" width="186" height="222" rx="9" fill="none" stroke="#5C4F3C" stroke-width="1.6"/>
+          <g class="sheet2" opacity="0">
+            <rect x="30" y="58" width="158" height="180" rx="3" fill="#F1E9D6" stroke="var(--manila-dark)" stroke-width="1.2"/>
+          </g>
+          <path d="M26 52 h162 v182 h-148 l-14 -14 z" fill="#FCFAF3" stroke="#E2DAC6" stroke-width="1.4"/>
+          <path d="M26 220 l14 14 h-14 z" fill="#EDE5D2"/>
+          <g stroke="#E6DECB" stroke-width="1">
+            ${Array.from({length: 8}, (_, i) => `<line x1="40" y1="${86 + i*19}" x2="176" y2="${86 + i*19}"/>`).join("")}
+          </g>
+          <g stroke="var(--pencil)" stroke-width="2.2" stroke-linecap="round" opacity="0.8">
+            ${(() => { let o = ""; for (let g = 0; g < 10; g++) {
+                const x = 46 + (g % 5) * 27, y = 92 + Math.floor(g / 5) * 38;
+                for (let i = 0; i < 4; i++) o += `<line x1="${x + i*5}" y1="${y}" x2="${x + i*5}" y2="${y + 19}"/>`;
+                o += `<line x1="${x - 3}" y1="${y + 18}" x2="${x + 19}" y2="${y + 2}"/>`;
+              } return o; })()}
+          </g>
+          <text x="107" y="205" font-family="Fraunces, serif" font-style="italic" font-size="19"
+                fill="var(--pencil)" text-anchor="middle">250+</text>
+          <circle cx="160" cy="196" r="17" fill="none" stroke="#B99A63" stroke-width="2.4" opacity="0.4"/>
+          <rect x="72" y="16" width="70" height="26" rx="6" fill="#A9AFB7"/>
+          <rect x="82" y="9" width="50" height="14" rx="5" fill="#C7CDD4"/>
+          <rect x="72" y="16" width="70" height="26" rx="6" fill="none" stroke="#7E848C" stroke-width="1.4"/>
+        </g>`,
+    },
+    {
+      id: "card", w: 262, h: 168, mass: 1.0, drag: 0.905, spin: 1.9, bounce: 0.3, r: 84,
+      note: "someone's idea, built",  nx: 8, ny: 12, na: 5,
+      say: "Someone had an idea. I helped turn it into a product people paid for.",
+      num: "$70K+ peak ARR · 2022",
+      art: `
+        <defs>
+          <linearGradient id="plum" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#5C3A7B"/><stop offset="1" stop-color="#3B2251"/>
+          </linearGradient>
+        </defs>
+        <g class="art">
+          <rect x="18" y="24" width="228" height="140" rx="15" fill="url(#plum)"/>
+          <path d="M18 112 q66 -34 228 -16 v52 a15 15 0 0 1-15 15 H33 a15 15 0 0 1-15-15 z"
+                fill="#6F4A90" opacity="0.5"/>
+          <rect x="18" y="24" width="228" height="140" rx="15" fill="none" stroke="#2A1739" stroke-width="1.8"/>
+          <!-- chip with contacts -->
+          <rect x="42" y="54" width="42" height="32" rx="5" fill="var(--card-b)"/>
+          <g stroke="#9A7728" stroke-width="1.2" opacity="0.85">
+            <line x1="42" y1="70" x2="84" y2="70"/><line x1="63" y1="54" x2="63" y2="86"/>
+            <line x1="52" y1="60" x2="52" y2="80"/><line x1="74" y1="60" x2="74" y2="80"/>
+          </g>
+          <text class="emboss" x="42" y="132" font-family="Fraunces, serif" font-weight="700"
+                font-size="21" fill="#EFE3F8" letter-spacing="0.5">Genius Academy</text>
+          <text x="222" y="70" font-family="Figtree, sans-serif" font-size="13"
+                fill="#C3A8DC" text-anchor="end">member</text>
+          <rect x="42" y="140" width="60" height="4" rx="2" fill="#8B6BA8" opacity="0.6"/>
+        </g>`,
+    },
+    {
+      id: "propcard", w: 230, h: 276, mass: 1.2, drag: 0.9, spin: 1.05, bounce: 0.2, r: 92,
+      note: "still watching", nx: 10, ny: 8, na: -3,
+      say: "Rental compliance in Cleveland is a mess. I built something that watches for it.",
+      num: "Independent project",
+      art: `
+        <g class="art">
+          <!-- a Cleveland property record card, not a generic ticket -->
+          <rect x="16" y="20" width="198" height="242" rx="4" fill="var(--manila)"/>
+          <rect x="16" y="20" width="198" height="242" rx="4" fill="none" stroke="var(--manila-dark)" stroke-width="1.8"/>
+          <rect x="16" y="20" width="198" height="34" fill="#D9C286"/>
+          <text x="32" y="43" font-family="Figtree, sans-serif" font-weight="600" font-size="14" fill="#5E4E28">PROPERTY RECORD</text>
+          <!-- parcel thumbnail -->
+          <rect x="32" y="66" width="76" height="62" fill="#F6EEDA" stroke="var(--manila-dark)" stroke-width="1.2"/>
+          <path d="M40 118 h24 v-26 h20 v-14 h16" fill="none" stroke="#A8895180" stroke-width="1.4"/>
+          <path d="M46 110 h20 v-18 h14" fill="none" stroke="#8A6F3C" stroke-width="2"/>
+          <rect x="52" y="92" width="16" height="14" fill="#B0472F" opacity="0.75"/>
+          <text x="70" y="140" font-family="DM Mono, monospace" font-size="9"
+                fill="#8A7A54" text-anchor="middle">PARCEL</text>
+          <!-- compliance rows -->
+          <g font-family="Figtree, sans-serif" font-size="12" fill="#5E4E28">
+            <text x="122" y="78">Permits</text><text x="122" y="102">Taxes</text>
+            <text x="122" y="126">Inspection</text><text x="122" y="150">Court</text>
+          </g>
+          <g stroke="#7A9B5E" stroke-width="2.4" fill="none" stroke-linecap="round">
+            <path d="M186 72 l4 5 l8 -10"/><path d="M186 96 l4 5 l8 -10"/><path d="M186 144 l4 5 l8 -10"/>
+          </g>
+          <g stroke="#B0472F" stroke-width="2.4" stroke-linecap="round">
+            <line x1="186" y1="116" x2="197" y2="127"/><line x1="197" y1="116" x2="186" y2="127"/>
+          </g>
+          <line x1="32" y1="162" x2="198" y2="162" stroke="var(--manila-dark)" stroke-width="1.2"/>
+          <g font-family="DM Mono, monospace" font-size="10" fill="#8A7A54">
+            <text x="32" y="182">WARD 3 · CLEVELAND</text>
+            <text x="32" y="200">CHECKED DAILY</text>
+          </g>
+          <!-- the guardrail, stamped on the object itself -->
+          <g transform="rotate(-9 118 232)">
+            <rect x="52" y="212" width="132" height="34" rx="3" fill="none" stroke="#B0472F" stroke-width="2.4" opacity="0.72"/>
+            <text x="118" y="235" font-family="Figtree, sans-serif" font-weight="600" font-size="14"
+                  fill="#B0472F" opacity="0.78" text-anchor="middle">NO REVENUE YET</text>
+          </g>
+        </g>`,
+    },
+  ];
+
+  /* =========================================================
+     Build the DOM
+     ========================================================= */
+  const nodes = [];
+  OBJECTS.forEach((o, i) => {
+    const el = document.createElement("div");
+    el.className = "obj";
+    el.tabIndex = 0;
+    el.setAttribute("role", "button");
+    el.setAttribute("aria-label", `${o.note}. ${o.say}`);
+    el.innerHTML =
+      `<svg width="${o.w}" height="${o.h}" viewBox="0 0 ${o.w} ${o.h}" aria-hidden="true">${o.art}</svg>` +
+      `<div class="tag">${o.note}</div>` +
+      `<div class="say-more"><p>${o.say}</p>${o.num ? `<span class="n">${o.num}</span>` : ""}</div>`;
+    bench.appendChild(el);
+    nodes.push({ ...o, el, x: 0, y: 0, vx: 0, vy: 0, a: 0, va: 0, held: false, z: i, version: 2 });
+  });
+
+  /* Scatter, overlapping and rotated, like things put down in a hurry. */
+  function layout() {
+    const W = bench.clientWidth, H = bench.clientHeight;
+    const spots = W < 640
+      ? [[0.32,0.11],[0.68,0.26],[0.30,0.44],[0.70,0.60],[0.34,0.76],[0.66,0.91]]
+      : [[0.19,0.36],[0.40,0.22],[0.63,0.30],[0.30,0.71],[0.55,0.63],[0.80,0.62]];
+    const tilt = [-9, 6, -4, 11, -13, 5];
+    nodes.forEach((n, i) => {
+      n.x = spots[i][0] * W;
+      n.y = spots[i][1] * H;
+      n.a = tilt[i];
+      n.vx = n.vy = n.va = 0;
+      clamp(n, W, H);
+      draw(n);
+    });
+  }
+
+  function clamp(n, W, H) {
+    n.x = Math.max(n.r, Math.min(W - n.r, n.x));
+    n.y = Math.max(n.r, Math.min(H - n.r, n.y));
+  }
+
+  function draw(n) {
+    n.el.style.transform =
+      `translate(${n.x - n.w / 2}px, ${n.y - n.h / 2}px) rotate(${n.a}deg)`;
+    // The reveal and the tag stay level no matter how the object lies.
+    // Annotations lean a little, but never with the object: something
+    // written on the bench does not rotate when the thing on top of it does.
+    const t = n.el.querySelector(".tag");
+    t.style.left = `${n.w / 2 + (n.nx ?? 0) * 4}px`;
+    t.style.top = `${n.h + 6 + (n.ny ?? 0)}px`;
+    t.style.transform = `translate(-50%, 0) rotate(${(n.na ?? 0)}deg)`;
+  }
+
+  /* =========================================================
+     Physics. Top-down, so no gravity: things slide and settle.
+     ========================================================= */
+  let last = performance.now();
+  function tick(now) {
+    const dt = Math.min(2.4, (now - last) / 16.67);
+    last = now;
+    const W = bench.clientWidth, H = bench.clientHeight;
+
+    for (const n of nodes) {
+      if (n.held) continue;
+      n.x += n.vx * dt; n.y += n.vy * dt; n.a += n.va * dt;
+      n.vx *= Math.pow(n.drag, dt); n.vy *= Math.pow(n.drag, dt);
+      n.va *= Math.pow(0.9, dt);
+      if (Math.abs(n.vx) < 0.02) n.vx = 0;
+      if (Math.abs(n.vy) < 0.02) n.vy = 0;
+      if (Math.abs(n.va) < 0.02) n.va = 0;
+
+      // walls
+      let hit = 0;
+      if (n.x < n.r) { n.x = n.r; n.vx = -n.vx * n.bounce; hit = Math.abs(n.vx); }
+      if (n.x > W - n.r) { n.x = W - n.r; n.vx = -n.vx * n.bounce; hit = Math.abs(n.vx); }
+      if (n.y < n.r) { n.y = n.r; n.vy = -n.vy * n.bounce; hit = Math.abs(n.vy); }
+      if (n.y > H - n.r) { n.y = H - n.r; n.vy = -n.vy * n.bounce; hit = Math.abs(n.vy); }
+      if (hit > 1.2) { n.va += (Math.random() - 0.5) * n.spin * 6; impact(n, hit); }
+    }
+
+    // pairwise, six objects, so brute force is the right amount of clever
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const A = nodes[i], B = nodes[j];
+        let dx = B.x - A.x, dy = B.y - A.y;
+        let d = Math.hypot(dx, dy);
+        const min = A.r + B.r;
+        if (d === 0) { d = 0.01; dx = 0.01; }
+        if (d >= min) continue;
+
+        const nx = dx / d, ny = dy / d, overlap = min - d;
+        const total = A.mass + B.mass;
+        if (!A.held) { A.x -= nx * overlap * (B.mass / total); A.y -= ny * overlap * (B.mass / total); }
+        if (!B.held) { B.x += nx * overlap * (A.mass / total); B.y += ny * overlap * (A.mass / total); }
+
+        const rvx = B.vx - A.vx, rvy = B.vy - A.vy;
+        const sep = rvx * nx + rvy * ny;
+        if (sep < 0) {
+          const e = Math.min(A.bounce, B.bounce) + 0.35;
+          const imp = -(1 + e) * sep / (1 / A.mass + 1 / B.mass);
+          if (!A.held) { A.vx -= imp * nx / A.mass; A.vy -= imp * ny / A.mass; A.va -= imp * A.spin * 0.4; }
+          if (!B.held) { B.vx += imp * nx / B.mass; B.vy += imp * ny / B.mass; B.va += imp * B.spin * 0.4; }
+          const force = Math.abs(imp);
+          if (force > 2) { impact(A, force / A.mass); impact(B, force / B.mass); }
+          meeting(A, B);
+        }
+      }
+    }
+
+    for (const n of nodes) { clamp(n, W, H); draw(n); }
+    requestAnimationFrame(tick);
+  }
+
+  /* ---- egg 1: the bracket takes a new revision every hard landing ---- */
+  function impact(n, force) {
+    if (n.id !== "bracket" || force < 2.4) return;
+    n.version = Math.min(99, n.version + 1);
+    const t = n.el.querySelector(".ver");
+    if (t) t.textContent = "v" + n.version;
+  }
+
+  /* ---- egg 2: lens meets clipboard ---- */
+  let noted = false;
+  function meeting(A, B) {
+    const ids = [A.id, B.id];
+    if (!ids.includes("lens") || !ids.includes("clipboard")) return;
+    note.style.left = ((A.x + B.x) / 2) + "px";
+    note.style.top = ((A.y + B.y) / 2 - 58) + "px";
+    note.classList.add("on");
+    noted = true;
+    clearTimeout(note._t);
+    note._t = setTimeout(() => note.classList.remove("on"), 4200);
+  }
+
+  /* ---- egg 3: the envelope opens ---- */
+  function openEnvelope(n, open) {
+    const flap = n.el.querySelector(".flap");
+    const slip = n.el.querySelector(".slip");
+    if (!flap) return;
+    flap.style.transition = "transform .42s cubic-bezier(.2,.9,.3,1.3)";
+    slip.style.transition = "opacity .3s ease .12s, transform .42s cubic-bezier(.2,.9,.3,1.3) .1s";
+    flap.style.transform = open ? "scaleY(-1)" : "scaleY(1)";
+    slip.style.opacity = open ? "1" : "0";
+    slip.style.transform = open ? "translateY(-16px)" : "translateY(0)";
+  }
+
+  /* clipboard: lift the top sheet */
+  function liftSheet(n, open) {
+    const s = n.el.querySelector(".sheet2");
+    if (s) { s.style.transition = "opacity .3s ease"; s.style.opacity = open ? "1" : "0"; }
+  }
+
+  /* =========================================================
+     Pointer: pick up, drag, throw
+     ========================================================= */
+  let topZ = 10;
+  nodes.forEach(n => {
+    let id = null, ox = 0, oy = 0, moved = 0, lx = 0, ly = 0, lt = 0;
+
+    n.el.addEventListener("pointerdown", e => {
+      id = e.pointerId;
+      n.el.setPointerCapture(id);
+      n.held = true; moved = 0;
+      n.el.classList.add("held");
+      n.el.style.zIndex = ++topZ;
+      const b = bench.getBoundingClientRect();
+      ox = n.x - (e.clientX - b.left); oy = n.y - (e.clientY - b.top);
+      lx = e.clientX; ly = e.clientY; lt = performance.now();
+      n.vx = n.vy = 0;
+    });
+
+    n.el.addEventListener("pointermove", e => {
+      if (id === null || e.pointerId !== id) return;
+      const b = bench.getBoundingClientRect();
+      const nx = e.clientX - b.left + ox, ny = e.clientY - b.top + oy;
+      moved += Math.abs(nx - n.x) + Math.abs(ny - n.y);
+      n.x = nx; n.y = ny;
+      const dt = Math.max(8, performance.now() - lt);
+      // Throwing is a desktop pleasure; on a phone it fights scrolling.
+      if (!coarse) {
+        n.vx = (e.clientX - lx) / dt * 9;
+        n.vy = (e.clientY - ly) / dt * 9;
+        n.va = (e.clientX - lx) / dt * n.spin * 1.6;
+      }
+      lx = e.clientX; ly = e.clientY; lt = performance.now();
+      clamp(n, bench.clientWidth, bench.clientHeight);
+      draw(n);
+    });
+
+    const release = e => {
+      if (id === null || (e && e.pointerId !== id)) return;
+      try { n.el.releasePointerCapture(id); } catch {}
+      id = null; n.held = false;
+      n.el.classList.remove("held");
+      if (coarse) { n.vx = n.vy = 0; }
+      // A tap, not a throw: show what it is.
+      if (moved < 6) toggle(n);
+    };
+    n.el.addEventListener("pointerup", release);
+    n.el.addEventListener("pointercancel", release);
+
+    n.el.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(n); }
+      const step = e.shiftKey ? 40 : 14;
+      const k = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+      if (k) { e.preventDefault(); n.x += k[0]; n.y += k[1]; clamp(n, bench.clientWidth, bench.clientHeight); draw(n); }
+    });
+  });
+
+  function toggle(n) {
+    const open = !n.el.classList.contains("open");
+    nodes.forEach(o => { if (o !== n) { o.el.classList.remove("open"); openEnvelope(o, false); liftSheet(o, false); } });
+    n.el.classList.toggle("open", open);
+    n.el.style.zIndex = ++topZ;
+    if (n.id === "envelope") openEnvelope(n, open);
+    if (n.id === "clipboard") liftSheet(n, open);
+  }
+
+  bench.addEventListener("pointerdown", e => {
+    if (e.target === bench) nodes.forEach(o => {
+      o.el.classList.remove("open"); openEnvelope(o, false); liftSheet(o, false);
+    });
+  });
+
+  layout();
+  let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(layout, 220); });
+  if (!still) requestAnimationFrame(tick);
+})();
+</script>

@@ -113,8 +113,18 @@ async function ingestCompany(
     warnings, error: null,
   };
 
-  const fetched = await provider.fetchBoard(token);
+  // Resume a paginated board where the last run stopped.
+  //
+  // Workday caps a page at 20 and a large employer has thousands of
+  // postings, so one run cannot see a whole board. Without a cursor the
+  // first 600 quietly become "the board" and a newly discovered employer
+  // stays permanently half-known. The cursor is read here and advanced
+  // below; providers that return everything at once ignore it.
+  const cursor = await store.readBoardCursor?.(company.ats_provider, token) ?? null;
+  const resumeFrom = cursor && !cursor.backfillComplete ? cursor.nextOffset : 0;
+  const fetched = await provider.fetchBoard(token, resumeFrom ? { startOffset: resumeFrom } : {});
   const fetchedAt = new Date().toISOString();
+  if (resumeFrom) warnings.push(`resumed this board from posting ${resumeFrom}`);
   base.httpStatus = fetched.httpStatus;
   base.durationMs = fetched.durationMs;
   base.responseBytes = fetched.responseBytes;
@@ -239,7 +249,33 @@ async function ingestCompany(
     }
   }
 
-  if (!suspiciousEmpty) {
+  // A resumed backfill returns the TAIL of a board, not the board.
+  //
+  // Northern Trust resumed from posting 600, came back with 34, and the
+  // absence check read that as the board shrinking from 600 to 34 and
+  // aged out everything before the cursor. 1,428 jobs were marked
+  // missing in one run. A partial read is evidence about the postings it
+  // contains and about nothing else.
+  // A read is partial if it did not REACH THE END, not merely if it
+  // started late.
+  //
+  // The first version only asked whether the fetch resumed from an
+  // offset. Boeing's cursor said complete, so it restarted at 0, read
+  // its 600-page cap, stopped short of a 1,300-posting board, and the
+  // absence check aged out 119 postings it had simply not asked for.
+  // Starting at zero says nothing about finishing.
+  //
+  // Only a traversal that reached the end of the board is authoritative.
+  const reachedEndOfBoard = (fetched as { nextOffset?: number }).nextOffset === -1
+    || (fetched as { nextOffset?: number }).nextOffset === undefined;
+  const partialRead = resumeFrom > 0 || !reachedEndOfBoard;
+  if (partialRead) {
+    warnings.push(resumeFrom > 0
+      ? `partial read resumed at ${resumeFrom}; absent postings were not aged`
+      : "partial read stopped at the page cap before the end of the board; absent postings were not aged");
+  }
+
+  if (!suspiciousEmpty && !partialRead) {
     const missing = await store.markMissing({
       companyId: company.id, source: company.ats_provider, seenExternalIds: seenSourceIds,
     });
@@ -257,6 +293,20 @@ async function ingestCompany(
     `(+${base.jobsNew} new, ~${base.jobsChanged} changed, =${base.jobsUnchanged} unchanged, ` +
     `-${base.possiblyClosed + base.closedOrRemoved} missing) ${fetched.durationMs}ms`,
   );
+  // Advance the cursor. -1 is the provider saying it reached the end,
+  // which is the only thing that may mark a backfill complete: a run
+  // that merely stopped early has not proved anything about the board.
+  const next = (fetched as { nextOffset?: number }).nextOffset;
+  if (typeof next === "number") {
+    await store.writeBoardCursor?.({
+      provider: company.ats_provider, token,
+      nextOffset: next === -1 ? 0 : next,
+      backfillComplete: next === -1,
+      postingsSeen: (cursor?.postingsSeen ?? 0) + fetched.postings.length,
+      error: fetched.error,
+    });
+  }
+
   return base;
 }
 
@@ -270,7 +320,8 @@ export async function verifyBoard(
   providerName: string, token: string,
 ): Promise<{ ok: boolean; jobCount: number; httpStatus: number | null; error: string | null; durationMs: number }> {
   const provider = getProvider(providerName);
-  const res = await provider.fetchBoard(token, { timeoutMs: 30_000 });
+  // One page is enough to answer "does this board exist and have jobs".
+  const res = await provider.fetchBoard(token, { timeoutMs: 30_000, maxPages: 1 });
   return {
     ok: res.ok && res.postings.length > 0,
     jobCount: res.postings.length,

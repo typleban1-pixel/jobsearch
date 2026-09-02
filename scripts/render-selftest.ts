@@ -38,6 +38,29 @@ for (const [name, input, expected] of cases) {
   if (!ok) console.log(`        got      ${got}\n        expected ${expected}`);
 }
 
+// Words that are spelled the same in both variants must survive intact.
+// "Specialist" was being rewritten to "Specializt" by the -ise rule.
+const untouched = [
+  "Video Production & Client Solutions Specialist",
+  "Digital Marketing, Product & Operations Specialist",
+  "Two specialists reviewed the analysis.",
+];
+for (const text of untouched) {
+  const got = toAmericanEnglish(text).text;
+  const ok = got === text;
+  if (!ok) failed++;
+  console.log(`  ${ok ? "PASS" : "FAIL"}  unchanged: ${text.slice(0, 46)}`);
+  if (!ok) console.log(`        got ${got}`);
+}
+// ...while the genuinely British forms are still corrected.
+const spellingPairs: Array<[string, string]> = [["specialise", "specialize"], ["specialised", "specialized"], ["specialising", "specializing"]];
+for (const [from, to] of spellingPairs) {
+  const got = toAmericanEnglish(from).text;
+  const ok = got === to;
+  if (!ok) failed++;
+  console.log(`  ${ok ? "PASS" : "FAIL"}  ${from} -> ${got}`);
+}
+
 // The guard must reject, not quietly pass.
 let threw = false;
 try { assertAmericanEnglish("We optimised the programme."); } catch { threw = true; }
@@ -58,6 +81,17 @@ const claimCases: Array<[string, boolean]> = [
   ["Senior software engineer with full-stack experience.", true],
   ["Used AI-assisted development to build a working product end to end.", false],
   ["Created the Video Program internship program from the ground up.", true],
+  // The exact wording of the deleted evidence row. It never used the
+  // word "internship", which is how it survived the first guard.
+  ["Created the program from the ground up and developed real-world student production opportunities.", true],
+  ["Founded the LCCC Video Program.", true],
+  ["Developed the internship program at Lorain County Community College.", true],
+  ["At LCCC, established the video program.", true],
+  // Program-creation language that is NOT about LCCC must stay allowed.
+  // The retraction is a source correction, not a capability absence.
+  ["Built a training program for Genius Academy customers.", false],
+  ["Designed a certification program for the Genius One product line.", false],
+  ["Taught in the LCCC Video Program and coordinated student production work.", false],
   ["Generated more than $70,000 in ARR.", true],
   ["Played a substantial hands-on role in developing, launching, and operating Genius Academy, an education-focused offering that reached a peak of more than $70,000 in annual recurring revenue in 2022.", false],
   ["Managed a team of 12 employees.", true],

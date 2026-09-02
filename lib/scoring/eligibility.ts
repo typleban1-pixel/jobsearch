@@ -15,6 +15,7 @@
  * withheld, and only on evidence the posting itself states.
  */
 
+import type { NormalizedLocation } from "../ingest/normalize/locationSet.ts";
 import { compareToFloor } from "./salary.ts";
 
 // 2: the rules changed. A definitively known salary maximum below the
@@ -63,6 +64,13 @@ export interface EligibilityInput {
   remotePolicy: string | null;
   remoteRestriction: string | null;
   locationRaw: string | null;
+  /**
+   * Every place the posting names, normalized. Authoritative when
+   * present; the singular city/state/metro fields above are the legacy
+   * first-place-only reading and are used only as a fallback for callers
+   * that have not been migrated.
+   */
+  locations?: NormalizedLocation[];
 }
 
 /**
@@ -156,7 +164,91 @@ export function assessEligibility(
   return geo;
 }
 
+/**
+ * Geography over the SET of places a posting names.
+ *
+ * Each place is judged on its own, then combined by the rule the user
+ * stated: one supported location is enough, and an unsuitable
+ * alternative does not disqualify a posting that also lists a suitable
+ * one. The combination is deliberately optimistic in that one direction
+ * and nowhere else, because a posting offering Chicago among four cities
+ * is genuinely open to Chicago.
+ *
+ * ELIGIBLE beats UNCERTAIN beats INELIGIBLE. A posting is only ineligible
+ * when EVERY place it names is.
+ */
 function assessGeography(
+  job: EligibilityInput,
+  rules: EligibilityRules,
+): EligibilityVerdict {
+  const set = job.locations ?? [];
+  if (set.length > 1) {
+    const verdicts = set.map((loc) => ({
+      loc,
+      v: assessOneLocation({ ...job, ...projectLocation(loc, job) }, rules),
+    }));
+    const eligible = verdicts.find((x) => x.v.status === "ELIGIBLE");
+    if (eligible) {
+      return {
+        ...eligible.v,
+        detail: `${eligible.v.detail}; one of ${set.length} listed locations (${truncate(job.locationRaw ?? "")})`,
+      };
+    }
+    const uncertain = verdicts.find((x) => x.v.status === "UNCERTAIN");
+    if (uncertain) {
+      return { ...uncertain.v, detail: `${uncertain.v.detail}; none of ${set.length} listed locations is clearly eligible` };
+    }
+    const worst = verdicts[0]!.v;
+    return { ...worst, detail: `${worst.detail}; all ${set.length} listed locations excluded` };
+  }
+
+  // One location, or none normalized: judge the job as it stands. When a
+  // single normalized location exists it replaces the legacy fields,
+  // since it is the same place read more carefully.
+  const only = set[0];
+  return assessOneLocation(only ? { ...job, ...projectLocation(only, job) } : job, rules);
+}
+
+/** Presents one normalized location in the shape the single-place test reads. */
+function projectLocation(
+  loc: NormalizedLocation,
+  job: EligibilityInput,
+): Pick<EligibilityInput, "city" | "state" | "country" | "metro" | "remoteRestriction" | "locationRaw"> {
+  return {
+    // The segment, not the whole string. Judging the Seattle entry of
+    // "Toronto, Ontario, Canada; Seattle, WA" against text containing
+    // "Canada" would fail it for a sibling's geography, which is the
+    // contamination this whole change exists to remove.
+    locationRaw: loc.rawSegment,
+    city: loc.city,
+    state: loc.state,
+    // A non-US region must not arrive as a US country code.
+    // A remote entry that names no scope inherits whatever country the
+    // posting already carried. Whether a bare "Remote" should be assumed
+    // US at all is a real question, and a separate one: deciding it here
+    // would move 41 jobs for a reason that has nothing to do with
+    // multi-location parsing, and this change is meant to measure one
+    // thing.
+    // A region is not a country. "AMER" in the country field made a
+    // posting foreign; it means the Americas, which include the US. The
+    // region still reaches the text tests through rawSegment.
+    country: loc.country === "US" ? "US"
+           : loc.country ?? (loc.isRemote ? job.country : null),
+    metro: loc.metro,
+    // For a remote entry the scope is the restriction. For a place named
+    // under a remote policy, the PLACE is the restriction: a posting
+    // whose location field is "Ohio" and whose policy is remote is
+    // exactly the residency-versus-anchor-office ambiguity the gate
+    // already holds as UNCERTAIN. Returning null here quietly promoted
+    // 147 single-state remote roles to "remote, US".
+    remoteRestriction: loc.isRemote
+      ? loc.remoteScope
+      : ([loc.city, loc.state, loc.region, loc.country === "US" ? null : loc.country]
+          .filter(Boolean).join(", ") || null),
+  };
+}
+
+function assessOneLocation(
   job: EligibilityInput,
   rules: EligibilityRules,
 ): EligibilityVerdict {

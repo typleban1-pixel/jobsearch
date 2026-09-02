@@ -37,7 +37,17 @@ export function htmlToText(html: string): string {
     .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, " ")
     .replace(/<\s*(br|\/p|\/div|\/li|\/tr|\/h[1-6])\s*\/?>/gi, "\n")
     .replace(/<\s*li[^>]*>/gi, "\n- ")
-    .replace(/<[^>]+>/g, " ");
+    // A tag name, not merely a "<".
+    //
+    // Decoding has to happen first (see above), which means a posting
+    // that wrote "&lt; 2 years of experience" now holds a literal "<"
+    // in running text. The old /<[^>]+>/ swallowed everything from that
+    // "<" to the next ">" anywhere later in the markup, deleting the
+    // sentence and any tags between. UChicago's Research Technician lost
+    // its entire minimum work-experience line that way, leaving a
+    // bachelor's degree as the only requirement the posting appeared to
+    // make. A real tag opens with a letter or a slash; "< 2" does not.
+    .replace(/<\/?[a-zA-Z][^>]*>/g, " ");
 
   return normalizeWhitespace(decodeEntities(s));
 }

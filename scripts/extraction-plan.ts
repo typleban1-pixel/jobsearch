@@ -38,8 +38,13 @@ for (const d of descs) {
 
 // ~4 characters per token is the standard rough figure for English prose.
 const inputTokens = Math.round(chars / 4);
-const promptOverhead = counted * 400;      // instructions and schema per call
-const outputTokens = counted * 350;        // structured requirement list
+// Measured, not guessed. A 25-job pilot on 2026-09-01 ran 3,101 input
+// and 2,053 output tokens per job; the previous figures here (400 and
+// 350) understated output by six times and quoted a targeted run at
+// $3.11 that actually cost about $10.50. Requirement lists are long:
+// that pilot averaged 16.5 requirements per posting.
+const promptOverhead = counted * 900;      // instructions and schema per call
+const outputTokens = counted * 2050;       // structured requirement list
 const totalIn = inputTokens + promptOverhead;
 
 console.log("extraction pre-flight\n");
@@ -52,4 +57,7 @@ console.log(`  average per job              ${counted ? Math.round(chars / count
 console.log(`  largest single description   ${maxChars.toLocaleString()}`);
 console.log(`\n  estimated input tokens       ${totalIn.toLocaleString()}  (${inputTokens.toLocaleString()} text + ${promptOverhead.toLocaleString()} prompt overhead)`);
 console.log(`  estimated output tokens      ${outputTokens.toLocaleString()}`);
+// Extraction runs the fast tier. Priced from lib/llm/anthropic.ts.
+const estCost = totalIn / 1e6 * 1.0 + outputTokens / 1e6 * 5.0;
+console.log(`  estimated spend              $${estCost.toFixed(2)}  (haiku-4.5, $1/$5 per Mtok)`);
 console.log(`\n  NOTE: estimates only. No request has been sent and no key has been used.`);

@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { required } from "../env.ts";
 import { detectChanges } from "../ingest/diff.ts";
+import { touchBatches } from "./touchRows.ts";
 import type {
   CompanyRow, ExistingJob, FetchRecord, JobWriteInput, JobWriteResult,
   MissingResult, RunStats, Store,
@@ -39,6 +40,13 @@ export class SupabaseStore implements Store {
       );
     }
     return data;
+  }
+
+  async countActiveBoards(): Promise<number> {
+    const { count } = await this.db.from("companies")
+      .select("id", { count: "exact", head: true })
+      .in("lifecycle", ["ACTIVE", "VERIFIED"]).not("ats_token", "is", null);
+    return count ?? 0;
   }
 
   async listCompaniesToCheck(limit: number): Promise<CompanyRow[]> {
@@ -262,22 +270,14 @@ export class SupabaseStore implements Store {
       );
     }
 
-    for (const slice of chunk(inputs, 500)) {
-      await this.run("touchUnchanged",
-        this.db.from("jobs").upsert(slice.map((u) => ({
-          id: u.existing!.id,
-          company_id: u.companyId,
-          source: u.source,
-          external_id: u.normalized.sourceJobId,
-          title: u.normalized.title,
-          last_seen_at: u.fetchedAt,
-          last_seen_open_at: u.fetchedAt,
-          consecutive_missing_checks: 0,
-          ...(u.existing!.status !== "OPEN"
-            ? { status: "OPEN", status_changed_at: u.fetchedAt,
-                closed_detection_reason: "reappeared on board" }
-            : {}),
-        })), { onConflict: "id" }));
+    // One shape per statement. PostgREST sends a batch as a single
+    // INSERT ... ON CONFLICT whose column list is the UNION of the keys
+    // across its rows, so a reappeared job sharing a batch with ordinary
+    // touches put `status` into the statement and sent NULL for every
+    // row that omitted it. See lib/db/touchRows.ts.
+    for (const batch of touchBatches(inputs, 500)) {
+      await this.run(`touchUnchanged.${batch.shape.toLowerCase()}`,
+        this.db.from("jobs").upsert(batch.rows, { onConflict: "id" }));
     }
     return inputs.map((u) => ({
       jobId: u.existing!.id, isNew: false, versionCreated: false,
@@ -474,6 +474,33 @@ export class SupabaseStore implements Store {
     }
   }
 
+  async readBoardCursor(provider: string, token: string) {
+    const { data } = await this.db.from("board_ingest_state")
+      .select("next_offset,backfill_complete,postings_seen")
+      .eq("provider", provider).eq("token", token).maybeSingle();
+    if (!data) return null;
+    return {
+      nextOffset: data.next_offset ?? 0,
+      backfillComplete: Boolean(data.backfill_complete),
+      postingsSeen: data.postings_seen ?? 0,
+    };
+  }
+
+  async writeBoardCursor(input: {
+    provider: string; token: string; nextOffset: number;
+    backfillComplete: boolean; postingsSeen: number; error: string | null;
+  }): Promise<void> {
+    await this.run("writeBoardCursor", this.db.from("board_ingest_state").upsert({
+      provider: input.provider, token: input.token,
+      next_offset: input.nextOffset,
+      backfill_complete: input.backfillComplete,
+      backfill_completed_at: input.backfillComplete ? new Date().toISOString() : null,
+      postings_seen: input.postingsSeen,
+      last_run_at: new Date().toISOString(),
+      last_error: input.error,
+    }, { onConflict: "provider,token" }));
+  }
+
   async markMissing(input: {
     companyId: string; source: string; seenExternalIds: Set<string>;
   }): Promise<MissingResult> {
@@ -485,19 +512,27 @@ export class SupabaseStore implements Store {
     let possiblyClosed = 0, closedOrRemoved = 0;
     const now = new Date().toISOString();
 
-    for (let i = 0; i < missing.length; i += 500) {
-      const slice = missing.slice(i, i + 500);
+    // UPDATE, not upsert.
+    //
+    // Every row here came from listJobsForCompany, so it exists and only
+    // ever needed updating. Upsert made this an INSERT ... ON CONFLICT,
+    // and a BEFORE INSERT trigger on jobs assigns an opening from
+    // NEW.company_id: the partial payload carried none, so the trigger
+    // tried to write an openings row with a null company_id and the whole
+    // ingest aborted. Adding company_id to the payload would have fixed
+    // the error and left the trigger creating an orphan opening on an
+    // insert arm that never commits, so the fix is to stop pretending
+    // these might be new rows.
+    for (const j of missing) {
+      const misses = j.consecutive_missing_checks + 1;
+      const next = misses >= 3 ? "CLOSED_OR_REMOVED" : "POSSIBLY_CLOSED";
+      if (next === "CLOSED_OR_REMOVED") closedOrRemoved++; else possiblyClosed++;
       await this.run("markMissing",
-        this.db.from("jobs").upsert(slice.map((j) => {
-          const misses = j.consecutive_missing_checks + 1;
-          const next = misses >= 3 ? "CLOSED_OR_REMOVED" : "POSSIBLY_CLOSED";
-          if (next === "CLOSED_OR_REMOVED") closedOrRemoved++; else possiblyClosed++;
-          return {
-            id: j.id, consecutive_missing_checks: misses, last_seen_at: now,
-            status: next, status_changed_at: now,
-            closed_detection_reason: `absent from ${misses} consecutive successful board fetch(es)`,
-          };
-        }), { onConflict: "id" }));
+        this.db.from("jobs").update({
+          consecutive_missing_checks: misses, last_seen_at: now,
+          status: next, status_changed_at: now,
+          closed_detection_reason: `absent from ${misses} consecutive successful board fetch(es)`,
+        }).eq("id", j.id));
     }
     return { possiblyClosed, closedOrRemoved };
   }
@@ -550,6 +585,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 function jobRow(input: JobWriteInput): Record<string, unknown> {
   const n = input.normalized;
   return {
+    provider_opening_key: n.providerOpeningKey,
     url: n.url, apply_url: n.applyUrl,
     title: n.title, normalized_title: n.normalizedTitle, department: n.department,
     location_raw: n.locationRaw, city: n.city, state: n.state,
@@ -577,7 +613,9 @@ function jobRow(input: JobWriteInput): Record<string, unknown> {
 /** Rebuilds the comparison object from a frozen version row. */
 function versionToNormalized(v: Record<string, unknown>): NormalizedJob {
   return {
-    sourceJobId: "", url: null, applyUrl: null,
+    // Comparison shape only. Opening identity is not a version field and
+    // never participates in change detection.
+    sourceJobId: "", providerOpeningKey: null, url: null, applyUrl: null,
     title: (v["title"] as string) ?? "",
     normalizedTitle: (v["title"] as string) ?? "",
     department: (v["department"] as string) ?? null,

@@ -20,7 +20,12 @@ import type { LlmProvider } from "./provider.ts";
  * either false rejections or false matches.
  */
 
-export const EXTRACTION_VERSION = 3;
+// 4: hardness rules rewritten to key on the employer's wording and
+// section headings, independent of how specialized a requirement is or
+// whether anyone could satisfy it; duplicate-capability rule added.
+// Version 3 output is contaminated by the inverse of both and must not
+// be treated as equivalent.
+export const EXTRACTION_VERSION = 4;
 
 export interface ExtractedRequirement {
   raw_text: string;
@@ -48,13 +53,58 @@ Rules, in order of importance:
    has no SQL requirement.
 2. Every requirement must be traceable to specific words in the posting.
    raw_text must be a short verbatim quote or near-quote from the posting.
-3. Classify hardness honestly:
+3. Classify hardness from the EMPLOYER'S WORDING ONLY.
    HARD      the posting presents it as required, must-have, minimum.
    PREFERRED the posting presents it as preferred, nice to have, bonus,
-             a plus, ideally.
+             a plus, ideally, desired where clearly non-mandatory.
    UNCLEAR   you genuinely cannot tell which. Use this freely. It is the
              correct answer far more often than people assume, and it is
              always better than guessing.
+
+3a. Wording that makes something HARD:
+   "required", "must", "must have", "minimum", "at least", "X+ years",
+   "N years of experience required", "requires", "you will need",
+   "required degree", "required license/certification", and any
+   requirement appearing under a heading such as "Minimum
+   Qualifications", "Requirements", "Basic Qualifications", "What you
+   must have".
+
+3b. Wording that makes something PREFERRED:
+   "preferred", "ideally", "nice to have", "a plus", "bonus", "desired",
+   "we'd love", and any requirement appearing under a heading such as
+   "Preferred Qualifications", "Nice to Have", "Bonus Points".
+
+3c. The section heading a requirement sits under is usually the STRONGEST
+   signal available. A bullet under "Minimum Qualifications" is HARD even
+   if its own sentence contains no modal verb. A bullet under "Preferred
+   Qualifications" is PREFERRED even if it sounds central to the job.
+
+3d. Hardness is INDEPENDENT of every one of the following. None of them
+   may influence the classification:
+   - how specialized, technical or occupationally deep the requirement is
+   - how generic or commonplace it is
+   - how hard or easy it would be for any particular person to satisfy
+   - whether you think it is important to doing the job well
+   - whether it is the "real substance" of the role
+
+   Two failures this rule exists to prevent, both observed in production:
+
+   A posting titled "Associate (FDD/TAS Experience Required)" stated
+   "Minimum of 3+ years of Financial Due Diligence or M&A Transaction
+   Advisory". That is HARD: it says minimum, it says 3+ years, and the
+   title says required. It was classified PREFERRED because it was
+   specialized. Specialization is not softness.
+
+   The same posting's "Strong verbal and written communication skills
+   (e.g. PowerPoint)" was classified HARD, promoting a generic tool
+   mentioned only as an example. A tool named as an illustration inside a
+   broader sentence is not itself a separate hard requirement. Do not
+   promote generic tools (Excel, PowerPoint, Word, Google Docs, email)
+   to HARD unless the posting separately and explicitly requires them.
+
+3e. Never soften a requirement because a candidate is unlikely to meet
+   it, and never harden one because a candidate does meet it. You are not
+   told anything about any candidate, and must not reason about one.
 4. minimum_years only when the posting states a number for that specific
    requirement. Never infer years from seniority in the title.
 5. normalized_term is the short canonical name of the thing (e.g.
@@ -97,6 +147,17 @@ Rules, in order of importance:
    never be used to skip a requirements section just because it is
    written in flowing prose. If a section tells the reader what they need
    to be or have, it is requirements.
+6c. One requirement per distinct capability. Do not emit the same
+   capability more than once for the same posting, and do not emit
+   several near-identical rows quoting the same sentence. A posting
+   saying "Excellent communication, interpersonal, and organizational
+   skills" states three qualities in one sentence: emit at most one row
+   per distinct quality, never the same row three times.
+
+   Genuinely distinct requirements stay distinct even when related.
+   "3 years in customs brokerage" and "HTS classification" are two
+   requirements, not one, and must both be kept.
+
 7. confidence is your confidence in the CLASSIFICATION, 0 to 1. Low
    confidence is useful information, not a failure.
 
@@ -224,4 +285,98 @@ ${description}
 
 Extract the candidate requirements.`,
   });
+}
+
+
+/**
+ * Wording in a requirement's own quote that makes it mandatory.
+ *
+ * Deliberately narrow. These are phrases an employer uses to compel, not
+ * merely to emphasise: "strong" and "excellent" are not here, because
+ * they describe a level rather than an obligation.
+ */
+const MANDATORY = /\b(?:minimum(?:\s+of)?|at\s+least|must\s+(?:have|possess|be)|required?|requires|requirement)\b/i;
+
+/** Wording that marks a requirement optional, which always wins. */
+const OPTIONAL = /\b(?:preferred|preferably|ideally|nice\s+to\s+have|a\s+plus|bonus|desired|desirable)\b/i;
+
+/**
+ * Mandatory wording that has been negated, and so compels nothing.
+ *
+ * The first version of this matched "required" anywhere in the quote and
+ * promoted two postings that said the exact opposite: Stripe's "You've
+ * ever started or run a business before (not a requirement)" and
+ * Hightouch's "While no prior experience with LLMs and AI is required".
+ * Both were turned into HARD requirements by the word they used to say
+ * the requirement did not exist.
+ */
+const NEGATED = new RegExp([
+  // "(not a requirement)", "is not required", "not necessary"
+  String.raw`\bnot\s+(?:a\s+)?(?:required|requirement|necessary)\b`,
+  // "no prior experience with LLMs and AI is required" - the subject
+  // between "no" and "required" can run to a clause, so allow a span
+  // rather than a fixed word count, but stop at sentence punctuation.
+  String.raw`\bno\s+(?:prior\s+)?[^.;!?]{0,80}?\s+(?:is|are)\s+required\b`,
+  String.raw`\bisn'?t\s+required\b`,
+  String.raw`\bdoes\s+not\s+require\b`,
+  String.raw`\bwithout\s+requiring\b`,
+].join("|"), "i");
+
+/**
+ * Corrects a PREFERRED classification that the quote itself contradicts.
+ *
+ * The model classified "Minimum of 3+ years of Financial Due Diligence or
+ * M&A Transaction Advisory" as PREFERRED on a posting whose title ends
+ * "(FDD/TAS Experience Required)". Its own quote says "Minimum of". A
+ * quote that compels cannot be optional, so this promotes it and records
+ * the correction rather than trusting the label over the words.
+ *
+ * Only ever promotes PREFERRED to HARD, and never when the quote also
+ * carries optional wording ("Preferred: minimum 3 years" stays
+ * PREFERRED). It cannot demote, so it can never soften a requirement.
+ */
+export function reconcileHardness(
+  req: { raw_text: string; is_hard_requirement: string },
+): { hardness: ExtractedRequirement["is_hard_requirement"]; corrected: boolean } {
+  const current = req.is_hard_requirement as ExtractedRequirement["is_hard_requirement"];
+  if (current !== "PREFERRED") return { hardness: current, corrected: false };
+  const text = String(req.raw_text ?? "");
+  if (OPTIONAL.test(text)) return { hardness: current, corrected: false };
+  // A negated requirement is not a requirement.
+  if (NEGATED.test(text)) return { hardness: current, corrected: false };
+  if (!MANDATORY.test(text)) return { hardness: current, corrected: false };
+  return { hardness: "HARD", corrected: true };
+}
+
+/**
+ * Collapses rows that state the same capability twice.
+ *
+ * Flexport's Customs Specialist emitted "Excellent communication,
+ * interpersonal, and organizational skills" three times as three TRAIT
+ * rows, inflating both the requirement count and the trait share of the
+ * posting. Identity is the normalized term plus the kind, so two
+ * genuinely different requirements that merely share a sentence stay
+ * separate, and the same term recorded as both a SKILL and a TOOL stays
+ * separate too.
+ *
+ * The surviving row keeps the strongest hardness seen, so deduplication
+ * can never soften a requirement: HARD beats UNCLEAR beats PREFERRED.
+ */
+const HARDNESS_RANK: Record<string, number> = { HARD: 3, UNCLEAR: 2, PREFERRED: 1 };
+
+export function dedupeRequirements<T extends { normalized_term: string; kind: string; is_hard_requirement: string }>(
+  reqs: T[],
+): { kept: T[]; removed: number } {
+  const byKey = new Map<string, T>();
+  let removed = 0;
+  for (const r of reqs) {
+    const key = `${String(r.normalized_term ?? "").trim().toLowerCase()} ${r.kind}`;
+    const seen = byKey.get(key);
+    if (!seen) { byKey.set(key, r); continue; }
+    removed++;
+    const a = HARDNESS_RANK[seen.is_hard_requirement] ?? 0;
+    const b = HARDNESS_RANK[r.is_hard_requirement] ?? 0;
+    if (b > a) byKey.set(key, r);
+  }
+  return { kept: [...byKey.values()], removed };
 }

@@ -7,6 +7,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
+import { loadCompensationByOpening, salaryInputForJob } from "../lib/scoring/openingCompensation.ts";
 import {
   assessEligibility, ELIGIBILITY_VERSION, PROPOSED_RULES,
   type EligibilityStatus, type EligibilityReason,
@@ -21,8 +22,8 @@ const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROL
 // branch still has to satisfy the NOT NULL columns even though only the
 // update branch ever runs.
 const cols = "id,company_id,source,external_id,title,city,state,country,metro,"
-  + "remote_policy,remote_geographic_restriction,location_raw,status,"
-  + "salary_min,salary_max,salary_period,salary_is_estimated";
+  + "remote_policy,remote_geographic_restriction,location_raw,status,eligibility,eligibility_reason,"
+  + "salary_min,salary_max,salary_period,salary_is_estimated,canonical_opening_id";
 const jobs: Array<Record<string, any>> = [];
 for (let from = 0; ; from += 1000) {
   const { data, error } = await db.from("jobs").select(cols)
@@ -32,19 +33,86 @@ for (let from = 0; ; from += 1000) {
   if (data.length < 1000) break;
 }
 
-const { data: companies } = await db.from("companies").select("id,name");
+/**
+ * Compensation the employer stated, which outranks the posting's own
+ * structured fields.
+ *
+ * Flexport published no salary and stated $27.69/hour on its application
+ * form. The structured columns were null, so the floor comparison had
+ * nothing to work with and the job stayed eligible. Where a stated
+ * figure exists for the opening, it is what the rule should see.
+ *
+ * The rule itself is untouched. This only decides which numbers reach
+ * it, and the employer's own statement is the better answer than silence.
+ */
+const compByOpening = await loadCompensationByOpening(db, (m) => console.log(`  (${m})`));
+if (compByOpening.size) console.log(`employer-stated compensation on ${compByOpening.size} opening(s)`);
+
+// The normalized location set. Authoritative for geography.
+const allLocations: Array<Record<string, any>> = [];
+for (let from = 0; ; from += 1000) {
+  const { data, error } = await db.from("job_locations")
+    .select("job_id,position,city,state,region,country,metro,is_remote,remote_scope,provenance,confidence,raw_segment")
+    .order("id", { ascending: true }).range(from, from + 999);
+  if (error) throw new Error(error.message);
+  allLocations.push(...data); if (data.length < 1000) break;
+}
+const locationsByJob = new Map<string, any[]>();
+for (const l of allLocations) {
+  const a = locationsByJob.get(l["job_id"]) ?? [];
+  a.push({ city: l["city"], state: l["state"], region: l["region"], country: l["country"],
+           metro: l["metro"], isRemote: l["is_remote"], remoteScope: l["remote_scope"],
+           provenance: l["provenance"], confidence: l["confidence"],
+           rawSegment: l["raw_segment"], position: l["position"] });
+  locationsByJob.set(l["job_id"], a);
+}
+for (const a of locationsByJob.values()) a.sort((x, y) => x.position - y.position);
+
+/**
+ * Verdicts this pass is not entitled to overturn.
+ *
+ * Role shape is decided by scripts/eligibility-refresh.ts from the
+ * description and the extracted requirements, neither of which this pass
+ * reads. Recomputing geography and writing the result blind would erase
+ * 205 quota-sales exclusions and silently reopen roles the user ruled out.
+ */
+const ROLE_SHAPE_REASONS = new Set([
+  "PRIMARY_QUOTA_SALES_ROLE", "PRIMARILY_COMMISSION_COMPENSATION", "SPLIT_SHIFT_REQUIRED",
+]);
+
+// Paged. An unranged select stops at PostgREST's 1000-row cap, and with
+// 4,221 companies on file that left three quarters of the corpus with no
+// name to join against, so the report blamed "?" for 2,439 exclusions.
+// Verdicts were never affected; only the label was.
+const companies: Array<Record<string, any>> = [];
+for (let from = 0; ; from += 1000) {
+  const { data, error } = await db.from("companies").select("id,name")
+    .order("id", { ascending: true }).range(from, from + 999);
+  if (error) throw new Error(error.message);
+  companies.push(...data); if (data.length < 1000) break;
+}
 const companyName = new Map((companies ?? []).map((c: any) => [c.id, c.name]));
 
-const verdicts = jobs.map((j) => ({
-  job: j,
-  v: assessEligibility({
-    city: j.city, state: j.state, country: j.country, metro: j.metro,
-    remotePolicy: j.remote_policy, remoteRestriction: j.remote_geographic_restriction,
-    locationRaw: j.location_raw,
-    salaryMin: j.salary_min, salaryMax: j.salary_max,
-    salaryPeriod: j.salary_period, salaryIsEstimated: j.salary_is_estimated,
-  }),
-}));
+const verdicts = jobs.map((j) => {
+  if (ROLE_SHAPE_REASONS.has(j["eligibility_reason"])) {
+    return { job: j, v: { status: j["eligibility"] as EligibilityStatus,
+                          reason: j["eligibility_reason"] as EligibilityReason,
+                          detail: "role shape, decided from the description; not revisited by the geography pass" },
+             preserved: true };
+  }
+  return {
+    job: j,
+    v: assessEligibility({
+      city: j.city, state: j.state, country: j.country, metro: j.metro,
+      remotePolicy: j.remote_policy, remoteRestriction: j.remote_geographic_restriction,
+      locationRaw: j.location_raw,
+      locations: locationsByJob.get(j.id) ?? [],
+      ...salaryInputForJob(j, compByOpening),
+    }),
+    preserved: false,
+  };
+});
+console.log(`role-shape verdicts preserved untouched: ${verdicts.filter((x) => x.preserved).length}`);
 
 const byStatus: Record<string, number> = {};
 const byReason: Record<string, { status: EligibilityStatus; n: number; sample: string[] }> = {};

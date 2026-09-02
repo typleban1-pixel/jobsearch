@@ -1,6 +1,6 @@
 import type { JobFeatures, ScoreReason, ScoreResult, ScoringProfile, ScoreDimension } from "./types.ts";
 import type { CapabilityIndex } from "./capability.ts";
-import { buildFitBreakdown, FIT_VERSION, type FitBreakdown } from "./fit.ts";
+import { buildFitBreakdown, type CorpusStatistics, FIT_VERSION, type FitBreakdown } from "./fit.ts";
 import { assessSeniority, assessTitleFamily } from "./seniority.ts";
 import { annualize, compareToFloor } from "./salary.ts";
 import { evaluateConstraint } from "./constraints.ts";
@@ -32,6 +32,8 @@ export function scoreJob2(
     weightsVersion: number; extractionVersion: number; title: string; requirements: any[];
     credentialDeclarations?: Record<string, string>;
     profileEducation?: Array<{ level: string; field: string | null }>;
+    /** Frozen corpus frequencies. Null reproduces formula version 1. */
+    corpus?: CorpusStatistics | null;
   },
 ): ScoreResult2 {
   const reasons: ScoreReason[] = [];
@@ -41,7 +43,10 @@ export function scoreJob2(
     subject: string | null, detail: string | null,
   ) => { if (points !== 0) reasons.push({ dimension, kind, points, subject, detail }); };
 
-  const fb = buildFitBreakdown(meta.requirements, meta.title, index, meta.credentialDeclarations ?? {}, meta.profileEducation ?? []);
+  const fb = buildFitBreakdown(
+    meta.requirements, meta.title, index,
+    meta.credentialDeclarations ?? {}, meta.profileEducation ?? [],
+    meta.corpus ?? null, w("fit", "coverage_smoothing_k"));
 
   // ---------------- FIT ----------------
   // Coverage first, as a proportion of what the posting actually demands
@@ -54,9 +59,15 @@ export function scoreJob2(
 
   const direct = fb.concepts.filter((c) => c.resolution === "DIRECT" && c.weight > 0);
   const transferable = fb.concepts.filter((c) => c.resolution === "TRANSFERABLE" && c.weight > 0);
+  // No points. TRANSFERABLE used to receive its 0.5 coverage credit AND a
+  // separate additive bonus, while DIRECT received only its 1.0 credit,
+  // so a transferable match reached Fit through two channels and a direct
+  // match through one. Credit is now the only channel for both. These
+  // reasons are still emitted at zero points because they are the
+  // explanation a person reads for why a job matched.
   for (const c of transferable.slice(0, 12)) {
-    add("FIT", "TRANSFERABLE_SKILL", w("fit", "transferable_skill"), c.concept,
-        `${c.via}: ${c.rationale}`);
+    reasons.push({ dimension: "FIT", kind: "TRANSFERABLE_SKILL", points: 0,
+                   subject: c.concept, detail: `${c.via}: ${c.rationale}` });
   }
 
   // Credentials are not skills. Adjacent experience cannot substitute for
@@ -76,12 +87,26 @@ export function scoreJob2(
         "education", "degree requirement with no verified education on the profile");
   }
 
+  /**
+   * Title-family and seniority are PRIORS, not evidence.
+   *
+   * They were flat: +6 and +8, a combined +14 handed to any posting whose
+   * title looked familiar, against a coverage component that is typically
+   * 8 to 13. A job with one trivial match and a recognisable title
+   * outranked a job with six real ones. A prior should modify evidence,
+   * not substitute for it, so its influence scales with how much evidence
+   * the posting actually produced and reaches full strength at three
+   * credited concepts.
+   */
+  const evidenceScale = Math.min(1, fb.creditedCount / 3);
+  const prior = (points: number) => Math.round(points * evidenceScale);
+
   const sen = assessSeniority(features.seniority, profile);
-  if (sen.verdict === "MATCH") add("FIT", "SENIORITY_MATCH", w("fit", "seniority_match"), features.seniority, sen.detail);
-  else if (sen.verdict === "MISMATCH") add("FIT", "SENIORITY_MISMATCH", w("fit", "seniority_mismatch"), features.seniority, sen.detail);
+  if (sen.verdict === "MATCH") add("FIT", "SENIORITY_MATCH", prior(w("fit", "seniority_match")), features.seniority, `${sen.detail} (prior scaled to ${(evidenceScale * 100).toFixed(0)}% by ${fb.creditedCount} credited concept(s))`);
+  else if (sen.verdict === "MISMATCH") add("FIT", "SENIORITY_MISMATCH", prior(w("fit", "seniority_mismatch")), features.seniority, sen.detail);
 
   const fam = assessTitleFamily(meta.title, profile);
-  if (fam.matched) add("FIT", "TITLE_MATCH", w("fit", "title_family_match"), fam.matched, fam.detail);
+  if (fam.matched) add("FIT", "TITLE_MATCH", prior(w("fit", "title_family_match")), fam.matched, fam.detail);
 
   // ---------------- OPPORTUNITY ----------------
   if (features.salaryKnown) {

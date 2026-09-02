@@ -48,6 +48,15 @@ export interface CompletionRequest {
   /** Identifies the task for cost attribution: "extract_requirements",
    *  "score_fit", "draft_answer". Recorded against every call. */
   purpose: string;
+  /**
+   * Overrides the tier's model for this one call.
+   *
+   * Exists so one task can be benchmarked across models without moving
+   * every other task with it. The model actually used is reported back
+   * in usage, so a stored result always names what produced it rather
+   * than what was configured at the time.
+   */
+  model?: string;
 }
 
 export interface CompletionResult<T = string> {

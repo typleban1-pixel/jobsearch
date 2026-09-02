@@ -18,10 +18,30 @@ console.log(`store: ${store.kind}`);
 console.log(describeEnv(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]));
 console.log();
 
+/**
+ * How many boards this run will actually read.
+ *
+ * The default of 100 quietly left 107 of 207 active boards unread during
+ * what was meant to be a full reconciliation, and a reconciliation that
+ * silently skips half the population is worse than one that refuses to
+ * start: the numbers look complete and are not. --all reads every active
+ * board; anything short of that says so, loudly.
+ */
+const activeBoards = await store.countActiveBoards?.() ?? null;
+const wantAll = process.argv.includes("--all");
+const limit = wantAll ? (activeBoards ?? 10_000) : arg("limit", 100);
+if (activeBoards !== null) {
+  console.log(`active boards: ${activeBoards}, this run reads ${Math.min(limit, activeBoards)}`);
+  if (limit < activeBoards) {
+    console.log(`  NOT a complete reconciliation: ${activeBoards - limit} boards will not be read.`);
+    console.log("  Pass --all when the intent is to reconcile every board.");
+  }
+}
+
 let out;
 try {
   out = await runIngest(store, {
-    limit: arg("limit", 100),
+    limit,
     concurrency: arg("concurrency", 4),
     log: (s) => console.log(s),
   });

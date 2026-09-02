@@ -19,9 +19,11 @@
  *   and that experience is evaluated elsewhere in the score.
  */
 
-export const EDUCATION_VERSION = 1;
+export const EDUCATION_VERSION = 2;
 
-const LEVEL_ORDER: Record<string, number> = { ASSOCIATE: 1, BACHELOR: 2, MASTER: 3, DOCTORATE: 4 };
+// HIGH_SCHOOL is 0 rather than absent: a posting asking for a diploma
+// states a real requirement, and any verified degree clears it.
+const LEVEL_ORDER: Record<string, number> = { HIGH_SCHOOL: 0, ASSOCIATE: 1, BACHELOR: 2, MASTER: 3, DOCTORATE: 4 };
 
 /** The posting says a degree is one route among several. */
 const ESCAPE_CLAUSE =

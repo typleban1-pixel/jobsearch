@@ -15,6 +15,12 @@ let loaded = false;
 export function loadEnv(): void {
   if (loaded) return;
   loaded = true;
+  // Next loads .env.local before any of this runs, so inside the portal
+  // the file read is redundant work that also makes the bundler warn
+  // about a dynamically constructed path and pull the whole project
+  // directory into the server bundle. The worker scripts run under plain
+  // node, where the read is the only way the variables arrive.
+  if (process.env["NEXT_RUNTIME"]) return;
   for (const file of [".env.local", ".env"]) {
     const path = resolve(process.cwd(), file);
     if (!existsSync(path)) continue;

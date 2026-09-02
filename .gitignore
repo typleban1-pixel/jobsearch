@@ -16,3 +16,30 @@ supabase/.temp/
 
 # ad-hoc diagnostics, not part of the pipeline
 scripts/diag/
+.vercel
+.env*
+
+# Browser-assisted filling. A screenshot of a filled application form
+# contains a home address and phone number, and the Chrome profile holds
+# real employer sessions. Neither belongs in a repository.
+.browser-profile/
+.fill-runs/
+
+# Gmail OAuth runtime credential. Holds a refresh token for the job-search
+# mailbox, written at mode 0600 by scripts/gmail-authorize.ts.
+.secrets/
+
+# Frozen truth snapshots from past runs. These hold profile rows
+# including home address and phone, and presentation-order-selftest
+# reads one of them. Local-only by necessity: the fixture is personal
+# data, so the test is reproducible only on this machine.
+.runs/
+
+# Generated resume PDFs. Application artifacts, not source.
+/*.pdf
+
+# TypeScript incremental build cache.
+tsconfig.tsbuildinfo
+
+# Ad-hoc local REPL helper.
+.jsq.mjs

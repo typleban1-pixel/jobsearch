@@ -35,7 +35,40 @@ const COMP_CONTEXT =
  * where the label sits.
  */
 const NOT_BASE_PAY =
-  /\b(equity|stock|rsus?|restricted stock|options?|refresh|reward|signing bonus|sign-on|retention|401\s?\(?k\)?|match|tuition|stipend|allowance|per diem|budget)\b/i;
+  /\b(equity|stock|rsus?|restricted stock|options?|refresh|reward|bonus|signing bonus|sign-on|retention|commission|variable (?:pay|compensation)|total (?:comp|compensation|cash|target)|ote|on[- ]target earnings|401\s?\(?k\)?|match|tuition|stipend|allowance|per diem|budget)\b/i;
+
+/**
+ * The label that belongs to an amount, and nothing else.
+ *
+ * The label sits immediately before the number, but "immediately" has to
+ * mean something: a fixed character window reaches back into whatever
+ * sentence came before, and whatever that sentence happened to mention
+ * then decides what this number is.
+ *
+ * Home Chef publishes "Illinois Pay Range \n $60,000 — $75,000 USD"
+ * directly after a benefits sentence ending "...401k match, and paid
+ * time off." Seventy characters back from the amount lands inside that
+ * sentence, NOT_BASE_PAY matched "401k", and a real base-salary range
+ * was discarded. The job then had no salary at all, so the hard floor
+ * could not exclude it, and it reached a prepared application.
+ *
+ * So the window stops at the nearest boundary. Only the last non-empty
+ * line or sentence fragment before the amount can label it, which is
+ * what the original comment already claimed was happening. This makes
+ * the guard stricter as well as more permissive: "We offer equity. Base
+ * pay $60,000-$75,000" now reads the label as "Base pay" rather than
+ * seeing "equity" and refusing, and "New hire equity: $32,000-$48,000"
+ * still reads "New hire equity:" and refuses.
+ */
+export function labelFor(text: string, index: number, window = 90): string {
+  const raw = text.slice(Math.max(0, index - window), index);
+  const parts = raw.split(/[\r\n]+|(?<=[.;:!?])\s+/);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]!.trim();
+    if (p) return p;
+  }
+  return "";
+}
 
 export function parseStructuredSalary(input: {
   min?: number | null; max?: number | null; currency?: string | null;
@@ -61,14 +94,16 @@ export function parseStructuredSalary(input: {
  */
 export function parseSalaryFromText(text: string): Compensation | null {
   const warnings: string[] = [];
-  const re = /\$\s?([\d,]{3,12}(?:\.\d+)?)\s*(?:k\b)?\s*(?:-|–|—|to)\s*\$?\s?([\d,]{3,12}(?:\.\d+)?)\s*(?:k\b)?/gi;
+  const re = /\$\s?([\d,]{1,12}(?:\.\d+)?)\s*(?:k\b)?\s*(?:-|–|—|to)\s*\$?\s?([\d,]{1,12}(?:\.\d+)?)\s*(?:k\b)?/gi;
 
   for (const m of text.matchAll(re)) {
     const start = Math.max(0, m.index - 120);
     const context = text.slice(start, m.index + m[0].length + 120);
     if (!COMP_CONTEXT.test(context)) continue;
-    // The label immediately preceding the number decides what it is.
-    const label = text.slice(Math.max(0, m.index - 70), m.index);
+    // The label immediately preceding the number decides what it is,
+    // and only as far back as the boundary that separates it from the
+    // previous statement. See labelFor.
+    const label = labelFor(text, m.index);
     if (NOT_BASE_PAY.test(label)) continue;
 
     let lo = Number(m[1]!.replace(/,/g, ""));

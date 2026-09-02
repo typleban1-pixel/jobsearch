@@ -25,7 +25,7 @@ const BASE = "https://api.lever.co/v0/postings";
  */
 export const lever: AtsProvider = {
   name: "LEVER",
-  normalizerVersion: 4,
+  normalizerVersion: 5,
   fetcherVersion: 1,
 
   boardUrl(token) {
@@ -110,6 +110,9 @@ export const lever: AtsProvider = {
     const signals = parseCareerSignals(descriptionText);
 
     return {
+      // Lever's postings API exposes no requisition id. Its "opening"
+      // field is description prose, not identity.
+      providerOpeningKey: null,
       sourceJobId: String(j.id),
       url: j.hostedUrl ?? null,
       applyUrl: j.applyUrl ?? j.hostedUrl ?? null,

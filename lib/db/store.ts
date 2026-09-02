@@ -88,10 +88,29 @@ export interface RunStats {
   status: string;
 }
 
+/** Where a paginated board's traversal stopped, and whether it finished. */
+export interface BoardCursor {
+  nextOffset: number;
+  backfillComplete: boolean;
+  postingsSeen: number;
+}
+
 export interface Store {
   readonly kind: "supabase" | "file";
 
+  /**
+   * Optional so the file-backed store used for local verification does
+   * not have to model traversal state it never paginates against.
+   */
+  readBoardCursor?(provider: string, token: string): Promise<BoardCursor | null>;
+  writeBoardCursor?(input: {
+    provider: string; token: string; nextOffset: number;
+    backfillComplete: boolean; postingsSeen: number; error: string | null;
+  }): Promise<void>;
+
   listCompaniesToCheck(limit: number): Promise<CompanyRow[]>;
+  /** How many boards a complete reconciliation would have to read. */
+  countActiveBoards?(): Promise<number>;
   upsertCompany(input: {
     name: string; domain: string | null; ats_provider: string; ats_token: string;
     lifecycle: string; priority_score: number; industries: string[];

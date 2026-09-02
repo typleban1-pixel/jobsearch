@@ -23,7 +23,7 @@ const BASE = "https://boards-api.greenhouse.io/v1/boards";
  */
 export const greenhouse: AtsProvider = {
   name: "GREENHOUSE",
-  normalizerVersion: 4,
+  normalizerVersion: 5,
   fetcherVersion: 1,
 
   boardUrl(token) {
@@ -105,6 +105,7 @@ export const greenhouse: AtsProvider = {
 
     return {
       sourceJobId: String(j.id),
+      providerOpeningKey: j.internal_job_id != null ? String(j.internal_job_id) : null,
       url: j.absolute_url ?? null,
       applyUrl: j.absolute_url ?? null,
       title,
@@ -144,6 +145,10 @@ interface GreenhouseJob {
   absolute_url?: string;
   updated_at?: string;
   first_published?: string;
+  // The requisition. Several posts share one when a job is published to
+  // several locations.
+  internal_job_id?: number | string;
+  // Free text the company fills in however it likes. Never used as identity.
   requisition_id?: string;
   location?: { name?: string };
   departments?: Array<{ name?: string }>;

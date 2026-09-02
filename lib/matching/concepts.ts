@@ -77,8 +77,15 @@ export function toConcept(rawTerm: string): ConceptResult {
     steps.push("stripped trailing noun");
   }
 
-  // Possessives and articles at the head.
-  t = t.replace(/^(?:the|a|an)\s+/i, "").replace(/'s\b/g, "").trim();
+  // "and/or" is one conjunction, not a slash-separated pair. Left alone
+  // it split "workday and/or netsuite partnership" into "workday and"
+  // and "or netsuite partnership", neither of which is a concept.
+  t = t.replace(/\band\s*\/\s*or\b/gi, "or");
+
+  // Possessives, articles and a dangling conjunction at the head. The
+  // extractor sometimes returns a list fragment that still carries the
+  // "or" that joined it, and "or netsuite partnership" is not a concept.
+  t = t.replace(/^(?:or|and)\s+/i, "").replace(/^(?:the|a|an)\s+/i, "").replace(/'s\b/g, "").trim();
 
   // Parenthetical asides are examples, not the concept.
   const noParens = t.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
@@ -88,23 +95,86 @@ export function toConcept(rawTerm: string): ConceptResult {
 }
 
 /**
- * Splits a compound requirement into the concepts it actually contains.
+ * A compound requirement, decomposed into what it actually asks for.
  *
- * "Python, SQL and data modeling" is three requirements written as one,
- * and treating it as a single unmatched blob both understates coverage
- * and inflates the penalty. Splitting only happens on clear list
- * separators, never on "and" inside a phrase like "research and
- * development".
+ * The distinction that matters is AND versus OR, and it is not
+ * cosmetic. "Python, SQL and data modeling" is three requirements
+ * written as one: each is separately wanted, and treating the phrase as
+ * a single unmatched blob understates coverage. "Business, Operations,
+ * Science, Technology, or Math" is ONE requirement with several
+ * acceptable answers: satisfying it once satisfies it, and splitting it
+ * into five turns one qualification into five independent wins for
+ * whichever branches happen to match, and five independent penalties
+ * for the rest.
+ *
+ * Reading them the same way is how "Degree in Business, ..., Science,
+ * ..., or a related field" became six separately credited concepts, one
+ * of them labelled "degree in business" for a candidate who satisfies
+ * the requirement through its science branch.
+ */
+export type Decomposition =
+  | { kind: "SINGLE"; parts: [string] }
+  | { kind: "AND"; parts: string[] }
+  | { kind: "OR"; parts: string[] };
+
+/** List items arrive as "or math" when the split lands after the comma. */
+function cleanPart(p: string): string {
+  return p.trim().replace(/^(?:or|and)\s+/i, "").replace(/^(?:a|an|the)\s+/i, "").trim();
+}
+
+const LIST_SPLIT = /\s*,\s*|\s+and\s+|\s+or\s+/;
+
+/**
+ * Whether a list is a set of alternatives.
+ *
+ * Decided from the ORIGINAL requirement text when it is available,
+ * because that is where the conjunction actually lives: normalization
+ * keeps the words but the raw sentence is what the employer wrote.
+ *
+ * A bare comma list with no conjunction stays a conjunction. That is the
+ * existing behaviour, and it errs toward asking for more rather than
+ * inventing qualification the candidate does not have.
+ */
+function isDisjunction(text: string): boolean {
+  return /,\s*or\s+\S/i.test(text) || /\s+or\s+(?:a\s+|an\s+|the\s+)?\S+\s*$/i.test(text);
+}
+
+export function decompose(concept: string, rawText?: string): Decomposition {
+  if (concept.length < 8) return { kind: "SINGLE", parts: [concept] };
+
+  if (/,/.test(concept)) {
+    const parts = concept.split(LIST_SPLIT).map(cleanPart).filter((p) => p.length > 1);
+    if (parts.length >= 2 && parts.every((p) => p.length <= 40)) {
+      // The raw sentence is the better witness; the normalized term is
+      // the fallback when it is not to hand.
+      const witness = rawText && rawText.length > 0 ? rawText : concept;
+      return isDisjunction(witness) ? { kind: "OR", parts } : { kind: "AND", parts };
+    }
+  }
+
+  // A bare two-item choice, with no comma to make it a list: "workday or
+  // netsuite partnership". Still one requirement with two acceptable
+  // answers, and still not two requirements.
+  if (concept.length <= 80 && /\s+or\s+/i.test(concept)) {
+    const parts = concept.split(/\s+or\s+/i).map(cleanPart).filter((p) => p.length > 1);
+    if (parts.length === 2 && parts.every((p) => p.length <= 40)) return { kind: "OR", parts };
+  }
+
+  // "planning/execution": two names for adjacent work, both wanted.
+  const slash = concept.split(/\s*\/\s*/).map(cleanPart);
+  if (slash.length === 2 && slash.every((p) => p.length > 1 && p.length <= 24)) {
+    return { kind: "AND", parts: slash };
+  }
+  return { kind: "SINGLE", parts: [concept] };
+}
+
+/**
+ * Kept for callers that only want the pieces.
+ *
+ * Anything that scores must use decompose() instead: this signature
+ * cannot say whether the pieces are all required or one of several, and
+ * that difference is the whole point.
  */
 export function splitCompound(concept: string): string[] {
-  if (concept.length < 8) return [concept];
-  // Only split when there is a comma-separated list, or a slash between
-  // two short tokens. "A, B and C" splits; "planning and execution" does not.
-  if (/,/.test(concept)) {
-    const parts = concept.split(/\s*,\s*|\s+and\s+|\s+or\s+/).map((p) => p.trim()).filter((p) => p.length > 1);
-    if (parts.length >= 2 && parts.every((p) => p.length <= 40)) return parts;
-  }
-  const slash = concept.split(/\s*\/\s*/).map((p) => p.trim());
-  if (slash.length === 2 && slash.every((p) => p.length > 1 && p.length <= 24)) return slash;
-  return [concept];
+  return decompose(concept).parts;
 }

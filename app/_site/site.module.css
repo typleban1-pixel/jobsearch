@@ -1,0 +1,504 @@
+/*
+ * The public homepage. Scoped as a CSS Module so nothing here can reach
+ * the portal, and so the portal's globals.css cannot reach in: every
+ * rule below is a class, which outranks the element selectors that
+ * stylesheet sets on body, a and button.
+ *
+ * There is no single accent colour. Each section sets --accent from the
+ * photograph it contains, and the rail, the marks and the annotations
+ * all read it. The colour therefore comes from the work rather than
+ * from a brand palette.
+ *
+ * Committed to light. The app renders with data-theme="light" pinned on
+ * <html>, so there is no second theme to design here; every colour is
+ * still stated explicitly rather than inherited.
+ */
+
+.root {
+  --paper: #fbf7ee;
+  --paper-2: #f3ecde;
+  --ink: #171512;
+  --muted: #6e655a;
+  --rule: #e3d9c6;
+  --accent: #e85d2a;
+
+  /* The rail's width on desktop. Content hangs off it. */
+  --rail: 84px;
+
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 19px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* The portal paints the document background. Without this the overscroll
+   area above and below the page shows the portal's grey. */
+:global(body):has(.root) {
+  background: #fbf7ee;
+}
+
+/* ---------------------------------------------------------------- shell */
+
+/*
+ * Two accents per section, not one.
+ *
+ * --accent is the colour taken from the photograph, used for the rail,
+ * the drawn marks and anything that is a line or a fill. Several of
+ * those colours are light: a vivid orange or a golden yellow on cream is
+ * right for a 2px rule and unreadable at 11px. So every piece of TEXT
+ * uses --accent-text, the same hue mixed toward ink until it carries
+ * proper contrast. The palette still comes from the work; it just stops
+ * asking anyone to squint at it.
+ */
+.section {
+  position: relative;
+  padding: clamp(4rem, 11vh, 8.5rem) 0;
+  --accent-text: color-mix(in oklab, var(--accent) 62%, #171512);
+}
+.section.tight { padding: clamp(2.5rem, 6vh, 4rem) 0; }
+.section.roomy { padding: clamp(7rem, 20vh, 15rem) 0; }
+
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-inline: clamp(1.15rem, 5vw, 2.5rem);
+}
+@media (min-width: 900px) {
+  .wrap { padding-left: calc(var(--rail) + 2.5rem); }
+}
+
+/* The thread. One segment per section, drawn inside it, so contiguous
+   sections produce a line that never breaks and changes colour exactly
+   where the subject does. */
+.rail {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.9;
+}
+@media (min-width: 900px) {
+  .rail { left: max(calc(50vw - 590px + 2.5rem), 2.5rem); }
+}
+
+.railLabel {
+  position: absolute;
+  top: clamp(4rem, 11vh, 8.5rem);
+  left: 12px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--accent-text);
+  white-space: nowrap;
+}
+@media (max-width: 899px) { .railLabel { display: none; } }
+
+/* --------------------------------------------------------------- type */
+
+.display {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 0.92;
+  text-wrap: balance;
+  margin: 0;
+  font-size: clamp(2.6rem, 8.5vw, 6rem);
+}
+.display.huge { font-size: clamp(3.2rem, 13vw, 9.5rem); line-height: 0.86; }
+.display.mid { font-size: clamp(2rem, 5.5vw, 3.6rem); }
+.display.small { font-size: clamp(1.6rem, 4vw, 2.5rem); }
+.display .accent { color: var(--accent-text); }
+
+.lead {
+  max-width: 34ch;
+  margin: 1.4rem 0 0;
+  font-size: clamp(1.05rem, 2.4vw, 1.35rem);
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.note {
+  max-width: 46ch;
+  margin: 1rem 0 0;
+  color: var(--muted);
+  font-size: 1.02rem;
+  text-wrap: pretty;
+}
+.kicker {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  margin: 0 0 1.1rem;
+}
+.kicker .accent { color: var(--accent-text); }
+
+/* --------------------------------------------------------- the opening */
+
+.heroTop {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 2rem;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: clamp(2.5rem, 9vh, 5rem);
+}
+.heroTop a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1.5px solid var(--accent);
+  padding-bottom: 2px;
+}
+.heroTop a:hover { color: var(--accent-text); }
+
+.hero {
+  display: grid;
+  gap: clamp(2rem, 5vw, 3.5rem);
+  align-items: end;
+}
+@media (min-width: 900px) {
+  .hero { grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr); }
+}
+
+.headshotHolder { position: relative; }
+/* The headshot is monochrome, so the colour has to come from around it. */
+.headshotHolder::before {
+  content: "";
+  position: absolute;
+  inset: auto -14px -14px 22px;
+  height: 72%;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.headshot {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 420px;
+  border-radius: 2px;
+}
+
+.scrollCue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: clamp(2.5rem, 7vh, 4.5rem);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+/* ------------------------------------------------------------- photos */
+
+.figure { position: relative; margin: clamp(1.8rem, 4vw, 3rem) 0 0; }
+
+/*
+ * A mark placed over the photograph itself. A circle drawn next to a
+ * picture rather than around something in it reads as a stray doodle,
+ * which is exactly the scrapbook look this page is avoiding. Positioned
+ * in percentages so it stays on its subject at every width.
+ */
+.onPhoto {
+  position: absolute;
+  color: var(--accent);
+  pointer-events: none;
+}
+.onPhoto svg { width: 100%; height: 100%; display: block; }
+.onPhotoLabel {
+  position: absolute;
+  left: 50%;
+  top: 104%;
+  transform: translateX(-50%) rotate(-1.5deg);
+  white-space: nowrap;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.13em;
+  color: #fbf7ee;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.8), 0 0 10px rgb(0 0 0 / 0.6);
+}
+.figure img { display: block; width: 100%; height: auto; border-radius: 2px; }
+.photoBox { position: relative; display: block; }
+
+/*
+ * Mobile takes the full bleed, desktop does not.
+ *
+ * Every source is 1390 square. At a 390px viewport even a 3x screen
+ * needs 1170, so edge to edge is genuinely sharp on a phone. On a wide
+ * display the same file stretched across the viewport would be visibly
+ * soft, so scale comes from the surrounding colour field instead and the
+ * photograph is capped where it still resolves.
+ */
+.bleed { margin-inline: calc(50% - 50vw); width: 100vw; }
+@media (min-width: 720px) {
+  .bleed { margin-inline: 0; width: auto; }
+  .bleed .photoBox { max-width: 900px; }
+}
+.capped .photoBox { max-width: 900px; }
+/* Fine UI text softens long before a photograph does. */
+.cappedTight .photoBox { max-width: 560px; }
+
+.field {
+  background: var(--accent);
+  padding: clamp(1.5rem, 5vw, 3.5rem);
+  border-radius: 2px;
+}
+.fieldSoft { background: var(--paper-2); }
+
+.caption {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  margin-top: 0.8rem;
+}
+
+.tilt { transform: rotate(-1.1deg); }
+@media (min-width: 900px) { .tilt { transform: rotate(-2.2deg); } }
+
+/* A photograph dropped on top of another one. */
+.stack { position: relative; }
+.stackOver {
+  position: relative;
+  margin: -14% 0 0 auto;
+  width: min(78%, 520px);
+  transform: rotate(2deg);
+  box-shadow: 0 18px 40px rgb(23 21 18 / 0.18);
+  border: 6px solid var(--paper);
+  border-radius: 2px;
+}
+@media (min-width: 900px) { .stackOver { margin-top: -20%; margin-right: -2%; } }
+
+/* -------------------------------------------------------- annotations */
+
+.annotation {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  line-height: 1.35;
+  letter-spacing: 0.11em;
+  color: var(--accent-text);
+  transform: rotate(-1.5deg);
+  margin-top: 0.9rem;
+}
+.annotation svg { flex: none; overflow: visible; }
+.annotationRow { display: flex; flex-wrap: wrap; gap: 1.2rem 2.4rem; }
+
+/* --------------------------------------------------------- CAD to part */
+
+.wipe {
+  position: relative;
+  max-width: 560px;
+  aspect-ratio: 1 / 1;
+}
+.wipe img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 2px;
+}
+/* Revealed from the bottom, the way a part comes off a build plate. */
+.wipeTop { clip-path: inset(calc(100% - var(--p, 0%)) 0 0 0); }
+
+.wipeCaption {
+  position: relative;
+  min-height: 1.4em;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  margin-top: 0.8rem;
+}
+.wipeCaption span { transition: opacity 0.25s ease; }
+.wipeCaption .after { position: absolute; left: 0; top: 0; opacity: 0; }
+.wipe.past + .wipeCaption .before { opacity: 0; }
+.wipe.past + .wipeCaption .after { opacity: 1; }
+
+/* -------------------------------------------------------------- numbers */
+
+.bigNumber {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.85;
+  color: var(--accent-text);
+  font-size: clamp(4.5rem, 16vw, 10rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.metrics {
+  display: grid;
+  gap: clamp(1.8rem, 4vw, 3rem);
+  margin-top: clamp(2rem, 5vh, 3.5rem);
+}
+@media (min-width: 620px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1000px) { .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+.metric { border-top: 2px solid var(--ink); padding-top: 1rem; }
+.metricValue {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  font-size: clamp(2.8rem, 7vw, 4rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.metricLabel { margin-top: 0.5rem; font-size: 0.95rem; color: var(--ink); }
+.metric details { margin-top: 0.7rem; }
+.metric summary {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+.metric summary::-webkit-details-marker { display: none; }
+.metric summary:hover { color: var(--accent-text); }
+.metric details p { margin: 0.6rem 0 0; font-size: 0.92rem; color: var(--muted); }
+
+/* ---------------------------------------------------------- word storm */
+
+.storm {
+  position: relative;
+  height: clamp(360px, 62vh, 620px);
+  margin-top: clamp(1.5rem, 4vh, 3rem);
+}
+.stormWord {
+  position: absolute;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.45s ease, transform 0.45s ease;
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.stormWord.on { opacity: 1; transform: none; }
+/* Languages are set apart from genres so nobody can read the two as one
+   list. They are outlined and monospaced; genres are solid. */
+.stormLang {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: transparent;
+  -webkit-text-stroke: 1.6px currentColor;
+}
+.stormLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.6rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-top: 1.2rem;
+}
+
+/* ------------------------------------------------------------------ Bo */
+
+.paw { display: block; margin: 0 auto clamp(2rem, 6vh, 4rem); }
+.pawPath {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 1.1s ease;
+}
+.pawPath.on { stroke-dashoffset: 0; }
+
+/* --------------------------------------------------------------- links */
+
+.bigLink {
+  display: inline-block;
+  margin-top: 1.6rem;
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  font-size: clamp(1.4rem, 4vw, 2.2rem);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 3px solid var(--accent);
+  padding-bottom: 3px;
+}
+.bigLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.bigLink:hover { color: var(--accent-text); }
+
+.footer {
+  border-top: 1px solid var(--rule);
+  padding: 2.2rem 0 3.5rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.madeBy {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.madeBy:hover { color: var(--accent-text); }
+.madeBy .rev { color: var(--muted); opacity: 0; transition: opacity 0.25s ease; }
+.madeBy:hover .rev, .madeBy:focus-visible .rev, .madeBy[data-open="true"] .rev { opacity: 1; }
+
+/* ----------------------------------------------------------- utilities */
+
+.reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.7s ease, transform 0.7s ease; }
+.reveal.on { opacity: 1; transform: none; }
+
+.srOnly {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.root :focus-visible {
+  outline: 3px solid var(--accent-text);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root * { animation: none !important; transition: none !important; }
+  .reveal { opacity: 1; transform: none; }
+  .stormWord { opacity: 1; transform: none; }
+  .pawPath { stroke-dashoffset: 0; }
+  /* The wipe becomes two photographs, side by side, with nothing moving. */
+  .wipe { aspect-ratio: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; max-width: 900px; }
+  .wipe img { position: static; clip-path: none !important; aspect-ratio: 1 / 1; }
+  .wipeCaption .after { position: static; opacity: 1; }
+  .wipeCaption .before::after { content: " →"; }
+}
+
+/* A line of metadata with a drawn arrow sitting on the baseline. */
+.metaLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.metaLine svg { flex: none; }

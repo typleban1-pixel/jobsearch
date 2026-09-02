@@ -26,7 +26,11 @@ const SPELLINGS: Array<[RegExp, string]> = [
   [/\bcentre(s?)\b/gi, "center$1"],
   [/\bprogramme(s?)\b/gi, "program$1"],
   [/\bfulfilment\b/gi, "fulfillment"],
-  [/\bspecialis(e|ed|ing|es|t|ts)\b/gi, "specializ$1"],
+  // Deliberately excludes "specialist" and "specialists". Those are
+  // spelled with an s in American English too, so the rule was rewriting
+  // a correct word: "Specialist" came out as "Specializt", inside a job
+  // title, on a resume.
+  [/\bspecialis(e|ed|ing|es)\b/gi, "specializ$1"],
   [/\boptimis(e|ed|ing|es|ation)\b/gi, "optimiz$1"],
   [/\bprioritis(e|ed|ing|es|ation)\b/gi, "prioritiz$1"],
   [/\brecognis(e|ed|ing|es)\b/gi, "recogniz$1"],

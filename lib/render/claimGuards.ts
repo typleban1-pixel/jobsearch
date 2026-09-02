@@ -26,7 +26,66 @@ export interface ClaimGuard {
   reason: string;
 }
 
+/** Verbs that claim origination, as opposed to participation. */
+const ORIGINATION_VERB =
+  "\\b(?:created|built|founded|established|launched|developed|started|designed|set up|stood up|spun up)\\b";
+const LCCC = "\\b(?:LCCC|Lorain)\\b";
+
 export const CLAIM_GUARDS: ClaimGuard[] = [
+  {
+    subject: "generalist as an identity",
+    pattern: /\bgeneralists?\b/i,
+    reason: "Generalist is an internal scoring concept, not a professional identity. On a resume it labels breadth "
+      + "instead of demonstrating it, and reads to a recruiter as a hedge about depth. State the cross-functional "
+      + "identity the verified titles support, and let the entries show the range.",
+  },
+  {
+    subject: "causing the growth of an email audience",
+    // The Genius One audience was approximately 70,000 when he arrived
+    // and approximately 180,000 later. Both numbers are the SIZE OF THE
+    // AUDIENCE WORKED WITH, and the evidence does not establish who or
+    // what caused the change. Any verb of causation across those figures
+    // asserts an attribution nobody confirmed.
+    // The verb has to attach to the AUDIENCE, not to something built for
+    // it. "Built and managed segmented funnels for an email audience" is
+    // the approved wording and describes building funnels, so anything
+    // with an intervening object of its own is excluded.
+    pattern: /\b(?:grew|grow|growing|grown|built|building|scaled|scaling|increased|increasing|expanded|expanding|doubled|tripled|drove|driving)\b(?:(?!funnels?|campaigns?|segments?|flows?)[^.]){0,25}\b(?:audience|list|database|subscribers?|contacts?)\b|\b(?:audience|list|database|subscribers?|contacts?)\b[^.]{0,60}\bfrom\s+(?:approximately\s+)?[\d,]+\s*k?\b[^.]{0,20}\bto\s+(?:approximately\s+)?[\d,]+/i,
+    reason: "The email audience figures are the size of the list worked with at two points in time, not growth he "
+      + "caused. List size moves on acquisition spend, retail and wholesale channels and other people's work. State "
+      + "what he did, which is designing marketing emails and building and managing segmented funnels, and state the "
+      + "audience size as scale. Never as growth, a percentage or a multiple.",
+  },
+  {
+    subject: "product sales stated as revenue generated",
+    // $68,000+ is what the products sold. He designed and developed
+    // them; pricing, channel, marketing spend and demand are not his.
+    pattern: /\b(?:generated|drove|driving|delivered|produced|responsible for|brought in)\b[^.]{0,40}\$\s?6[89],?\d{3}|\$\s?6[89],?\d{3}[^.]{0,40}\b(?:in revenue|revenue I|revenue he)\b/i,
+    reason: "The $68,000+ figure is sales of the products he designed, not revenue he personally generated. State it "
+      + "as product sales attached to the design work, never as revenue driven or delivered.",
+  },
+  {
+    subject: "two unrelated Genius One money figures in one claim",
+    // $70,000+ is Genius Academy's peak ARR; $68,000+ is physical
+    // product sales. Different offerings, different measures. Putting
+    // them in one sentence invites them to be read as one total.
+    pattern: /\$\s?70,?000[^.]{0,120}\$\s?68,?000|\$\s?68,?000[^.]{0,120}\$\s?70,?000/i,
+    reason: "Genius Academy's peak annual recurring revenue and the 3D-printed product sales are separate metrics for "
+      + "separate offerings. Stating them together reads as one combined figure and misstates both. Keep them in "
+      + "different sentences, and never add them.",
+  },
+  {
+    subject: "a date governing a list of capabilities",
+    // The narrow shape only: a year, then a span word, then a list. The
+    // general case is handled structurally by temporalScope.ts, which
+    // checks whether the anchor year actually holds for each item; this
+    // catches the phrasing early, in composed text that has no original
+    // to compare against.
+    pattern: /\b(?:since|from)\s+(?:19|20)\d{2}\b[^.]{0,40}\b(?:spanning|across|encompassing|covering)\b[^.]*,/i,
+    reason: "A year placed in front of a list is read as governing every item in it. The capabilities listed did not "
+      + "all begin in that year, so the sentence asserts more than the evidence supports. State the span without a "
+      + "date, or date only the item the record actually dates.",
+  },
   {
     subject: "RentPup traction",
     pattern: /\b(grew|scaled|scaling|acquired\s+(?:customers|users|clients)|generated\s+revenue|revenue\s+of|paying\s+customers|served\s+\d|customer\s+base|user\s+base|traction|monetiz\w*)\b/i,
@@ -52,7 +111,12 @@ export const CLAIM_GUARDS: ClaimGuard[] = [
     // Resume bullets drop the subject: "Generated $70,000 in ARR" has no
     // pronoun and is exactly the sentence this must catch. Matching only
     // "I generated" let the most likely phrasing straight through.
-    pattern: /(?:^|[.\n;]\s*|\b(?:I|he|we)\s+)(?:generated|drove|produced|earned|delivered)\s+(?:\$|more than \$|over \$|upwards of \$)?\s*\d[\d,]*\s*(?:k\b|,000)?\s*(?:in\s+)?(?:ARR|revenue|sales)/i,
+    // "that generated", "which generated", "generating" were all outside
+    // the original pattern, which required a sentence start or a pronoun.
+    // A tailored rewrite produced "an education-focused offering that
+    // generated more than $70,000", which is the attribution this guard
+    // exists to stop, one relative pronoun away from being caught.
+    pattern: /(?:^|[.\n;]\s*|\b(?:I|he|we|that|which|who)\s+)(?:generat\w+|dr(?:ove|iving)|produc\w+|earn\w+|deliver\w+|bring\w*|brought)\s+(?:in\s+)?(?:\$|more than \$|over \$|upwards of \$)?\s*\d[\d,]*\s*(?:k\b|,000)?\s*(?:\+\s*)?(?:in\s+)?(?:ARR|revenue|sales|annual)/i,
     reason: "The $70,000 figure is the offering's total ARR, not revenue personally generated.",
   },
   {
@@ -62,8 +126,32 @@ export const CLAIM_GUARDS: ClaimGuard[] = [
   },
   {
     subject: "LCCC internship program",
-    pattern: /\b(?:created|built|founded|established|launched)\b[^.]{0,40}\binternship program\b/i,
+    pattern: /\b(?:created|built|founded|established|launched|developed|started|designed|set up|stood up|spun up)\b[^.]{0,40}\binternship program\b/i,
     reason: "RETRACTED 30 Aug 2026: he did not create the LCCC internship program. His resume says otherwise and the resume is wrong.",
+  },
+  {
+    // The deleted evidence row read "Created the program from the ground
+    // up", never using the word "internship". The guard above would have
+    // let it through verbatim. The claim survives paraphrase, so the
+    // guard has to as well.
+    //
+    // Scoped to LCCC on purpose. He is not barred from claiming program
+    // creation anywhere else, and a guard that blocked the phrase
+    // globally would assert an absence the profile does not support.
+    subject: "LCCC program creation",
+    pattern: new RegExp(
+      [
+        // verb ... LCCC ... program   ("Founded the LCCC Video Program")
+        `${ORIGINATION_VERB}[^.]{0,60}${LCCC}[^.]{0,30}\\bprogram\\b`,
+        // verb ... program ... LCCC   ("Created the program at LCCC")
+        `${ORIGINATION_VERB}[^.]{0,60}\\bprogram\\b[^.]{0,60}${LCCC}`,
+        // LCCC ... verb ... program   ("At LCCC, established the video program")
+        `${LCCC}[^.]{0,80}${ORIGINATION_VERB}[^.]{0,40}\\bprogram\\b`,
+        // The bare phrasing the deleted evidence row actually used, which
+        // names neither LCCC nor "internship" and so matches none of the above.
+        `${ORIGINATION_VERB}[^.]{0,20}\\bprogram\\b[^.]{0,30}\\bfrom the ground up\\b`,
+      ].join("|"), "i"),
+    reason: "RETRACTED 30 Aug 2026: he did not create the LCCC Video Program or its internship program. Teaching and coordinating within the program is supported; originating it is not. This constrains the LCCC claim only and says nothing about program-creation capability elsewhere.",
   },
   {
     subject: "Adobe certification",
