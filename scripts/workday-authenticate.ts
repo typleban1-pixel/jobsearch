@@ -83,6 +83,34 @@ const result = await authenticateTenant(tenant, {
   priorAccountState: (prior?.account_state ?? "UNKNOWN") as any,
 });
 
+// On anything other than success, capture what the page actually is
+// BEFORE closing the browser. One live attempt is the budget; a failure
+// that leaves no evidence would force a second one.
+if (result.outcome !== "AUTHENTICATED") {
+  try {
+    const dom = await page.evaluate(() => {
+      const el = (sel: string) => [...document.querySelectorAll(sel)];
+      const vis = (e: Element) => e.getClientRects().length > 0;
+      return {
+        url: location.href,
+        credentialControls: el('[data-automation-id="email"], [data-automation-id="password"], [data-automation-id="verifyPassword"]')
+          .map((e) => ({ id: e.getAttribute("data-automation-id"), visible: vis(e),
+                         hasValue: Boolean((e as HTMLInputElement).value) })),
+        submitControls: el('[data-automation-id$="SubmitButton"], [data-automation-id="click_filter"]')
+          .map((e) => ({ id: e.getAttribute("data-automation-id"), label: e.getAttribute("aria-label"),
+                         visible: vis(e), ariaHidden: e.getAttribute("aria-hidden") })),
+        alerts: el('[role="alert"], [data-automation-id*="rror"]')
+          .map((e) => (e as HTMLElement).innerText.trim()).filter(Boolean).slice(0, 6),
+        loading: el('[data-automation-id="loading"]').some(vis),
+        visibleIds: el("[data-automation-id]").filter(vis)
+          .map((e) => e.getAttribute("data-automation-id")).slice(0, 60),
+      };
+    });
+    // hasValue is a boolean. No field value is ever read out.
+    console.log(`\n  DIAGNOSTIC CAPTURE (no secret values):\n${JSON.stringify(dom, null, 2).slice(0, 3000)}`);
+  } catch (e) { console.log(`  capture failed: ${String(e).slice(0, 120)}`); }
+}
+
 await ctx.close();
 
 console.log(`\n  outcome: ${result.outcome}`);

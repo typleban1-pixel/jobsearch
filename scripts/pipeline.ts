@@ -24,11 +24,19 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from "
 import { dirname, resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
+import { planExtraction } from "../lib/llm/extractionDedup.ts";
+import { estimateExtraction, formatEstimate } from "../lib/llm/extractionCost.ts";
 
 const kind = process.argv[2] === "weekly" ? "weekly" : "daily";
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
 const LOCK = `${ROOT}/.pipeline.lock`;
-const COST_PER_JOB_CENTS = 1.13;   // measured, not assumed
+// Cost is computed from measured token behaviour and the live price
+// table, not carried as a constant. The old COST_PER_JOB_CENTS = 1.13
+// was measured once and then the workload moved: across 4,118 real calls
+// it is 1.29 cents per CALL and 2.08 per extracted job, so every figure
+// this gate printed was 84% low. A number whose only purpose is to let a
+// person decide whether to spend must never round down.
+const HAIKU_PRICE = { in: 1.0, out: 5.0 };
 
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 
@@ -179,13 +187,21 @@ if (kind === "daily") {
 
 const after = await snapshot();
 const succeeded = steps.every((s) => s.ok);
-const costCents = after.pending * COST_PER_JOB_CENTS;
+// Deduplication is planned, not assumed: the gate is told how many
+// CALLS the pending jobs actually require, and still shows what it would
+// cost if none of them deduplicated.
+const pendingJobs = (await page("jobs", "id,status,eligibility,extracted_at,description_hash"))
+  .filter((j: any) => j.status === "OPEN" && j.eligibility === "ELIGIBLE" && j.extracted_at === null);
+const plan = planExtraction(pendingJobs.map((j: any) => ({ id: j.id, descriptionHash: j.description_hash })));
+const estimate = estimateExtraction({ jobs: after.pending, calls: plan.uniqueInputs, price: HAIKU_PRICE });
+const costCents = estimate.ceilingCents;
 
 console.log(`\nafter:  ${after.openJobs} open jobs, ${after.eligible} eligible, ${after.active} active companies`);
 console.log(`jobs added ${after.openJobs - before.openJobs}, eligibility ${before.eligible} -> ${after.eligible}`);
 console.log(`companies resolved this run: ${after.active - before.active}`);
 console.log(`\nAWAITING APPROVAL: ${after.pending} eligible jobs not yet extracted`);
-console.log(`  estimated model cost: $${(costCents / 100).toFixed(2)}  (at the measured $${(COST_PER_JOB_CENTS / 100).toFixed(4)}/job)`);
+console.log(`  ${formatEstimate(estimate)}`);
+console.log(`  ${plan.reused} of them reuse an identical description and need no call of their own`);
 console.log(`  waiting: oldest ${after.pendingOldestDays}d, median ${after.pendingMedianDays}d`);
 console.log(`  UNCERTAIN jobs also unextracted: ${after.uncertainPending} — separate, NOT in the batch above`);
 console.log(`  nothing was sent to a model by this run.`);

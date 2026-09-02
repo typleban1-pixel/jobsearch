@@ -31,6 +31,22 @@ import type { AtsProviderName } from "../lib/ingest/providers/types.ts";
 const commit = process.argv.includes("--commit");
 const limit = Number(process.argv.find((a) => a.startsWith("--limit="))?.split("=")[1] ?? 25);
 /**
+ * Companies resolved at once.
+ *
+ * The loop was fully sequential and each company costs up to twenty HTTP
+ * round trips -- eight careers-page paths at a 12s timeout, then up to
+ * twelve board probes -- so a run averaged 15s per company and 150
+ * companies took 37 minutes. That is the whole throughput problem: the
+ * backlog is 2,658 never-attempted companies, which is eighteen days at
+ * that rate.
+ *
+ * Concurrency is per COMPANY, and companies are different hosts, so this
+ * adds no pressure on any single origin. The 120ms spacing between board
+ * probes inside one company is untouched, which is where politeness to
+ * the ATS APIs actually lives.
+ */
+const concurrency = Number(process.argv.find((a) => a.startsWith("--concurrency="))?.split("=")[1] ?? 6);
+/**
  * Team-size floor.
  *
  * The first sweep resolved 1 company in 60. The resolver was not the
@@ -135,7 +151,7 @@ const byProvider: Record<string, number> = {};
 const resolved: Array<{ company: any; candidate: TokenCandidate; jobCount: number }> = [];
 const unresolved: Array<{ company: any; tried: number; providersSeen: string[] }> = [];
 
-for (const company of due) {
+async function resolveOne(company: any): Promise<void> {
   const detection = await detectFromCareersPage(company.domain, { timeoutMs: 12_000 });
 
   let candidates: TokenCandidate[] = [...detection.candidates];
@@ -196,9 +212,11 @@ for (const company of due) {
       test_result: t.ok ? `verified, ${t.jobCount} postings` : (t.error ?? "no postings"),
       job_count: t.jobCount, confirmed: t.ok,
     }));
-    for (const r of rows) {
+    // One statement, not one per candidate. At 5.9 candidates per
+    // company this was 5.9 round trips of pure bookkeeping per company.
+    if (rows.length) {
       await db.from("company_token_candidates")
-        .upsert(r, { onConflict: "ats_provider,candidate_token" });
+        .upsert(rows, { onConflict: "ats_provider,candidate_token" });
     }
     if (hit) {
       const { error } = await db.from("companies").update({
@@ -219,7 +237,27 @@ for (const company of due) {
   }
 }
 
+// Bounded parallelism. A worker pool rather than fixed batches, so one
+// slow company does not idle the others waiting for it.
+const queue = [...due];
+const started = Date.now();
+await Promise.all(Array.from({ length: Math.max(1, concurrency) }, async () => {
+  for (;;) {
+    const company = queue.shift();
+    if (!company) return;
+    try { await resolveOne(company); }
+    catch (e) {
+      // One company's failure must not end the run: the backlog is the
+      // point, and a single unreachable domain is not a reason to stop.
+      stats.unresolved++;
+      console.log(`  ERROR      ${String(company.name).slice(0, 33).padEnd(33)} ${String(e).split("\n")[0]!.slice(0, 70)}`);
+    }
+  }
+}));
+
 console.log(`\n${"".padEnd(60, "-")}`);
+console.log(`concurrency          ${concurrency}`);
+console.log(`wall clock           ${((Date.now() - started) / 1000).toFixed(0)}s  (${((Date.now() - started) / 1000 / Math.max(1, due.length)).toFixed(1)}s per company)`);
 console.log(`attempted            ${due.length}`);
 console.log(`resolved directly    ${stats.direct}   (careers page named the board)`);
 console.log(`resolved by guess    ${stats.fingerprint + stats.guess}   (${stats.fingerprint} with a provider fingerprint, ${stats.guess} blind)`);
