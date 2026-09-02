@@ -45,6 +45,20 @@ console.log("\n1. page classification, from the ids Workday actually stamps:");
     classifyWorkdayPage(sig({ automationIds: ["email", "password", "createAccountSubmitButton"], inputTypes: ["password"] })) === "CREATE_ACCOUNT_FORM");
   check("the public posting",
     classifyWorkdayPage(sig({ automationIds: ["jobPostingHeader", "applyButton"] })) === "JOB_POSTING");
+  // The real Northern Trust Candidate Home, from the first live sign-in.
+  // It carries no sign-out control: that lives in an account-tasks menu.
+  const candidateHome = ["utilityButtonBar", "utilityButtonBarSettingsMenu", "utilityButtonAccountTasksMenu",
+                         "navigationItem-Candidate Home", "candidateHomePage", "candidate-home-app",
+                         "welcomeMsgHeader", "applicationsSectionHeading"];
+  check("the live Candidate Home is SIGNED_IN",
+    classifyWorkdayPage(sig({ automationIds: candidateHome })) === "SIGNED_IN",
+    classifyWorkdayPage(sig({ automationIds: candidateHome })));
+  check("and it is not mistaken for signed out",
+    classifyWorkdayPage(sig({ automationIds: candidateHome })) !== "SIGNED_OUT");
+  check("a candidate-home id alongside a password field is NOT signed in",
+    classifyWorkdayPage(sig({ automationIds: [...candidateHome, "password", "signInSubmitButton"],
+      inputTypes: ["password"] })) !== "SIGNED_IN");
+
   check("the careers landing with a Sign In utility button is affirmatively signed OUT",
     classifyWorkdayPage(sig({ automationIds: ["utilityButtonSignIn", "jobSearchPage", "jobResults"] })) === "SIGNED_OUT");
   check("the same page with a Sign Out button is signed IN",

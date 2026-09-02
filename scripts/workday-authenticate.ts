@@ -18,7 +18,7 @@ import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
 import { tenantFromToken, candidateHomeUrl } from "../lib/workday/tenant.ts";
-import { observe, waitForWorkdayReady, SEL, signIn as doSignIn } from "../lib/workday/probe.ts";
+import { observe, waitForWorkdayReady, SEL, signIn as doSignIn, clickWorkdayButton } from "../lib/workday/probe.ts";
 import { authenticateTenant } from "../lib/workday/authenticate.ts";
 import { keychainRef, readPassword } from "../lib/workday/keychain.ts";
 import { ensureTenant, loadTenants, recordObservation } from "../lib/workday/store.ts";
@@ -63,8 +63,14 @@ const result = await authenticateTenant(tenant, {
   },
   openSignIn: async () => {
     console.log("    opening the sign-in form");
-    const b = await page.$('[data-automation-id="utilityButtonSignIn"]');
-    if (b) { await b.click(); await page.waitForSelector(SEL.email, { timeout: 20_000 }).catch(() => { /* classified next pass */ }); }
+    // By accessible role, not by the raw element. The utility bar
+    // animates on load, and clicking the element directly fails with
+    // "element is not stable" while it is still settling.
+    await clickWorkdayButton(page, "Sign In", 30_000).catch(async () => {
+      const b = await page.$('[data-automation-id="utilityButtonSignIn"]');
+      if (b) await b.click({ timeout: 20_000 });
+    });
+    await page.waitForSelector(SEL.email, { timeout: 20_000 }).catch(() => { /* classified next pass */ });
   },
   // The password is read here and passed straight to the field. It is
   // never logged, never returned, and never put in a message.

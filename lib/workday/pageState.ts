@@ -119,6 +119,16 @@ export function classifyWorkdayPage(s: PageSignals): WorkdayPageState {
   if (has(ids, "usemylastapplication", "applymanually", "useresumeorcv")
       && !s.inputTypes.includes("password")) return "SIGNED_IN";
 
+  // Candidate Home. Northern Trust renders no sign-out button at all:
+  // signing out lives inside an account-tasks menu, so the first live
+  // sign-in landed on /userHome and classified as UNKNOWN even though it
+  // had plainly worked. Each of these ids exists only for an
+  // authenticated candidate, and the settings and account-tasks menus
+  // replace the Sign In button in the same utility bar.
+  if (has(ids, "candidatehomepage", "candidate-home-app", "utilitybuttonaccounttasksmenu",
+          "utilitybuttonbarsettingsmenu", "applicationssectionheading")
+      && !s.inputTypes.includes("password")) return "SIGNED_IN";
+
   // ---- 4b. affirmatively signed OUT -----------------------------------
   //
   // The careers landing page renders a utility bar carrying exactly one
