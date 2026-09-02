@@ -142,16 +142,43 @@ steps.push(await run("locations", ["scripts/backfill-locations.ts", "--write"]))
 // Derived from job_locations, so it has to follow the location backfill.
 // Cheap, and it is what any geographic prioritization reads.
 steps.push(await run("company-geo", ["scripts/backfill-company-geo.ts", "--commit"]));
-steps.push(await run("eligibility", ["scripts/eligibility.ts", "--commit"]));
-// Workday's list endpoint returns a title, a location and a path, and no
-// description; the description needs a second fetch. Nothing made that
-// call in the scheduled run, so 3,348 Workday postings sit in the corpus
-// unreadable, and 19 eligible ones reached extraction with empty text --
-// where one was paid for and returned nothing.
+// ---- the compensation-then-eligibility sequence ----------------------
 //
-// Free, one GET per posting, descriptions only, and it must follow
-// eligibility because it only fetches for postings eligibility has kept.
+// These four run in this order and the order is load-bearing. It is
+// asserted by scripts/pipeline-order-selftest.ts, which fails the build
+// if they are rearranged.
+//
+// Northern Trust R159624 published "Salary Range: $114,700 - 194,900
+// USD" and the portal showed "salary not stated", because:
+//
+//   Workday's list endpoint carries no description, so the salary parser
+//   ran at ingest against empty text and found nothing;
+//   hydration later supplied the description but only the description;
+//   nothing re-read compensation afterwards.
+//
+// Once renormalization was pointed at the hydrated text it recovered 447
+// salaries, and 114 postings that were passing the gate on geography
+// alone turned out to publish base pay below the floor.
+//
+// 1. HYDRATION fetches the descriptions Workday's listing omits. It
+//    scopes itself by the CURRENT eligibility verdict -- yesterday's --
+//    which is why it can precede today's gate: it is choosing what to
+//    fetch, not deciding anything.
 steps.push(await run("workday-descriptions", ["scripts/hydrate-workday-descriptions.ts", "--write"]));
+// 2. RENORMALIZATION promotes description-derived pay into the
+//    structured salary fields. Gap-fill only: it never overwrites a
+//    figure a board supplied, and it refuses bonus, OTE, equity,
+//    commission and unclear pay periods rather than guessing.
+steps.push(await run("renormalize-compensation", ["scripts/renormalize-compensation.ts", "--commit"]));
+// 3. THE FULL GATE recomputes every job from those structured fields.
+//    Only this pass sees the new salaries; the refresh below is scoped
+//    to jobs with extraction results and left two below-floor postings
+//    wrongly eligible when it ran alone.
+steps.push(await run("eligibility", ["scripts/eligibility.ts", "--commit"]));
+// 4. THE REFRESH restores extraction-informed verdicts. The full gate
+//    uses structured fields only and overwrites them, so running it
+//    without this step immediately after reverts ~590 jobs to a worse
+//    answer. This must never run BEFORE the full gate.
 steps.push(await run("eligibility-refresh", ["scripts/eligibility-refresh.ts", "--commit"]));
 // Free and deterministic. Jobs without requirements score as unscorable
 // rather than being skipped, which is the honest representation.

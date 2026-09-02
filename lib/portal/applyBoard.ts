@@ -11,6 +11,10 @@ import { revalidateBeforeSubmit } from "../applications/revalidate.ts";
 import { groupBlockedQuestions, summarize, type BlockedField, type QuestionGroup } from "./questionGroups.ts";
 import { staleBlockedStatus, isEmployerFormHandoff } from "./answerCompleteness.ts";
 import { answerSetHash } from "../applications/approvalBinding.ts";
+import { authoritativeCandidacy } from "../applications/authoritativeCandidacy.ts";
+import { FIT_FORMULA_VERSION } from "../scoring/fit.ts";
+import { TAXONOMY_VERSION } from "../scoring/requirementClass.ts";
+import { CANDIDACY_MODEL_VERSION } from "../scoring/candidacy.ts";
 
 export interface ApplyRow {
   applicationId: string;
@@ -87,7 +91,7 @@ const page = async (db: SupabaseClient, t: string, cols: string, f: (q: any) => 
 };
 
 export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
-  const [apps, jobs, companies, answers, candidacy, versions] = await Promise.all([
+  const [apps, jobs, companies, answers, candidacy, versions, profileRow] = await Promise.all([
     // is_test is filtered in the query, not after it.
     //
     // loadApplications has always excluded test applications and this
@@ -104,17 +108,50 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
     page(db, "jobs", "id,title,company_id,source,status,eligibility,canonical_opening_id,application_form_url,url"),
     page(db, "companies", "id,name"),
     page(db, "application_answers", "application_id,confidence_state,is_required,answer_text,field_key"),
-    page(db, "job_candidacy", "job_id,verdict,created_at", (q) => q, "job_id"),
+    page(db, "job_candidacy",
+      "job_id,verdict,created_at,profile_version,formula_version,taxonomy_version,model_version",
+      (q) => q, "job_id"),
     page(db, "job_versions", "id,is_current"),
+    db.from("profile").select("profile_version").single(),
   ]);
+  const liveProfile = (profileRow as any)?.data ?? null;
 
   const jobById = new Map(jobs.map((j: any) => [j.id, j]));
   const nameById = new Map(companies.map((c: any) => [c.id, c.name]));
   const versionCurrent = new Map(versions.map((v: any) => [v.id, v.is_current]));
 
-  const latestVerdict = new Map<string, { verdict: string; at: string }>();
+  // The CURRENT verdict, not the newest row.
+  //
+  // This took whichever row sorted last by created_at, across every
+  // profile and model version, which is the same defect that had the
+  // application worker acting on 1,004 stale verdicts. A row written
+  // under profile v12 or model 3 is history; it is not what the system
+  // believes now.
+  //
+  // A job whose eligibility has since changed is a second kind of stale.
+  // Its verdict was computed while the job was eligible and remains true
+  // of that moment, but it is not an actionable candidacy today: a job
+  // below the salary floor is not a candidate whatever Model 4 last
+  // concluded. Those are surfaced as historical, never as current.
+  const versionsNow = {
+    profileVersion: liveProfile?.profile_version ?? -1,
+    formulaVersion: FIT_FORMULA_VERSION,
+    taxonomyVersion: TAXONOMY_VERSION,
+    modelVersion: CANDIDACY_MODEL_VERSION,
+  };
+  const eligibilityOf = new Map(jobs.map((j: any) => [j.id, j.eligibility]));
+  const currentByJob = authoritativeCandidacy(candidacy as any, versionsNow);
+
+  const latestVerdict = new Map<string, { verdict: string; at: string; current: boolean }>();
   for (const c of candidacy.sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)))) {
-    latestVerdict.set(c.job_id, { verdict: c.verdict, at: c.created_at });
+    const isAuthoritative = currentByJob.get(c.job_id) === c.verdict
+      && c.profile_version === versionsNow.profileVersion
+      && c.model_version === versionsNow.modelVersion;
+    const jobStillEligible = eligibilityOf.get(c.job_id) === "ELIGIBLE";
+    latestVerdict.set(c.job_id, {
+      verdict: c.verdict, at: c.created_at,
+      current: isAuthoritative && jobStillEligible,
+    });
   }
 
   const byApp = new Map<string, any[]>();
@@ -165,8 +202,10 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       applicationId: a.id,
       jobStatus: j.status,
       eligibility: j.eligibility,
-      candidacyVerdict: verdict?.verdict ?? null,
-      candidacyComputedAt: verdict?.at ?? null,
+      // Null when the verdict is not current: a stale row must not be
+      // able to read as an active candidacy anywhere downstream.
+      candidacyVerdict: verdict?.current ? verdict.verdict : null,
+      candidacyComputedAt: verdict?.current ? verdict.at : null,
       humanApproved: Boolean(a.human_approved),
       humanApprovedAt: a.human_approved_at ?? null,
       authorizationMode: null,

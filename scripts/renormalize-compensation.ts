@@ -38,12 +38,29 @@ const { data: prof } = await db.from("profile").select("salary_hard_floor").sing
 const floor = prof!.salary_hard_floor as number | null;
 
 const jobs = await page("jobs", "id,title,status,eligibility,salary_min,salary_max");
+// Two stores hold description text. job_versions is the frozen record
+// written at ingest and is append-only, so it cannot be corrected; the
+// Workday hydrator writes job_descriptions, which is also what extraction
+// and scoring read.
+//
+// Reading only job_versions is why this script reported "0 gain a salary"
+// against 437 postings whose descriptions had just been hydrated: it was
+// looking at the store the new text never reached. job_descriptions is
+// preferred and job_versions is the fallback, so postings ingested with
+// their text still behave exactly as before.
 const versions = await page("job_versions", "job_id,description_text,salary_min,salary_max",
   (q: any) => q.eq("is_current", true), "job_id");
-const textFor = new Map(versions.map((v: any) => [v.job_id, v.description_text ?? ""]));
+const hydrated = await page("job_descriptions", "job_id,description_text", (q: any) => q, "job_id");
+const textFor = new Map<string, string>();
+for (const v of versions as any[]) textFor.set(v.job_id, v.description_text ?? "");
+for (const d of hydrated as any[]) {
+  const t = d.description_text ?? "";
+  if (t.trim().length > (textFor.get(d.job_id) ?? "").trim().length) textFor.set(d.job_id, t);
+}
 
 const found: Array<{ id: string; title: string; status: string; eligibility: string;
-  min: number; max: number; period: string; annualMax: number | null; below: boolean }> = [];
+  min: number; max: number; period: string; currency: string | null;
+  annualMax: number | null; below: boolean }> = [];
 
 for (const j of jobs) {
   // Never overwrite a figure that is already recorded.
@@ -54,6 +71,7 @@ for (const j of jobs) {
     period: parsed.salaryPeriod, isEstimated: false, floor });
   found.push({ id: j.id, title: j.title, status: j.status, eligibility: j.eligibility,
     min: parsed.salaryMin, max: parsed.salaryMax, period: parsed.salaryPeriod!,
+    currency: parsed.salaryCurrency ?? null,
     annualMax: v.annualizedMax, below: v.verdict === "BELOW_FLOOR" });
 }
 
@@ -81,6 +99,9 @@ let written = 0;
 for (const f of found) {
   const { error } = await db.from("jobs").update({
     salary_min: f.min, salary_max: f.max, salary_period: f.period,
+    // The parser resolves a currency and it belongs with the figures:
+    // a bare 114700 is not a compensation fact without one.
+    salary_currency: f.currency,
     salary_is_estimated: false, salary_source: "description_text:renormalized",
   }).eq("id", f.id);
   if (error) { console.error(`  ${f.title}: ${error.message}`); continue; }
