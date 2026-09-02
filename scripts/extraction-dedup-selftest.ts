@@ -8,7 +8,7 @@
  * Every assertion here defends that: same hash shares, anything else
  * does not, and a changed description stops reuse.
  */
-import { planExtraction, reuseStillValid, dedupSavings, type DedupJob } from "../lib/llm/extractionDedup.ts";
+import { planExtraction, reuseStillValid, dedupSavings, EMPTY_SHA256, type DedupJob } from "../lib/llm/extractionDedup.ts";
 
 let pass = 0; const fails: string[] = [];
 const check = (n: string, c: boolean, d = "") => {
@@ -39,6 +39,22 @@ console.log("\n3. a missing hash is never a follower:");
   const p = planExtraction([j("a", null), j("b", null), j("c", "H1")]);
   check("both hashless jobs are extracted separately", p.leaders.length === 3, JSON.stringify(p.leaders.map((x) => x.id)));
   check("absence of a hash is not sameness", p.reused === 0);
+}
+
+console.log("\n3b. an EMPTY description is never a group:");
+{
+  // The live defect: 19 jobs with zero-length descriptions all hashed to
+  // sha256("") and were grouped as identical. They are not the same
+  // posting; they have no posting.
+  const p = planExtraction([j("a", EMPTY_SHA256), j("b", EMPTY_SHA256), j("c", EMPTY_SHA256)]);
+  check("three descriptionless jobs are three leaders", p.leaders.length === 3, JSON.stringify(p.leaders.map((x) => x.id)));
+  check("none is a follower", p.reused === 0);
+  check("an empty hash never forms a follower group", p.followers.size === 0);
+  // Mixed with real text.
+  const q = planExtraction([j("a", EMPTY_SHA256), j("b", "H1"), j("c", "H1")]);
+  check("real duplicates still group alongside empties", q.reused === 1 && q.leaders.length === 2, JSON.stringify(q.leaders.map((x) => x.id)));
+  check("reuse recorded against an empty hash is never valid",
+    reuseStillValid({ followerHash: EMPTY_SHA256, sourceHash: EMPTY_SHA256, hashAtReuse: EMPTY_SHA256 }) === false);
 }
 
 console.log("\n4. ordering does not change the plan:");

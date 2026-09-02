@@ -143,6 +143,15 @@ steps.push(await run("locations", ["scripts/backfill-locations.ts", "--write"]))
 // Cheap, and it is what any geographic prioritization reads.
 steps.push(await run("company-geo", ["scripts/backfill-company-geo.ts", "--commit"]));
 steps.push(await run("eligibility", ["scripts/eligibility.ts", "--commit"]));
+// Workday's list endpoint returns a title, a location and a path, and no
+// description; the description needs a second fetch. Nothing made that
+// call in the scheduled run, so 3,348 Workday postings sit in the corpus
+// unreadable, and 19 eligible ones reached extraction with empty text --
+// where one was paid for and returned nothing.
+//
+// Free, one GET per posting, descriptions only, and it must follow
+// eligibility because it only fetches for postings eligibility has kept.
+steps.push(await run("workday-descriptions", ["scripts/hydrate-workday-descriptions.ts", "--write"]));
 steps.push(await run("eligibility-refresh", ["scripts/eligibility-refresh.ts", "--commit"]));
 // Free and deterministic. Jobs without requirements score as unscorable
 // rather than being skipped, which is the honest representation.

@@ -19,6 +19,15 @@
  * A job with no description hash is never a follower. Absence of a hash
  * is not evidence of sameness.
  *
+ * Nor is an EMPTY description. Nineteen jobs in the first validation run
+ * had zero-length description text, every one hashed to
+ * e3b0c442...b855 -- sha256 of the empty string -- and the planner
+ * grouped them as identical. They are not the same posting; they have no
+ * posting. The leader returned zero requirements so nothing false was
+ * written, but the mechanism would have copied a real extraction across
+ * unrelated jobs the moment one of them had text. Empty is now refused
+ * explicitly rather than relying on the leader happening to fail.
+ *
  * INVALIDATION
  *
  * Reuse is keyed to the hash that produced it. When a posting's
@@ -26,6 +35,9 @@
  * the group it was filed under and is extracted again. That falls out of
  * grouping on the live hash rather than needing a rule of its own.
  */
+
+/** sha256(""). Jobs with no description text all hash to this. */
+export const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 export interface DedupJob {
   id: string;
@@ -57,8 +69,8 @@ export function planExtraction<T extends DedupJob>(pool: T[]): ExtractionPlan<T>
   const followers = new Map<string, T[]>();
 
   for (const j of pool) {
-    // No hash, no proof of sameness: it stands alone.
-    if (!j.descriptionHash) { leaders.push(j); continue; }
+    // No hash, or the hash of nothing: no proof of sameness either way.
+    if (!j.descriptionHash || j.descriptionHash === EMPTY_SHA256) { leaders.push(j); continue; }
     byHash.set(j.descriptionHash, [...(byHash.get(j.descriptionHash) ?? []), j]);
   }
 
@@ -88,6 +100,7 @@ export function reuseStillValid(input: {
 }): boolean {
   const { followerHash, sourceHash, hashAtReuse } = input;
   if (!followerHash || !sourceHash || !hashAtReuse) return false;
+  if (hashAtReuse === EMPTY_SHA256) return false;
   return followerHash === hashAtReuse && sourceHash === hashAtReuse;
 }
 

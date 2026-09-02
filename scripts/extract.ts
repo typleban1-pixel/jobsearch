@@ -12,6 +12,8 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
+import { planExtraction, EMPTY_SHA256 } from "../lib/llm/extractionDedup.ts";
+import { estimateExtraction, formatEstimate } from "../lib/llm/extractionCost.ts";
 import { AnthropicProvider, modelForTier } from "../lib/llm/anthropic.ts";
 import { extractRequirements, sanitizeRequirement, reconcileHardness, dedupeRequirements,
   EXTRACTION_VERSION } from "../lib/llm/extractRequirements.ts";
@@ -49,7 +51,7 @@ const matcher = new TermMatcher(
 const candidates: any[] = [];
 for (let from = 0; ; from += 1000) {
   const { data, error } = await db.from("jobs")
-    .select("id,company_id,title,eligibility,extracted_at,extraction_version,companies!inner(name)")
+    .select("id,company_id,title,source,eligibility,extracted_at,extraction_version,companies!inner(name)")
     .eq("status", "OPEN").in("eligibility", ["ELIGIBLE", "UNCERTAIN"])
     .order("id", { ascending: true }).range(from, from + 999);
   if (error) throw new Error(error.message);
@@ -129,12 +131,89 @@ if (targetIds) {
 
 if (pool.length === 0) { console.log("nothing to extract for this selection"); process.exit(0); }
 
+// ---- exact-hash deduplication ------------------------------------------
+//
+// 42.2% of open jobs carry a byte-identical description_hash with another
+// job. Same input, same model, same prompt: a second call could only
+// return the same answer, at full price.
+//
+// The LIVE hash is used, not the stored one, so a posting whose text
+// changed this morning groups by what it says now. Grouping is on the
+// hash alone: 817 same-company-same-title pairs in this corpus have
+// different descriptions, and sharing between them would invent
+// requirements for one posting out of another's words.
+// ONE hash source, used for grouping, for what gets stored, and for
+// every later comparison. The first validation run mixed them -- it
+// grouped on the live text hash and then compared against the stored
+// jobs.description_hash, which is computed differently -- so every reuse
+// read as permanently stale. Whatever is written must be the same thing
+// that will be checked.
+const hashOf = (j: any): string | null => liveHash.get(j.id) ?? null;
+
+// ---- a posting with no text is not extractable ------------------------
+//
+// The Workday list endpoint returns a title, a location and a path, and
+// no description; the description needs a second fetch that the pipeline
+// never made. Nineteen eligible Northern Trust postings therefore had a
+// blank job_descriptions row, and the first dedup run sent one of them
+// to the model, which correctly returned nothing, and copied that
+// nothing to eighteen others.
+//
+// Paying to extract requirements from an empty string cannot succeed.
+// These are held out here rather than filtered upstream so the reason is
+// visible in the run, and they stay ELIGIBLE and unextracted -- a
+// posting we cannot read yet is not a posting we have rejected.
+// liveHash is sha256 of the description text and is already computed for
+// every candidate. A missing row gives no hash; an empty row gives
+// sha256(""). Both mean there is nothing to read. descById is not built
+// until after selection, so it cannot be consulted here.
+const hasText = (j: any) => { const h = hashOf(j); return h !== null && h !== EMPTY_SHA256; };
+const withText = pool.filter(hasText);
+const noText = pool.filter((j: any) => !hasText(j));
+if (noText.length) {
+  console.log(`\nheld back: ${noText.length} job(s) have no description text and cannot be extracted.`);
+  const bySrc: Record<string, number> = {};
+  for (const j of noText) bySrc[j.source ?? "?"] = (bySrc[j.source ?? "?"] ?? 0) + 1;
+  console.log(`  by provider: ${JSON.stringify(bySrc)}`);
+  console.log(`  they stay ELIGIBLE and unextracted. For Workday run hydrate-workday-descriptions.ts first.`);
+}
+if (withText.length === 0) { console.log("\nnothing extractable in this selection"); process.exit(0); }
+
+const plan = planExtraction(withText.map((j: any) => ({ id: j.id, descriptionHash: hashOf(j) })));
+const followersOf = new Map<string, any[]>();
+for (const [leaderId, fs] of plan.followers) {
+  followersOf.set(leaderId, fs.map((f) => withText.find((j: any) => j.id === f.id)).filter(Boolean));
+}
+if (plan.reused > 0) {
+  console.log(`deduplication: ${pool.length} job(s) -> ${plan.uniqueInputs} distinct description(s); `
+    + `${plan.reused} will reuse a result rather than making a call`);
+}
+const leaderPool = plan.leaders.map((l) => withText.find((j: any) => j.id === l.id)).filter(Boolean) as any[];
+
+const estimate = estimateExtraction({ jobs: withText.length, calls: leaderPool.length, price: { in: 1.0, out: 5.0 } });
+console.log(`planned cost: ${formatEstimate(estimate)}`);
+
+// A run without --commit used to CALL THE MODEL and then throw the
+// answer away: `commit` gated persistence only, never the paid request.
+// So "dry run: nothing written" was true and deeply misleading -- the
+// money was spent and nothing was kept. It cost a real, if small, amount
+// to discover, and would have kept costing it every time anyone checked
+// what a run would do.
+//
+// Without --commit this now stops here, having printed the plan and the
+// cost, which is what a dry run was always meant to be.
+if (!commit) {
+  console.log(`\n(dry run: no model call was made and nothing was written.`);
+  console.log(` ${leaderPool.length} call(s) would be made for ${withText.length} extractable job(s). Pass --commit to spend.)`);
+  process.exit(0);
+}
+
 let selected: any[];
-if (limit >= pool.length) {
-  selected = pool;
+if (limit >= leaderPool.length) {
+  selected = leaderPool;
 } else {
   const perCompany = new Map<string, any[]>();
-  for (const j of pool) {
+  for (const j of leaderPool) {
     const arr = perCompany.get(j.company_id) ?? [];
     if (arr.length < 3) { arr.push(j); perCompany.set(j.company_id, arr); }
   }
@@ -165,6 +244,7 @@ console.log(`selection: ${staleOnly ? "stale version" : reextract ? "re-extract"
 let spentCents = 0;
 let attempted = 0, succeeded = 0, failed = 0, totalReqs = 0, groundingFlags = 0, coercionCount = 0, persistFailed = 0;
 let hardnessCorrections = 0, duplicatesRemoved = 0;
+let reused = 0, reuseRefused = 0, reuseFailed = 0, idempotencySkips = 0;
 let budgetStopped = false;
 const usages: LlmUsage[] = [];
 const failures: Array<{ job: string; company: string; error: string }> = [];
@@ -180,6 +260,21 @@ await Promise.all(Array.from({ length: Math.min(concurrency, selected.length) },
     if (i >= selected.length) return;
     const job = selected[i]!;
     const company = (job.companies as any)?.name ?? "?";
+
+    // Re-read immediately before spending. 33 jobs in the historical
+    // corpus were extracted twice under the SAME extraction version,
+    // which is the one duplicate class that is not a version migration.
+    // The pool was computed at start-up; anything that has since been
+    // extracted at this version by another run must not be paid for
+    // again.
+    {
+      const { data: fresh } = await db.from("jobs")
+        .select("extracted_at,extraction_version").eq("id", job.id).maybeSingle();
+      if (fresh?.extracted_at && fresh.extraction_version === EXTRACTION_VERSION && !reextract && !targetIds) {
+        idempotencySkips++;
+        continue;
+      }
+    }
     const description = descById.get(job.id) ?? "";
 
     if (spentCents > BUDGET_CENTS) {
@@ -306,7 +401,59 @@ await Promise.all(Array.from({ length: Math.min(concurrency, selected.length) },
       }
       await db.from("jobs").update({
         extracted_at: new Date().toISOString(), extraction_version: EXTRACTION_VERSION,
+        // The leader made the call itself, so it borrows from nobody.
+        extraction_source_job_id: null, extraction_reuse_hash: null,
       }).eq("id", job.id);
+
+      // ---- propagate to the jobs that share this exact description ----
+      //
+      // Written from the SAME requirement rows the model returned, with
+      // the same version and the same extracted_by, so a follower is
+      // indistinguishable from having been extracted directly -- which
+      // it is, because the input was identical.
+      //
+      // The hash is re-checked here rather than trusted from planning
+      // time. A description that changed between the plan and this
+      // moment is no longer the same text, and reuse would be a guess.
+      const followers = followersOf.get(job.id) ?? [];
+      const groupHash = hashOf(job);
+      for (const f of followers) {
+        const fHash = hashOf(f);
+        if (!groupHash || !fHash || fHash !== groupHash || groupHash === EMPTY_SHA256) {
+          anomalies.push({ job: f.title, company: (f.companies as any)?.name ?? "?",
+            note: "description changed after planning; reuse refused, left for its own extraction" });
+          reuseRefused++;
+          continue;
+        }
+        try {
+          const { error: fd } = await db.from("job_requirements").delete().eq("job_id", f.id);
+          if (fd) throw new Error(fd.message);
+          if (reqs.length) {
+            const { error: fe } = await db.from("job_requirements").insert(reqs.map((r) => {
+              const m = matcher.match(r.normalized_term);
+              return {
+                job_id: f.id, kind: r.kind, raw_text: r.raw_text, normalized_term: r.normalized_term,
+                skill_id: m.skillId, is_hard_requirement: r.is_hard_requirement,
+                hard_requirement_reason: r.hard_requirement_reason, minimum_years: r.minimum_years,
+                extraction_confidence: Math.max(0, Math.min(1, r.confidence)),
+                extracted_by: `anthropic:${modelForTier("fast")}`, extraction_version: EXTRACTION_VERSION,
+                match_method: m.method, matched_term: m.matchedTerm,
+              };
+            }));
+            if (fe) throw new Error(fe.message);
+          }
+          const { error: fu } = await db.from("jobs").update({
+            extracted_at: new Date().toISOString(), extraction_version: EXTRACTION_VERSION,
+            extraction_source_job_id: job.id, extraction_reuse_hash: groupHash,
+          }).eq("id", f.id);
+          if (fu) throw new Error(fu.message);
+          reused++;
+        } catch (e) {
+          reuseFailed++;
+          failures.push({ job: f.title, company: (f.companies as any)?.name ?? "?",
+            error: `reuse: ${String(e).slice(0, 160)}` });
+        }
+      }
     } catch (e) {
       // A persistence failure fails THIS job. Throwing here would reject
       // the enclosing Promise.all and abandon every other worker, which
