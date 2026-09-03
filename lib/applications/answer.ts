@@ -19,6 +19,7 @@ import { relocationDestination, relocationDate, requiresRelocationAssistance } f
 export const ANSWER_RESOLVER_VERSION = 2;
 
 import { matchesPriorEmployment, PRIOR_EMPLOYMENT_ANSWER } from "./priorEmployment.ts";
+import { matchesAnticipatedWorkCountry, ANTICIPATED_WORK_COUNTRY } from "./workCountry.ts";
 
 export type Confidence = "VERIFIED" | "DERIVED" | "HUMAN_CONFIRMED" | "BLOCKED";
 export type BlockKind = "UNKNOWN" | "AMBIGUOUS";
@@ -580,6 +581,28 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
 
   if (intent.key === "previously_employed_here") {
     return resolvePriorEmployment(field, ctx, matchedBy);
+  }
+
+  // The country the work will happen in, declared once and reused.
+  // Checked against the label and the key together, and only where the
+  // wording is actually about work location.
+  {
+    const rule = matchesAnticipatedWorkCountry(`${field.label ?? ""} ${(field as any).key ?? ""}`);
+    if (rule.covered) {
+      // The option list is the employer's, and it may spell the country
+      // any way it likes. fitOption is given the declared name; where the
+      // control offers a list, the fill maps it to the exact option and
+      // refuses if that mapping is not unique.
+      const fit = fitOption(field, ANTICIPATED_WORK_COUNTRY);
+      if (!fit.ok) {
+        return { field, intentKey: "anticipated_work_country", matchedBy, answer: ANTICIPATED_WORK_COUNTRY,
+          confidence: "VERIFIED", blockKind: null, blockedReason: null,
+          evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+      }
+      return { field, intentKey: "anticipated_work_country", matchedBy, answer: fit.value,
+        confidence: "VERIFIED", blockKind: null, blockedReason: null,
+        evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+    }
   }
 
   // 2b(i). The current role, from the employment records.

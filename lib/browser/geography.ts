@@ -51,7 +51,39 @@ const COUNTRIES: Record<string, string> = {
   "U.S.A.": "united states", UK: "united kingdom", GB: "united kingdom",
   CA_COUNTRY: "canada", CAN: "canada", AU: "australia", DE: "germany",
   FR: "france", IE: "ireland", NL: "netherlands", IN: "india", SG: "singapore",
+  UAE: "united arab emirates", AE: "united arab emirates", NZ: "new zealand",
+  KR: "south korea", TW: "taiwan", MY: "malaysia", MX: "mexico", BR: "brazil",
+  SE: "sweden", CH: "switzerland", PL: "poland", PT: "portugal", RO: "romania",
+  ES: "spain", IT: "italy", IL: "israel", JP: "japan", LU: "luxembourg",
+  ID: "indonesia", TH: "thailand", BE: "belgium",
 };
+
+/**
+ * One country, written the many ways a form writes it.
+ *
+ * Employers do not agree on a spelling: the same list offers "US", "UK"
+ * and "UAE" beside "The Netherlands" and "New Zealand". Matching an
+ * answer to an option means normalising both, because "United States"
+ * and "US" are the same country and neither contains the other.
+ */
+export function normalizeCountryName(s: string): string {
+  const raw = String(s ?? "").trim();
+  const upper = raw.toUpperCase().replace(/\.$/, "");
+  if (COUNTRIES[upper]) return COUNTRIES[upper];
+  const spelled: Record<string, string> = {
+    "united states of america": "united states",
+    "the united states": "united states",
+    "united states": "united states",
+    "america": "united states",
+    "great britain": "united kingdom",
+    "the netherlands": "netherlands",
+    "holland": "netherlands",
+    "republic of korea": "south korea",
+    "korea, republic of": "south korea",
+  };
+  const c = clean(raw);
+  return spelled[c] ?? c;
+}
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase().replace(/\.$/, "");
 

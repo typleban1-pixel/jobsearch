@@ -26,6 +26,7 @@ import { resolveFormContext, assertContextIntact, type FormContext } from "./for
 import { exactlyOne, fillText, readBack, selectOption, setChecked, setFiles, clickOptionWithin } from "./actions.ts";
 import { readLazyOptions, readFilteredOptions, exactOptions } from "./inspectCombobox.ts";
 import { geoSearchTerm, exactGeoMatches, qualifiedGeoMatches, sameGeography } from "./geography.ts";
+import { matchCountryOption } from "../applications/workCountry.ts";
 import { reconcileAll, answerFitsControl, type Reconciled } from "./reconcile.ts";
 import { attachResume, type AttachmentEvidence } from "./upload.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
@@ -456,6 +457,12 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       const m = matchFor.get(f.key);
       let options: string[] | null = f.options?.length ? f.options : null;
 
+      // A checkbox group decides its own option, once, below. Fitting
+      // the answer to the group's option list here would mean matching
+      // "United States" against a list that spells it "US" and stopping
+      // before the code that knows how to map the two ever runs.
+      if (f.htmlType === "checkbox-group") return value;
+
       // A place is not a string, and this is the wrong place to decide it.
       //
       // This ran before the write path and compared "Cleveland, OH" to the
@@ -551,6 +558,55 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         .catch(() => false);
 
       const isLocation = locationField(f);
+
+      /**
+       * A group of checkboxes is one question with many controls.
+       *
+       * Selection is by the option's OWN selector, never by the group's:
+       * the shared name matches every box in the group, which is exactly
+       * how "Australia" came to match 30 controls. Read-back then checks
+       * the whole group, because the risk here is not only that the
+       * intended box failed to tick but that another one is ticked too.
+       */
+      if (f.htmlType === "checkbox-group") {
+        const offered = f.options ?? [];
+        const chosen = matchCountryOption(offered, value);
+        inspections.push({ field: f.label || f.key, optionsFound: offered.length,
+          sample: offered.slice(0, 3), allOptions: offered,
+          resolvedAs: chosen.ok ? `matched ${JSON.stringify(chosen.option)} by ${chosen.how}` : chosen.why });
+        if (!chosen.ok) {
+          throw new Stop("READBACK_MISMATCH",
+            `"${f.label || f.key}": ${chosen.why}. The control offered: ${offered.join(" | ")}`);
+        }
+        const oneSelector = f.optionSelectors?.[chosen.option];
+        if (!oneSelector) {
+          throw new Stop("SELECTOR_AMBIGUOUS",
+            `"${f.label || f.key}": ${JSON.stringify(chosen.option)} has no selector of its own, `
+            + "and the group's selector reaches every option");
+        }
+        const box = ctx.frame.locator(oneSelector);
+        if (await box.count() !== 1) {
+          throw new Stop("SELECTOR_AMBIGUOUS",
+            `"${f.label || f.key}": ${JSON.stringify(oneSelector)} matched ${await box.count()} controls`);
+        }
+        if (!(await box.isChecked().catch(() => false))) await box.check({ timeout: 8000 });
+        await page.waitForTimeout(300);
+
+        // Read the whole group back: exactly the intended option, and
+        // nothing else.
+        const state = await ctx.frame.evaluate((sels: Record<string, string>) =>
+          Object.fromEntries(Object.entries(sels).map(([label, sel]) =>
+            [label, Boolean((document.querySelector(sel) as HTMLInputElement | null)?.checked)])),
+          f.optionSelectors ?? {});
+        const ticked = Object.entries(state).filter(([, on]) => on).map(([l]) => l);
+        if (ticked.length !== 1 || ticked[0] !== chosen.option) {
+          throw new Stop("READBACK_MISMATCH",
+            `"${f.label || f.key}" reads back as ${ticked.length ? ticked.join(" + ") : "nothing selected"} `
+            + `after selecting ${JSON.stringify(chosen.option)}`);
+        }
+        filled.push({ field: f.label || f.key, value: chosen.option });
+        return;
+      }
 
       if (isCombobox && isLocation) {
         // A place, not a string.

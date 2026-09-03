@@ -30,6 +30,15 @@ export interface LiveField extends FormField {
   htmlType: string;
   /** Ids this control declares a relationship to. */
   associated: string[];
+  /**
+   * For a group of checkboxes sharing one name: the selector that
+   * reaches each option, keyed by that option's own label.
+   *
+   * The option values are frequently opaque -- Greenhouse numbers them
+   * 733272947 and so on -- so the label is the only part that carries
+   * meaning, and the selector is what can actually be clicked.
+   */
+  optionSelectors?: Record<string, string>;
 }
 
 export interface LiveSnapshot {
@@ -241,6 +250,50 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
       const key = name || id || testid || label;
       if (!key || seen.has(key)) continue;
       seen.add(key);
+
+      /**
+       * A multi-select is one question, not thirty.
+       *
+       * Greenhouse renders "which countries do you anticipate working
+       * in" as thirty checkboxes all sharing name="question_...[]".
+       * Deduplicating by name kept the FIRST of them and took its label,
+       * so the question arrived called "Australia" with a selector that
+       * matched all thirty controls -- and the fill refused, correctly,
+       * to type a value into a guess.
+       *
+       * The group is the control. Its question comes from the fieldset
+       * legend, never from an option, and each option contributes its
+       * own label and its own selector.
+       */
+      const isCheckbox = (el.getAttribute("type") ?? "").toLowerCase() === "checkbox";
+      const siblings = isCheckbox && name
+        ? Array.from(document.querySelectorAll(
+            `input[type="checkbox"][name="${CSS.escape(name)}"]`)).filter((e) => visible(e))
+        : [];
+      if (siblings.length > 1) {
+        const legend = el.closest("fieldset")?.querySelector("legend")?.textContent?.trim();
+        const groupLabel = (legend || groupOf(el) || "").replace(/\s+/g, " ").replace(/\*$/, "").trim();
+        const optionSelectors: Record<string, string> = {};
+        const optionLabels: string[] = [];
+        for (const box of siblings) {
+          const own = labelFor(box).text.replace(/\s+/g, " ").replace(/\*$/, "").trim();
+          if (!own) continue;
+          // Prefer the option's own id: the shared name cannot single
+          // one out, and the value is opaque but unique.
+          const oneSel = box.id ? `#${CSS.escape(box.id)}`
+            : `input[type="checkbox"][name="${CSS.escape(name)}"][value="${CSS.escape((box as HTMLInputElement).value)}"]`;
+          optionSelectors[own] = oneSel;
+          optionLabels.push(own);
+        }
+        fields.push({
+          key, label: groupLabel, type: "checkbox-group", htmlType: "checkbox-group",
+          required: el.hasAttribute("required") || el.getAttribute("aria-required") === "true",
+          options: optionLabels, selector, selectorKind,
+          unlabelled: groupLabel === "", groupKey: groupOf(el),
+          associated: [], optionSelectors,
+        });
+        continue;
+      }
 
       const options = el.tagName.toLowerCase() === "select"
         ? Array.from((el as HTMLSelectElement).options).map((o) => o.label || o.text).filter(Boolean)
