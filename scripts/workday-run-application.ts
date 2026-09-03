@@ -94,9 +94,72 @@ const stepOf = async () => await page.evaluate(() => {
   return { heading, prog, url: location.href, title: document.title };
 });
 
+/**
+ * An application page, or some other page of the careers site?
+ *
+ * The first run of this discovered the JOB SEARCH page, merged its search
+ * box and two filter dropdowns into the application as three new
+ * questions, and then reported that nothing advanced. Discovery is only
+ * meaningful where there is an application, so this is checked before
+ * anything is written down rather than after.
+ */
+async function onApplicationPage(): Promise<boolean> {
+  return await page.evaluate(() => {
+    const q = (s: string) => document.querySelector(s);
+    const vis = (e: Element | null) => Boolean(e && e.getClientRects().length > 0);
+    if (vis(q('[data-automation-id="jobSearchPage"]')) || vis(q('[data-automation-id="jobSearch"]'))) return false;
+    return vis(q('[data-automation-id="progressBar"]'))
+      || vis(q('[data-automation-id="jobApplicationHeader"]'))
+      || /\/job\/|apply|application/i.test(location.pathname);
+  });
+}
+
+/** Finds the in-progress application and opens it. */
+async function openApplication(): Promise<boolean> {
+  if (await onApplicationPage()) return true;
+  const base = candidateHomeUrl(tenant).replace(/\/$/, "");
+  for (const url of [`${base}/candidatehome`, job!.application_form_url ?? "", base]) {
+    if (!url) continue;
+    console.log(`  looking at ${url}`);
+    await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => undefined);
+    await waitForWorkdayReady(page, 30_000).catch(() => undefined);
+    await page.waitForTimeout(1500);
+    if (await onApplicationPage()) { console.log("  application page reached"); return true; }
+
+    // Candidate home lists tasks. Take the one naming this posting, or a
+    // plain Continue; never guess between several.
+    const links = await page.evaluate(() =>
+      [...document.querySelectorAll('a, button, [role="button"], [role="link"]')]
+        .filter((e) => e.getClientRects().length > 0)
+        .map((e) => ((e as HTMLElement).innerText || e.getAttribute("aria-label") || "").trim())
+        .filter(Boolean));
+    console.log(`  controls here: ${links.slice(0, 18).join(" | ").slice(0, 300)}`);
+    const title = String(job!.title ?? "");
+    const wanted = links.filter((l) => l === title || /continue application|continue|resume application/i.test(l));
+    if (wanted.length === 1) {
+      console.log(`  opening ${JSON.stringify(wanted[0])}`);
+      await page.getByRole("link", { name: wanted[0]!, exact: true }).first().click({ timeout: 15_000 })
+        .catch(async () => { await page.getByRole("button", { name: wanted[0]!, exact: true }).first().click({ timeout: 15_000 }).catch(() => undefined); });
+      await waitForWorkdayReady(page, 30_000).catch(() => undefined);
+      await page.waitForTimeout(2000);
+      if (await onApplicationPage()) { console.log("  application page reached"); return true; }
+    } else if (wanted.length > 1) {
+      console.log(`  ${wanted.length} candidate links (${wanted.join(", ")}); not guessing between them`);
+    }
+  }
+  return false;
+}
+
+let reachable = false;
 if (signedIn) {
+  console.log(`\n--- locating the application ---`);
+  reachable = await openApplication();
   console.log(`\n--- current step ---`);
   console.log(JSON.stringify(await stepOf(), null, 1).slice(0, 900));
+  if (!reachable) {
+    console.log(`\nCould not reach an application page. Nothing was written down.`);
+    console.log(`Open the application in this window yourself; the session stays alive.`);
+  }
 }
 
 /** Advancing, never submitting. The choice is made by a tested guard. */
@@ -120,12 +183,17 @@ async function advance(): Promise<string | null> {
 }
 
 // ---- one page at a time ---------------------------------------------
-for (let pageNo = 1; signedIn && pageNo <= MAX_PAGES; pageNo++) {
+for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
   const step = await stepOf();
   console.log(`\n=========== page ${pageNo}: ${step.heading || "(unnamed)"} ===========`);
 
   if (/review/i.test(step.heading)) {
     console.log("REVIEW reached. Stopping here; nothing is submitted.");
+    break;
+  }
+
+  if (!(await onApplicationPage())) {
+    console.log("this is not an application page; refusing to record its controls as questions.");
     break;
   }
 

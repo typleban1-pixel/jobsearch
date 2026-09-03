@@ -80,7 +80,7 @@ export async function newPreparedPage(
  * below the window edge.
  */
 export async function launchApplicationContext(
-  options: { profileDir?: string; viewport?: { width: number; height: number } | null } = {},
+  options: { profileDir?: string; viewport?: { width: number; height: number } | null; debugPort?: number } = {},
 ): Promise<BrowserContext> {
   const viewport = options.viewport === undefined ? null : options.viewport;
   const context = await chromium.launchPersistentContext(options.profileDir ?? ".browser-profile", {
@@ -89,7 +89,19 @@ export async function launchApplicationContext(
     viewport,
     // Only meaningful with a null viewport, where the window itself sets
     // the size. A fixed viewport ignores it.
-    ...(viewport === null ? { args: ["--window-size=1440,1000"] } : {}),
+    // A debugging port, so a live session can be reached again.
+    //
+    // Workday's session cookie dies with the browser process, and a
+    // second process cannot open the same profile. That combination
+    // meant an authenticated window could only ever be driven by the
+    // process that opened it: once that process finished its work and
+    // sat down, continuing required a restart, which threw the session
+    // away and cost a person another manual sign-in. With the port open,
+    // a later run attaches instead.
+    args: [
+      ...(viewport === null ? ["--window-size=1440,1000"] : []),
+      `--remote-debugging-port=${options.debugPort ?? 9222}`,
+    ],
   });
   return prepareContext(context);
 }
