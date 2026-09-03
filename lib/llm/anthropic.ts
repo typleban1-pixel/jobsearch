@@ -24,6 +24,39 @@ const MODELS: Record<Exclude<ModelTier, "embedding">, string> = {
 };
 
 /** Dollars per million tokens. Used only to estimate; never billed against. */
+/**
+ * The Messages API body for one request.
+ *
+ * Exported because the Batch API sends this same object as a request's
+ * `params`. Batch and synchronous extraction must be the same question
+ * or their results are not comparable, and the only way to guarantee
+ * that is for one function to build both. A second construction in the
+ * batch script would drift the first time either prompt changed.
+ */
+export function messageBody(model: string, req: {
+  prompt: string; system?: string; maxOutputTokens?: number;
+  temperature?: number; jsonSchema?: unknown;
+}): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model,
+    max_tokens: req.maxOutputTokens ?? 2048,
+    temperature: req.temperature ?? 0,
+    messages: [{ role: "user", content: req.prompt }],
+  };
+  if (req.system) body["system"] = req.system;
+  // Structured output via a single forced tool call: the model cannot
+  // reply with prose, so callers never write their own JSON salvaging.
+  if (req.jsonSchema) {
+    body["tools"] = [{
+      name: "emit",
+      description: "Return the structured result.",
+      input_schema: req.jsonSchema,
+    }];
+    body["tool_choice"] = { type: "tool", name: "emit" };
+  }
+  return body;
+}
+
 const PRICING: Record<string, { in: number; out: number }> = {
   "claude-haiku-4-5-20251001": { in: 1.0, out: 5.0 },
   "claude-sonnet-5": { in: 3.0, out: 15.0 },
@@ -43,23 +76,7 @@ export class AnthropicProvider implements LlmProvider {
     const model = req.model ?? MODELS[req.tier];
     const started = Date.now();
 
-    const body: Record<string, unknown> = {
-      model,
-      max_tokens: req.maxOutputTokens ?? 2048,
-      temperature: req.temperature ?? 0,
-      messages: [{ role: "user", content: req.prompt }],
-    };
-    if (req.system) body["system"] = req.system;
-    // Structured output via a single forced tool call: the model cannot
-    // reply with prose, so callers never write their own JSON salvaging.
-    if (req.jsonSchema) {
-      body["tools"] = [{
-        name: "emit",
-        description: "Return the structured result.",
-        input_schema: req.jsonSchema,
-      }];
-      body["tool_choice"] = { type: "tool", name: "emit" };
-    }
+    const body = messageBody(model, req);
 
     // Retry only what is worth retrying. 429 and 529 are the API asking
     // us to slow down, and 5xx is transient; a 400 is a bad request that

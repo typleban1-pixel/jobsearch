@@ -21,8 +21,8 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
-import { modelForTier } from "../lib/llm/anthropic.ts";
-import { EXTRACTION_VERSION } from "../lib/llm/extractRequirements.ts";
+import { modelForTier, messageBody } from "../lib/llm/anthropic.ts";
+import { EXTRACTION_VERSION, buildExtractionRequest } from "../lib/llm/extractRequirements.ts";
 import { planExtraction, EMPTY_SHA256 } from "../lib/llm/extractionDedup.ts";
 import { estimateExtraction, formatEstimate } from "../lib/llm/extractionCost.ts";
 import { customIdFor, intentKeyFor, planAgainstLive, resolveStalled, maySubmit,
@@ -69,13 +69,14 @@ if ((ambiguous ?? []).length) {
 if (POLL) { await poll(); process.exit(0); }
 
 // ---- plan --------------------------------------------------------------
-const jobs = await page("jobs", "id,title,source,status,eligibility,extracted_at,description_hash");
+const jobs = await page("jobs", "id,title,company_id,source,status,eligibility,extracted_at,description_hash");
 const descs = await page("job_descriptions", "job_id,description_text", "job_id");
 const text = new Map(descs.map((d: any) => [d.job_id, d.description_text ?? ""]));
 const pending = jobs.filter((j: any) =>
   j.status === "OPEN" && j.eligibility === "ELIGIBLE" && !j.extracted_at
   && (text.get(j.id) ?? "").trim().length > 0);
 
+const companyName = new Map((await page("companies", "id,name")).map((c: any) => [c.id, c.name]));
 const plan = planExtraction(pending.map((j: any) => ({ id: j.id, descriptionHash: sha(text.get(j.id) ?? "") })));
 const leaders = plan.leaders.filter((l) => l.descriptionHash !== EMPTY_SHA256);
 
@@ -131,19 +132,20 @@ if (existing) {
 // spending. Everything below -- the intent write, SUBMITTING, the create
 // outcomes, polling -- is complete and exercised; only the payload is
 // missing.
-const PROMPT_WIRED = false;
-if (!PROMPT_WIRED) {
-  console.log(`\nREFUSING TO SUBMIT: the request payload is not yet built from`);
-  console.log(`extractRequirements' prompt and tool schema. Planning, cost and the`);
-  console.log(`state machine are complete; the payload is the remaining piece.`);
-  console.log(`Nothing was written and no API call was made.`);
-  process.exit(3);
-}
-const requestBodies = toSend.map((w) => ({
-  custom_id: customIdFor(w),
-  params: { model: MODEL, max_tokens: 8192,
-            messages: [{ role: "user", content: `PLACEHOLDER ${w.jobId}` }] },
-}));
+// The payload, from the SAME two functions the synchronous path uses.
+//
+// buildExtractionRequest produces the prompt, system text, schema and
+// token ceiling; messageBody turns that into the Messages API body that
+// batch sends as a request's `params`. Neither is reimplemented here, so
+// a change to either moves both transports at once.
+const requestBodies = toSend.map((w) => {
+  const job: any = jobs.find((j: any) => j.id === w.jobId);
+  const company = companyName.get(job.company_id) ?? "";
+  const req = buildExtractionRequest({
+    title: job.title, company, descriptionText: text.get(w.jobId) ?? "",
+  });
+  return { custom_id: customIdFor(w), params: messageBody(MODEL, req) };
+});
 const { data: batch, error: be } = await db.from("extraction_batches").insert({
   intent_key: intentKey, intent: { requests: requestBodies.map((r) => r.custom_id), jobIds: toSend.map((w) => w.jobId) },
   status: "PLANNED", extraction_version: EXTRACTION_VERSION, model: MODEL,

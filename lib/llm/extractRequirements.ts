@@ -257,8 +257,18 @@ export function sanitizeRequirement(
   };
 }
 
-export async function extractRequirements(
-  llm: LlmProvider,
+/**
+ * The extraction request, built once for both transports.
+ *
+ * The synchronous path and the Batch API must ask the same question or
+ * their answers are not comparable, and the only way to guarantee that
+ * is for one function to build both. Anything that changes here --
+ * prompt wording, the schema, the token ceiling -- changes both at once,
+ * which is what stops them drifting apart silently.
+ *
+ * scripts/payload-parity-selftest.ts asserts the two agree.
+ */
+export function buildExtractionRequest(
   job: { title: string; company: string; descriptionText: string },
 ) {
   // Truncated to bound cost per call. The largest description in the
@@ -266,9 +276,9 @@ export async function extractRequirements(
   // pathological posting dominate the bill.
   const description = job.descriptionText.slice(0, 24_000);
 
-  return llm.complete<ExtractionOutput>({
-    tier: "fast",
-    purpose: "extract_requirements",
+  return {
+    tier: "fast" as const,
+    purpose: "extract_requirements" as const,
     system: SYSTEM,
     // 8192, not 4096. The longest genuine extraction observed needed more
     // than 4096 and was silently cut off.
@@ -284,7 +294,14 @@ ${description}
 ---
 
 Extract the candidate requirements.`,
-  });
+  };
+}
+
+export async function extractRequirements(
+  llm: LlmProvider,
+  job: { title: string; company: string; descriptionText: string },
+) {
+  return llm.complete<ExtractionOutput>(buildExtractionRequest(job));
 }
 
 
