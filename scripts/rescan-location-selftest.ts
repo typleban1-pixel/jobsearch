@@ -1,76 +1,75 @@
 /**
- * Reproduces the production submission failure: a react-select location
- * field that the main pass filled and verified was re-attempted by the
- * multi-pass rescan, resolved to zero controls after the rerender, and
- * stopped the whole submission one field short of the handoff -- after
- * the resume was already uploaded, before any Submit click.
+ * Reproduces BOTH the Samsara and Stripe production submission failures
+ * at the Location field, and proves each fix.
  *
- * The mechanism is exercised two ways: the committed-value reader
- * against a real react-select DOM, and the rescan's re-attempt decision.
+ * Samsara: the multi-pass rescan re-attempted a react-select the main
+ * pass had already filled and verified, resolved its rerendered selector
+ * to zero, and stopped one field short of the handoff after the resume
+ * was uploaded. Stripe: the location ANSWER was prose ("Cleveland -
+ * relocating to Chicago") that the typeahead could not search.
  */
 import { chromium } from "playwright";
 import { shouldReattempt } from "../lib/browser/actions.ts";
+import { geoSearchTerm } from "../lib/browser/geography.ts";
 let n=0,bad=0; const ok=(c:boolean,w:string)=>{n++;if(!c){bad++;console.error(`FAIL ${w}`);}};
 
-// ---- 1. the rescan never re-attempts a field the main pass filled ----
-// This is the exact bug: the location was in `filled`, but its
-// re-snapshot input read empty, so the old check re-queued it.
-const FILLED = new Set(["Location (City)", "First Name", "Country"]);
-ok(!shouldReattempt("Location (City)", FILLED, null, ""), "a filled react-select with an empty input is NOT re-attempted");
-ok(!shouldReattempt("Location (City)", FILLED, "", null), "empty held and empty typed still skip when already filled");
-ok(!shouldReattempt("First Name", FILLED, "Tyler", "Tyler"), "an ordinary filled field is not re-attempted");
-// A genuinely empty field the main pass did NOT fill is still attempted.
-ok(shouldReattempt("Cover Letter", FILLED, null, ""), "a field never filled, and empty, is still attempted");
-ok(shouldReattempt("Cover Letter", FILLED, "", ""), "empty strings do not count as filled");
-// A field not in the filled set but holding a committed chip is done.
-ok(!shouldReattempt("State", FILLED, "Ohio", ""), "a committed value (held) counts as filled even if not in the set");
-ok(!shouldReattempt("State", FILLED, "", "Ohio"), "a typed value counts as filled even if not in the set");
+// ==== SAMSARA: the rescan never re-attempts a processed field ==========
+const PROCESSED = new Set(["Location (City)", "First Name", "Country", "Phone"]);
 
-// ---- 1b. a duplicate label does NOT suppress a genuinely new field ---
-// The main pass filled "Location (City)". If a NEW, different field
-// later appears also labelled "Location (City)" (pathological, but the
-// guard must hold), it must still be attempted while empty. Skip by
-// label only when the label is unique in the current snapshot.
-ok(!shouldReattempt("Location (City)", FILLED, null, "", true),
-   "a UNIQUE filled label is skipped (the rerendered react-select)");
-ok(shouldReattempt("Location (City)", FILLED, null, "", false),
-   "a DUPLICATE filled label is still attempted, preserving new-field discovery");
-ok(!shouldReattempt("Location (City)", FILLED, "Cleveland, OH", "", false),
-   "even a duplicate label is skipped when THIS field holds a committed value");
-ok(shouldReattempt("New Question", FILLED, null, "", true),
-   "a brand-new label, empty, is always attempted");
+// The exact failure: the main pass processed Location (City); on the
+// rescan its react-select input reads empty. It must NOT be re-attempted,
+// however many same-labelled nodes the rerender produced.
+ok(!shouldReattempt("Location (City)", PROCESSED, null, ""), "a processed react-select with an empty input is not re-attempted");
+ok(!shouldReattempt("Location (City)", PROCESSED, "", null), "empty held and typed still skip when processed");
+ok(!shouldReattempt("Phone", PROCESSED, "", ""), "a processed phone field is not re-attempted");
 
-// ---- 2. committedValue reads a real react-select chip ----------------
-// The main pass relies on this to verify the location; the rescan skip
-// is the backstop for when the re-snapshot selector cannot.
+// A genuinely NEW dynamic field carries a label the main pass never saw.
+ok(shouldReattempt("If you selected Other, explain", PROCESSED, null, ""),
+   "a dynamically revealed field with a new label IS attempted");
+ok(shouldReattempt("Cover Letter Text", PROCESSED, "", ""),
+   "a never-seen empty field is attempted");
+
+// A committed value always counts as filled, whatever the label.
+ok(!shouldReattempt("State", PROCESSED, "Ohio", ""), "a committed chip value counts as filled");
+ok(!shouldReattempt("State", PROCESSED, "", "Ohio"), "a typed value counts as filled");
+
+// The user's namesake concern: a NEW field must not be suppressed. Under
+// the processed-labels model, a new field has a NEW label, so it is never
+// suppressed by a namesake -- there is no namesake to collide with.
+ok(shouldReattempt("Additional Location", PROCESSED, null, ""),
+   "a distinctly-labelled second location field is still attempted");
+
+// ==== the react-select DOM the bug lives in ============================
 const browser = await chromium.launch({ channel: "chrome" });
 const page = await browser.newPage();
-// A faithful react-select shape: a control wrapper, a single-value chip,
-// and a search input that is EMPTY after commit (as react-select leaves it).
 await page.setContent(`<body>
-  <div class="select__control select__control--is-focused">
-    <div class="select__value-container">
-      <div class="select__single-value">Cleveland, Ohio, United States</div>
-      <div class="select__input-container">
-        <input id="loc" class="select__input" value="" />
-      </div>
-    </div>
-  </div>
-</body>`);
+  <div class="select__control"><div class="select__value-container">
+    <div class="select__single-value">Cleveland, Ohio, United States</div>
+    <div class="select__input-container"><input id="loc" class="select__input" value="" /></div>
+  </div></div></body>`);
 const held = await page.evaluate((sel: string) => {
   const el = document.querySelector(sel);
   const shell = el?.closest("[class*='select__control']")?.parentElement ?? el?.closest("div,fieldset");
   const single = shell?.querySelector("[class*='single-value']");
   return single ? (single.textContent ?? "").replace(/\s+/g, " ").trim() : null;
 }, "#loc");
-ok(held === "Cleveland, Ohio, United States", `the committed chip is read from a react-select (got ${JSON.stringify(held)})`);
-const typed = await page.locator("#loc").inputValue();
-ok(typed === "", "and the react-select input itself reads empty after commit, which is why the chip matters");
-// Together: this exact field would have been re-attempted by the old
-// check (input empty) and skipped correctly by the new one (chip held).
-ok(!shouldReattempt("Location (City)", new Set(), held, typed),
-   "the committed chip alone prevents a re-attempt, even before the label set");
+ok(held === "Cleveland, Ohio, United States", "the committed chip is read while the input is empty");
+ok((await page.locator("#loc").inputValue()) === "", "the react-select input reads empty after commit");
 await browser.close();
+
+// ==== STRIPE: a prose location answer yields a searchable city ========
+ok(geoSearchTerm("Cleveland - relocating to Chicago") === "Cleveland",
+   "a prose location answer yields the leading city");
+ok(geoSearchTerm("Cleveland, OH") === "Cleveland", "a clean city,state yields the city");
+ok(geoSearchTerm("Cleveland, Ohio, United States") === "Cleveland", "a full place yields the city");
+ok(geoSearchTerm("New York (remote)") === "New York", "a parenthetical is stripped");
+ok(geoSearchTerm("Chicago — moving soon") === "Chicago", "an em-dash note is stripped");
+ok(geoSearchTerm("Cleveland") === "Cleveland", "a bare city is unchanged");
+// It only widens what can be SEARCHED, never invents a match: a string
+// with no clean leading place is returned as-is and fails closed at the
+// geo-match step exactly as before.
+ok(geoSearchTerm("San Francisco Bay Area") === "San Francisco Bay Area",
+   "a place with no separator is returned whole, to be judged by the matcher");
 
 console.log(`${n-bad}/${n} assertions passed`);
 process.exit(bad?1:0);

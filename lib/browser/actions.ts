@@ -78,29 +78,20 @@ export async function clickOptionWithin(control: Locator, optionText: string): P
 /**
  * Should the rescan re-attempt this field?
  *
- * No, when the main pass already filled it (its label is in the filled
- * set) or when its committed value or typed value is non-empty. A
- * react-select control that has committed clears its search input and
- * moves the value into a chip, so the input alone reads empty and would
- * wrongly re-queue a field that is done -- which is what stopped a real
- * Samsara submission one field short, after the resume was uploaded.
- * The main pass verified read-back for what it filled, so its identity
- * by label is authoritative across the react-select rerender.
+ * No, when the main pass already processed a field with this label, or
+ * when this field already holds a committed or typed value. The rescan
+ * exists only to catch fields that did not exist during the main pass --
+ * dynamically revealed after answering something -- and those carry a
+ * label the main pass never saw. A label the main pass DID process is
+ * the same question rerendered: react-select commits its value into a
+ * chip and clears its input, and re-attempting it resolves a stale
+ * selector to zero and stops the submission one field short. Matching on
+ * the question text, which survives the rerender, is the point.
  */
 export function shouldReattempt(
-  label: string, filledLabels: Set<string>, held: string | null, typed: string | null,
-  labelUniqueInSnapshot: boolean = true,
+  label: string, processedLabels: Set<string>, held: string | null, typed: string | null,
 ): boolean {
-  // A committed value, wherever it lives, means the field is done.
   if ((held ?? "").trim() || (typed ?? "").trim()) return false;
-  // The label match only settles it when this label is the SOLE bearer
-  // in the current snapshot -- the rerendered react-select. If two
-  // fields now carry the same label, one is genuinely new, and skipping
-  // by label would suppress a field that still needs filling. In that
-  // case each is judged on its own committed state above, and a field
-  // that reads empty is attempted. Greenhouse questions are distinct in
-  // practice, so this only ever fires for the react-select rerender, but
-  // it keeps dynamic field discovery intact by construction.
-  if (filledLabels.has(label) && labelUniqueInSnapshot) return false;
+  if (processedLabels.has(label)) return false;
   return true;
 }

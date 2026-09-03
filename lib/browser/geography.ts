@@ -163,8 +163,22 @@ export function exactGeoMatches(options: string[], place: string): string[] {
  * then checked against.
  */
 export function geoSearchTerm(place: string): string {
-  const parts = String(place ?? "").split(",").map((p) => p.trim()).filter(Boolean);
-  return parts[0] ?? String(place ?? "").trim();
+  // The city, extracted from whatever the answer is wrapped in.
+  //
+  // A location typeahead needs a place name. A human answer to a
+  // "Location" question is not always one: "Cleveland - relocating to
+  // Chicago" is a true statement and a search term that matches nothing,
+  // which stopped a real submission at the location field. The leading
+  // place is taken by splitting on a comma first, then trimming any
+  // trailing prose introduced by a dash, an en/em dash, a parenthesis,
+  // or the words "relocating"/"moving". What survives is searched; if it
+  // still does not name an offered place, the fill fails closed exactly
+  // as before -- this widens what can be entered, never what is accepted.
+  const firstComponent = String(place ?? "").split(",")[0]?.trim() ?? "";
+  const beforeProse = firstComponent
+    .split(/\s+[-\u2013\u2014]\s+|\s*\(|\s+(?:relocating|moving|currently)\b/i)[0]
+    ?.trim() ?? "";
+  return beforeProse || firstComponent || String(place ?? "").trim();
 }
 
 /**

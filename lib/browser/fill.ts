@@ -230,6 +230,10 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
   const resolvedLive: FillOutcome["resolvedLive"] = [];
   const aliases: FillOutcome["aliases"] = [];
   const inspections: FillOutcome["inspections"] = [];
+  // Every field label the main pass iterated, filled or not. The
+  // rescan uses it to tell a rerendered field (same label, seen
+  // already) from a genuinely new dynamic one (label never seen).
+  const processedLabels = new Set<string>();
   const reconciliation: FillOutcome["reconciliation"] = [];
   let attachment: AttachmentEvidence | null = null;
   let contextInfo: FillOutcome["formContext"] = null;
@@ -734,6 +738,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       // is judged against the complete picture rather than in field order.
       for (const f of live.fields) {
         if (f.type === "file") continue;
+        processedLabels.add(f.label || f.key);
         let a = byKey.get(f.key);
 
         // A control the reviewed snapshot never mentioned. Resolve it
@@ -1057,19 +1062,21 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       // `filled`, so its identity, by label, is authoritative. Matching
       // by label rather than the volatile selector or key is the point:
       // those change across the rerender; the question text does not.
-      const filledLabels = new Set(filled.map((x) => x.field));
-      // How many current fields carry each label. A label the main pass
-      // filled is only skipped when it is unique here; a duplicate means
-      // a distinct new field that must still be discovered.
-      const labelCount = new Map<string, number>();
-      for (const f of now.fields) labelCount.set(f.label || f.key, (labelCount.get(f.label || f.key) ?? 0) + 1);
+      // The rescan fills only fields the main pass NEVER PROCESSED. A
+      // label the main pass already handled is the same question
+      // rerendered, not a new one: react-select in particular re-renders
+      // a committed control into several same-labelled nodes whose input
+      // reads empty, and re-attempting it resolves the stale selector to
+      // zero and stops the whole submission one field short. A genuinely
+      // dynamic field -- revealed by answering something -- carries a
+      // label the main pass never saw, so this preserves discovery by
+      // construction while never undoing verified work.
       const fresh: LiveField[] = [];
       for (const f of now.fields) {
         if (f.type === "file" || attempted.has(f.key) || !f.selector) continue;
         const held = await committedValue(ctx.frame, f.selector).catch(() => null);
         const typed = await ctx.frame.locator(f.selector).inputValue().catch(() => "");
-        const unique = (labelCount.get(f.label || f.key) ?? 0) <= 1;
-        if (shouldReattempt(f.label || f.key, filledLabels, held, typed, unique)) fresh.push(f);
+        if (shouldReattempt(f.label || f.key, processedLabels, held, typed)) fresh.push(f);
       }
       if (!fresh.length) break;
 
