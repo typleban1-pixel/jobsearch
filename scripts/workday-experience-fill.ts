@@ -24,6 +24,8 @@ const COMMIT = process.argv.includes("--commit");
 const DATES_ONLY = process.argv.includes("--dates-only");
 /** Fill blocks that already exist; never create more. */
 const NO_ADD = process.argv.includes("--no-add");
+/** Fill the Education blocks instead of Work Experience. */
+const EDUCATION = process.argv.includes("--education");
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 
 const { data: app } = await db.from("applications").select("resume_id,job_id").eq("id", ID).single();
@@ -41,6 +43,28 @@ const employment = await frozen("employment_records");
 const approvedFor = (employer: string) =>
   (content.roles ?? []).find((r: any) =>
     String(r.employer ?? "").trim().toLowerCase() === String(employer ?? "").trim().toLowerCase());
+
+/**
+ * Taxonomy choices a person authorised, kept beside the truth they map.
+ *
+ * "Health Administration" is a mapping onto Workday's list, not a claim
+ * about the degree: the full 322-entry taxonomy runs Accounting to
+ * Zoology and offers no Health Science or Health Sciences. The verified
+ * credential remains B.S. Health Science.
+ */
+const FIELD_OF_STUDY: Record<string, string> = {
+  "Western Governors University, Leavitt School of Health": "Health Administration",
+};
+const EDUCATION_END_YEAR: Record<string, string> = {
+  "Western Governors University, Leavitt School of Health": "2025",
+  "Lorain County Community College": "2015",
+};
+/** Start years and GPA the person confirmed for this application. */
+const EDUCATION_START_YEAR: Record<string, string> = {
+  "Western Governors University, Leavitt School of Health": "2024",
+  "Lorain County Community College": "2011",
+};
+const EDUCATION_GPA = "3.5";
 
 const MONTH = (iso: string | null) => iso ? String(Number(iso.slice(5, 7))) : "";
 const YEAR = (iso: string | null) => iso ? iso.slice(0, 4) : "";
@@ -167,6 +191,185 @@ const writeDate = async (auto: string, n: number, iso: string, what: string): Pr
 };
 
 let failures = 0;
+
+/**
+ * One option from a long taxonomy.
+ *
+ * Field of Study offers 322 entries and its search box does not filter,
+ * so the list is scrolled until the option appears. The search box is
+ * CLEARED before typing: typing into it repeatedly appended, leaving
+ * "HealthHealth" and matching nothing.
+ *
+ * The commit is read from Workday's own selected value, never from the
+ * search text -- reading back what you typed proves nothing.
+ */
+async function selectFromLongPrompt(auto: string, n: number, wanted: string, what: string): Promise<boolean> {
+  const fld = field(auto, n);
+  await fld.locator("input").first().click({ timeout: 10_000 }).catch(() => undefined);
+  await page.waitForTimeout(1000);
+  const sb = fld.locator('[data-automation-id="searchBox"]').first();
+  if (await sb.count().catch(() => 0)) {
+    await sb.click({ timeout: 5000 }).catch(() => undefined);
+    await page.keyboard.press("Control+A").catch(() => undefined);
+    await page.keyboard.press("Delete").catch(() => undefined);
+  }
+  const want = wanted.trim().toLowerCase();
+  let clicked = false;
+  for (let i = 0; i < 120 && !clicked; i++) {
+    const hit = page.locator('[data-automation-id="activeListContainer"] [data-automation-id="menuItem"]')
+      .filter({ hasText: new RegExp(`^\\s*${wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`) }).first();
+    if (await hit.count().catch(() => 0)) { await hit.click({ timeout: 8000 }).catch(() => undefined); clicked = true; break; }
+    const more = await page.evaluate(() => {
+      const c = document.querySelector('[data-automation-id="activeListContainer"]') as HTMLElement | null;
+      if (!c) return false;
+      const before = c.scrollTop;
+      c.scrollTop += c.clientHeight * 0.8;
+      return c.scrollTop > before;
+    });
+    if (!more) break;
+    await page.waitForTimeout(260);
+  }
+  await page.waitForTimeout(900);
+  const committed = await page.evaluate((sel: string) => {
+    const el = document.querySelector(`[data-automation-id="${sel}"]`);
+    return [...(el?.querySelectorAll('[data-automation-id="selectedItem"]') ?? [])]
+      .map((e) => (e as HTMLElement).innerText.replace(/\s+/g, " ").trim());
+  }, auto);
+  const ok = committed.some((c) => c.toLowerCase() === want);
+  console.log(`   ${ok ? "ok  " : "FAIL"} ${what.padEnd(20)} ${JSON.stringify(committed.join(", "))}`);
+  await page.keyboard.press("Escape").catch(() => undefined);
+  return ok;
+}
+
+/** A plain listbox option, matched exactly. */
+async function selectListbox(auto: string, n: number, wanted: string, what: string): Promise<boolean> {
+  const btn = field(auto, n).locator("button").first();
+  await btn.click({ timeout: 10_000 }).catch(() => undefined);
+  await page.waitForTimeout(1200);
+  const opt = page.locator('[role="listbox"] [role="option"], [role="listbox"] li')
+    .filter({ hasText: new RegExp(`^\\s*${wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`) }).first();
+  if (!(await opt.count().catch(() => 0))) {
+    await page.keyboard.press("Escape").catch(() => undefined);
+    console.log(`   FAIL ${what.padEnd(20)} no option equal to ${JSON.stringify(wanted)}`);
+    return false;
+  }
+  await opt.click({ timeout: 8000 }).catch(() => undefined);
+  await page.waitForTimeout(700);
+  const back = (await btn.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+  const ok = back.toLowerCase() === wanted.trim().toLowerCase();
+  console.log(`   ${ok ? "ok  " : "FAIL"} ${what.padEnd(20)} ${JSON.stringify(back)}`);
+  return ok;
+}
+
+if (EDUCATION) {
+  SECTION = "Education";
+  const { mapDegree } = await import("../lib/workday/degree.ts");
+  const degreeOptions = await page.evaluate(() => []) as string[];   // read live below
+  const eds = (content.education ?? []) as any[];
+  // Newest first, matching how the resume presents them.
+  const order = [...eds].sort((a, b) => String(b.credential ?? "").localeCompare(String(a.credential ?? "")));
+
+  for (let i = 0; i < order.length; i++) {
+    const e = order[i]!;
+    if (i > 0 && !NO_ADD) {
+      const idx = await addButtonFor(/Education/);
+      if (idx < 0) { console.log("cannot find Add Another for Education"); failures++; break; }
+      await page.locator('[data-automation-id="add-button"]').nth(idx).click({ timeout: 15_000 }).catch(() => undefined);
+      await page.waitForTimeout(1600);
+    }
+    console.log(`\n  Education ${i + 1}: ${e.institution}`);
+    if (!(await writeAndRead("formField-schoolName", i, e.institution, "School or University"))) failures++;
+
+    // The live taxonomy decides, and it is read from the open control.
+    const btn = field("formField-degree", i).locator("button").first();
+    await btn.scrollIntoViewIfNeeded().catch(() => undefined);
+    await btn.click({ timeout: 10_000 }).catch(() => undefined);
+    await page.waitForTimeout(1500);
+    // The listbox this button opened, not merely the first one on the
+    // page: another control's selected-item list is also role=listbox,
+    // and reading that reported the degree taxonomy as one option long.
+    const live = await page.evaluate(() => {
+      const vis = (x: Element) => x.getClientRects().length > 0;
+      const boxes = [...document.querySelectorAll('[role="listbox"]')].filter(vis)
+        .filter((x) => x.getAttribute("data-automation-id") !== "selectedItemList");
+      const read = (lb: Element) => [...lb.querySelectorAll('[role="option"],li,div')].filter(vis)
+        .map((x) => (x as HTMLElement).innerText.trim()).filter(Boolean).filter((v, j, a) => a.indexOf(v) === j);
+      // The degree list is the one that offers a placeholder plus levels.
+      const scored = boxes.map(read).sort((a, b) => b.length - a.length);
+      return scored[0] ?? [];
+    });
+    await page.keyboard.press("Escape").catch(() => undefined);
+    if (!live.length) {
+      // An empty list means the control never opened. Reporting that as
+      // "the taxonomy does not name it" would blame the data for a
+      // failure of the click.
+      console.log(`   FAIL Degree            the dropdown did not open, so its options were never read`);
+      failures++;
+    } else {
+    const m = mapDegree(e.credential, live);
+    if (!m.ok) { console.log(`   FAIL Degree            ${m.why} (offered ${m.offered.length})`); failures++; }
+    else {
+      console.log(`   degree taxonomy: ${e.credential} -> ${m.option} (${m.why})`);
+      const held = (await btn.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+      if (held.toLowerCase() === m.option.toLowerCase()) {
+        console.log(`   ok   ${"Degree".padEnd(20)} ${JSON.stringify(held)} (already committed)`);
+      } else if (!(await selectListbox("formField-degree", i, m.option, "Degree"))) failures++;
+    }
+    }
+
+    const fos = FIELD_OF_STUDY[String(e.institution)];
+    if (fos) { if (!(await selectFromLongPrompt("formField-fieldOfStudy", i, fos, "Field of Study"))) failures++; }
+    else console.log(`   --   Field of Study      left blank (nothing verified maps to an offered option)`);
+
+    const endYear = EDUCATION_END_YEAR[String(e.institution)];
+    if (endYear) {
+      const y = field("formField-lastYearAttended", i).locator('[data-automation-id="dateSectionYear-input"]').first();
+      await y.scrollIntoViewIfNeeded().catch(() => undefined);
+      await y.click({ timeout: 8000 }).catch(() => undefined);
+      await y.fill("").catch(() => undefined);
+      await y.fill(endYear).catch(() => undefined);
+      await page.waitForTimeout(250);
+      if (!String(await y.inputValue().catch(() => ""))) {
+        // Some year sections ignore fill and only take keystrokes.
+        await y.click({ timeout: 8000 }).catch(() => undefined);
+        await page.keyboard.type(endYear, { delay: 110 });
+      }
+      await page.keyboard.press("Tab").catch(() => undefined);
+      await page.waitForTimeout(500);
+      const back = String(await y.inputValue().catch(() => ""));
+      const ok = back === endYear;
+      console.log(`   ${ok ? "ok  " : "FAIL"} ${"To (year)".padEnd(20)} ${back}`);
+      if (!ok) failures++;
+    }
+    const startYear = EDUCATION_START_YEAR[String(e.institution)];
+    if (startYear) {
+      const fy = field("formField-firstYearAttended", i).locator('[data-automation-id="dateSectionYear-input"]').first();
+      await fy.scrollIntoViewIfNeeded().catch(() => undefined);
+      await fy.click({ timeout: 8000 }).catch(() => undefined);
+      await fy.fill("").catch(() => undefined);
+      await fy.fill(startYear).catch(() => undefined);
+      await page.waitForTimeout(250);
+      if (!String(await fy.inputValue().catch(() => ""))) {
+        await fy.click({ timeout: 8000 }).catch(() => undefined);
+        await page.keyboard.type(startYear, { delay: 110 });
+      }
+      await page.keyboard.press("Tab").catch(() => undefined);
+      await page.waitForTimeout(400);
+      const back = String(await fy.inputValue().catch(() => ""));
+      const ok = back === startYear;
+      console.log(`   ${ok ? "ok  " : "FAIL"} ${"From (year)".padEnd(20)} ${back}`);
+      if (!ok) failures++;
+    } else console.log(`   --   From (year)         left blank (no verified start year)`);
+
+    if (EDUCATION_GPA) {
+      if (!(await writeAndRead("formField-gradeAverage", i, EDUCATION_GPA, "GPA"))) failures++;
+    } else console.log(`   --   GPA                 left blank (no verified GPA)`);
+  }
+  console.log(`\neducation: ${order.length} entries, ${failures} failure(s)`);
+  await browser.close();
+  process.exit(failures ? 1 : 0);
+}
+
 console.log(`\n--- work experience ---`);
 for (let i = 0; i < entries.length; i++) {
   const e = entries[i]!;
