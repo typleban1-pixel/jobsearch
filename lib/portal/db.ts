@@ -43,6 +43,39 @@ export async function page<T = any>(
   return out;
 }
 
+/**
+ * The whole open universe in three honest numbers, so the Jobs page can
+ * say what it is showing and what it is not.
+ *
+ * `ranked` is the count the page actually presents: jobs with a current
+ * score. `awaiting` is every other open job that has not been ruled out
+ * by a hard gate -- the extraction/eligibility backlog #269 works
+ * through, which turns into ranked jobs as it clears. `excludedByGates`
+ * is the open jobs a hard geography/eligibility gate already ruled out;
+ * they are decided, not pending, and never enter the ranking.
+ *
+ * ranked is passed in (the caller already loaded exactly those cards, so
+ * counting them again would be a second full scan); the rest are cheap
+ * head-only counts.
+ */
+export async function loadUniverseCounts(
+  db: SupabaseClient, ranked: number,
+): Promise<{ openTotal: number; ranked: number; awaiting: number; excludedByGates: number }> {
+  const count = async (refine: (q: any) => any): Promise<number> => {
+    const { count: n } = await refine(db.from("jobs").select("id", { count: "exact", head: true }));
+    return n ?? 0;
+  };
+  const [openTotal, excludedByGates] = await Promise.all([
+    count((q) => q.eq("status", "OPEN")),
+    count((q) => q.eq("status", "OPEN").eq("eligibility", "INELIGIBLE")),
+  ]);
+  // Open, not ranked yet, and not ruled out by a gate. Clamped because
+  // the three counts are taken independently and a job can change state
+  // between them; a small negative would only ever be rounding noise.
+  const awaiting = Math.max(0, openTotal - ranked - excludedByGates);
+  return { openTotal, ranked, awaiting, excludedByGates };
+}
+
 export interface ScoreReasonRow {
   dimension: string; kind: string; subject: string | null; detail: string | null; points: number;
 }

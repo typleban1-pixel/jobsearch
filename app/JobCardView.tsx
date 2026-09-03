@@ -26,7 +26,7 @@ const VERDICT_TEXT: Record<string, string> = {
  * the ranking looks wrong. The question every other day is whether this
  * job is worth reading, and that is what the card now leads with.
  */
-export function JobCardView({ card, returnTo }: { card: JobCard; returnTo: string }) {
+export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; returnTo: string; rank?: number | null }) {
   const salary = describeSalary(card);
   const band = uncertaintyBand(card.uncertainty);
   const verdict = card.candidacy ? VERDICT_TEXT[card.candidacy.label] ?? card.candidacy.label : null;
@@ -44,9 +44,12 @@ export function JobCardView({ card, returnTo }: { card: JobCard; returnTo: strin
   return (
     <article className={`jobcard${card.activeInterest ? " dimmed" : ""}`}>
       <div className="jobcard-head">
-        <div>
-          <h2><Link href={`/job/${card.id}`}>{card.title}</Link></h2>
-          <p className="jobcard-company">{card.company}</p>
+        <div className="jobcard-title">
+          {rank !== null && <span className="jobcard-rank" title="position in your ranked queue">#{rank}</span>}
+          <div>
+            <h2><Link href={`/job/${card.id}`}>{card.title}</Link></h2>
+            <p className="jobcard-company">{card.company}</p>
+          </div>
         </div>
         {verdict && (
           <span className={`verdict ${card.candidacy!.label.toLowerCase().replace(/\s+/g, "-")}`}>

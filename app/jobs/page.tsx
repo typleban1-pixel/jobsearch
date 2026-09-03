@@ -1,62 +1,73 @@
 import { redirect } from "next/navigation";
-import { loadJobCards } from "../../lib/portal/db.ts";
+import { loadJobCards, loadUniverseCounts } from "../../lib/portal/db.ts";
 import { currentSession } from "../../lib/portal/session.ts";
-import {
-  applyFilters, sortCards, SORTS, DEFAULT_FILTERS, type Filters, type SortKey,
-} from "../../lib/portal/present.ts";
+import { applyFilters, sortCards, DEFAULT_FILTERS, type Filters } from "../../lib/portal/present.ts";
 import { JobCardView } from "../JobCardView.tsx";
 import { PrimaryNav } from "../PrimaryNav.tsx";
 
 export const dynamic = "force-dynamic";
 
-function readFilters(sp: Record<string, string | string[] | undefined>): Filters {
-  const one = (k: string) => (Array.isArray(sp[k]) ? sp[k]![0] : sp[k]) as string | undefined;
-  const num = (k: string) => { const v = one(k); return v === undefined || v === "" ? null : Number(v); };
-  return {
-    ...DEFAULT_FILTERS,
-    q: one("q") ?? "",
-    metro: one("metro") ?? "any",
-    interest: one("interest") ?? "active",
-    minEvidence: num("minEvidence") ?? 0,
-    maxUncertainty: num("maxUncertainty"),
-    salaryKnown: one("salaryKnown") === "on",
-    stretchOnly: one("stretchOnly") === "on",
-    candidacy: (["actionable", "skipped", "all"] as const)
-      .find((v) => v === one("candidacy")) ?? "actionable",
-  };
-}
+// The only two things a person operates here. Everything else -- the
+// ranking, the hard gates, hiding what the model rejected -- is automatic
+// and lives in the ordering, not in a control the reader has to set.
+const TABS = [
+  { key: "active", label: "Undecided" },
+  { key: "saved", label: "Saved" },
+  { key: "dismissed", label: "Not interested" },
+  { key: "all", label: "All" },
+] as const;
+type TabKey = (typeof TABS)[number]["key"];
+
+const nf = new Intl.NumberFormat("en-US");
 
 export default async function Page(props: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await props.searchParams;
-  const filters = readFilters(sp);
-  const sortKey = ((Array.isArray(sp.sort) ? sp.sort[0] : sp.sort) ?? "attention") as SortKey;
-  const sortMeta = SORTS.find((s) => s.key === sortKey) ?? SORTS[0]!;
+  const one = (k: string) => (Array.isArray(sp[k]) ? sp[k]![0] : sp[k]) as string | undefined;
 
-  // proxy.ts already turned away anyone without a session; this is the
-  // second check, and the one that runs in the same place as the query.
+  const q = (one("q") ?? "").trim();
+  const interest = (TABS.find((t) => t.key === one("interest"))?.key ?? "active") as TabKey;
+
+  // The authoritative view: every currently viable job, best opportunity
+  // first, with the model's rejects and Ty's decided rows gated out. The
+  // ranking dimensions (candidacy, fit, opportunity, salary, uncertainty,
+  // gaps) still exist and still drive the order -- they are just not knobs
+  // the reader turns. candidacy stays "actionable" so hard-gate rejects
+  // never surface; interest is the one selector, shown as tabs.
+  const filters: Filters = {
+    ...DEFAULT_FILTERS, q, interest, candidacy: "actionable",
+  };
+
   const session = await currentSession();
   if (!session) redirect("/login");
 
   const all = await loadJobCards(session.client);
-  const matching = sortCards(applyFilters(all, filters), sortKey);
+  const universe = await loadUniverseCounts(session.client, all.length);
+  // One authoritative ordering: attention (evidence-first), never the raw
+  // candidacy enum -- a strong Stretch can and should outrank a weak
+  // Candidate when the evidence says so.
+  const matching = sortCards(applyFilters(all, filters), "attention");
 
-  // Paginated because rendering 488 cards produced a 3.7MB document and a
-  // six-second response. The whole set is still filtered and sorted; only
-  // the slice on screen is rendered.
+  // Paginated because rendering hundreds of cards produced a multi-megabyte
+  // document. The whole set is still ranked; only the slice on screen is
+  // rendered, and the rank number is the position in the full ranking so
+  // #1 means the single best job, whatever page it lands on.
   const PER_PAGE = 50;
-  const pageNum = Math.max(1, Number((Array.isArray(sp.p) ? sp.p[0] : sp.p) ?? 1) || 1);
+  const pageNum = Math.max(1, Number(one("p") ?? 1) || 1);
   const pageCount = Math.max(1, Math.ceil(matching.length / PER_PAGE));
   const current = Math.min(pageNum, pageCount);
-  const shown = matching.slice((current - 1) * PER_PAGE, current * PER_PAGE);
+  const startIndex = (current - 1) * PER_PAGE;
+  const shown = matching.slice(startIndex, startIndex + PER_PAGE);
 
-  const linkTo = (n: number) => {
-    const q = new URLSearchParams();
-    for (const [k, v] of Object.entries(sp)) {
-      if (k === "p" || v === undefined) continue;
-      q.set(k, Array.isArray(v) ? v[0]! : v);
+  const withParams = (over: Record<string, string | number | undefined>) => {
+    const p = new URLSearchParams();
+    if (q) p.set("q", q);
+    if (interest !== "active") p.set("interest", interest);
+    for (const [k, v] of Object.entries(over)) {
+      if (v === undefined || v === "" || (k === "interest" && v === "active")) p.delete(k);
+      else p.set(k, String(v));
     }
-    q.set("p", String(n));
-    return `/jobs?${q.toString()}`;
+    const s = p.toString();
+    return s ? `/jobs?${s}` : "/jobs";
   };
 
   return (
@@ -66,88 +77,63 @@ export default async function Page(props: { searchParams: Promise<Record<string,
         <PrimaryNav current="jobs" />
       </header>
 
-      <form className="controls" method="get">
-        <div>
-          <label htmlFor="q">Title or company</label>
-          <input id="q" name="q" defaultValue={filters.q} placeholder="e.g. operations" />
-        </div>
-        <div>
-          <label htmlFor="sort">Sort</label>
-          <select id="sort" name="sort" defaultValue={sortKey}>
-            {SORTS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="metro">Location</label>
-          <select id="metro" name="metro" defaultValue={filters.metro}>
-            <option value="any">Anywhere eligible</option>
-            <option value="chicagoland">Names Chicagoland</option>
-            <option value="remote">Offers remote</option>
-          </select>
-        </div>
-        <div>
-          <label htmlFor="interest">List</label>
-          <select id="interest" name="interest" defaultValue={filters.interest}>
-            <option value="active">Undecided</option>
-            <option value="saved">Saved</option>
-            <option value="dismissed">Not interested</option>
-            <option value="all">Everything</option>
-          </select>
-        </div>
-        <div>
-          {/*
-            Separate from "List" above on purpose. That one records what
-            Ty decided about a job; this one records what the model
-            decided. Folding them together would lose which of the two
-            put a job out of sight.
-          */}
-          <label htmlFor="candidacy">Candidacy</label>
-          <select id="candidacy" name="candidacy" defaultValue={filters.candidacy}>
-            <option value="actionable">Actionable</option>
-            <option value="skipped">Skipped by system</option>
-            <option value="all">Everything</option>
-          </select>
-        </div>
-        <div>
-          <label htmlFor="minEvidence">Min matched concepts</label>
-          <input id="minEvidence" name="minEvidence" type="number" min={0} max={10} defaultValue={filters.minEvidence} />
-        </div>
-        <div>
-          <label htmlFor="maxUncertainty">Max uncertainty</label>
-          <input id="maxUncertainty" name="maxUncertainty" type="number" min={0} placeholder="any"
-                 defaultValue={filters.maxUncertainty ?? ""} />
-        </div>
-        <div>
-          <label>Only</label>
-          <div className="checks">
-            <label htmlFor="salaryKnown" style={{ textTransform: "none", letterSpacing: 0 }}>
-              <input id="salaryKnown" name="salaryKnown" type="checkbox" defaultChecked={filters.salaryKnown} /> salary stated
-            </label>
-            <label htmlFor="stretchOnly" style={{ textTransform: "none", letterSpacing: 0 }}>
-              <input id="stretchOnly" name="stretchOnly" type="checkbox" defaultChecked={filters.stretchOnly} /> stretch
-            </label>
-          </div>
-        </div>
-        <div><button type="submit" className="primary">Apply</button></div>
-      </form>
-      <p className="sortnote">Sorted by {sortMeta.label.toLowerCase()}.</p>
+      {/* What the page is showing, and what it is not. Grows toward
+          "ranked" as extraction (#269) clears the "being evaluated" backlog. */}
+      <p className="universe">
+        <b>{nf.format(universe.ranked)}</b> ranked for you
+        {universe.awaiting > 0 && (
+          <> <span className="sep">·</span> <b>{nf.format(universe.awaiting)}</b> still being evaluated</>
+        )}
+        {universe.excludedByGates > 0 && (
+          <> <span className="sep">·</span> <span className="muted">{nf.format(universe.excludedByGates)} ruled out by your location/eligibility</span></>
+        )}
+      </p>
+
+      <div className="jobsbar">
+        <nav className="tabs" aria-label="List">
+          {TABS.map((t) => (
+            <a key={t.key} href={withParams({ interest: t.key, p: undefined })}
+               className={t.key === interest ? "tab active" : "tab"}>
+              {t.label}
+            </a>
+          ))}
+        </nav>
+        <form className="search" method="get">
+          {interest !== "active" && <input type="hidden" name="interest" value={interest} />}
+          <input name="q" defaultValue={q} placeholder="Search title or company" aria-label="Search title or company" />
+          {q && <a className="clear" href={withParams({ q: undefined, p: undefined })}>clear</a>}
+        </form>
+      </div>
+
       <p className="count">
-        {matching.length === all.length
-          ? `${matching.length} job${matching.length === 1 ? "" : "s"} worth considering`
-          : `${matching.length} of ${all.length} jobs match`}
+        {matching.length === 0
+          ? "Nothing here yet"
+          : `${nf.format(matching.length)} ${interest === "active" ? "in your queue" : "job" + (matching.length === 1 ? "" : "s")}`}
         {matching.length > PER_PAGE
-          && ` · showing ${(current - 1) * PER_PAGE + 1}–${(current - 1) * PER_PAGE + shown.length}`}
+          && ` · showing ${nf.format(startIndex + 1)}–${nf.format(startIndex + shown.length)}`}
       </p>
 
       {shown.length === 0
-        ? <div className="empty"><p>No jobs match these filters.</p><p className="muted">Try widening the location or clearing a filter.</p></div>
-        : shown.map((c) => <JobCardView key={c.id} card={c} returnTo={linkTo(current)} />)}
+        ? (
+          <div className="empty">
+            <p>{q ? "No jobs match that search." : interest === "saved" ? "You haven't saved any jobs yet."
+              : interest === "dismissed" ? "You haven't set any jobs aside." : "No ranked jobs yet."}</p>
+            {universe.awaiting > 0 && interest === "active" && !q && (
+              <p className="muted">{nf.format(universe.awaiting)} more jobs are still being evaluated and will appear here as they're scored.</p>
+            )}
+          </div>
+        )
+        : shown.map((c, i) => (
+          <JobCardView key={c.id} card={c}
+            rank={interest === "active" ? startIndex + i + 1 : null}
+            returnTo={withParams({ p: current })} />
+        ))}
 
       {pageCount > 1 && (
         <nav className="pager">
-          {current > 1 && <a href={linkTo(current - 1)}>← previous</a>}
+          {current > 1 && <a href={withParams({ p: current - 1 })}>← previous</a>}
           <span>page {current} of {pageCount}</span>
-          {current < pageCount && <a href={linkTo(current + 1)}>next →</a>}
+          {current < pageCount && <a href={withParams({ p: current + 1 })}>next →</a>}
         </nav>
       )}
     </main>

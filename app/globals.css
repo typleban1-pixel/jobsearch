@@ -413,6 +413,42 @@ a.counter:hover { border-color: currentColor; }
 .jobs .empty p { margin: 0.2rem 0; }
 .jobs .empty .muted { color: var(--ink-faint); font-size: 0.9rem; }
 
+/* Universe status: what is ranked vs still being evaluated. */
+.jobs .universe {
+  font-size: 0.95rem; color: var(--ink-soft); margin: 0 0 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.jobs .universe b { color: var(--ink); font-weight: 600; }
+.jobs .universe .sep { color: var(--ink-faint); margin: 0 0.15rem; }
+.jobs .universe .muted { color: var(--ink-faint); }
+
+/* Search + list tabs: the only two human controls. */
+.jobs .jobsbar {
+  display: flex; flex-wrap: wrap; gap: 0.75rem 1rem;
+  align-items: center; justify-content: space-between; margin-bottom: 1rem;
+}
+.jobs .tabs { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.jobs .tab {
+  font-size: 0.9rem; color: var(--ink-soft); text-decoration: none;
+  padding: 0.35rem 0.7rem; border-radius: 999px; border: 1px solid transparent;
+}
+.jobs .tab:hover { color: var(--ink); border-color: var(--line); }
+.jobs .tab.active { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.jobs .search { display: flex; align-items: center; gap: 0.5rem; }
+.jobs .search input {
+  padding: 0.45rem 0.7rem; font: inherit; font-size: 0.9rem; min-width: 15rem;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink);
+}
+.jobs .search .clear { font-size: 0.8rem; color: var(--ink-faint); text-decoration: none; }
+.jobs .search .clear:hover { color: var(--ink); }
+
+/* Rank number: position in the ranked queue. */
+.jobcard-title { display: flex; gap: 0.7rem; align-items: baseline; }
+.jobcard-rank {
+  font-size: 0.85rem; font-weight: 700; color: var(--ink-faint);
+  font-variant-numeric: tabular-nums; flex: none; min-width: 2.2rem;
+}
+
 .jobcard {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 1.15rem 1.25rem; margin-bottom: 0.85rem;
