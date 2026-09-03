@@ -22,7 +22,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { modelForTier, messageBody } from "../lib/llm/anthropic.ts";
-import { EXTRACTION_VERSION, buildExtractionRequest } from "../lib/llm/extractRequirements.ts";
+import { EXTRACTION_VERSION, RESPONSE_SCHEMA_VERSION, buildExtractionRequest } from "../lib/llm/extractRequirements.ts";
 import { planExtraction, EMPTY_SHA256 } from "../lib/llm/extractionDedup.ts";
 import { estimateExtraction, formatEstimate } from "../lib/llm/extractionCost.ts";
 import { customIdFor, intentKeyFor, planAgainstLive, resolveStalled, maySubmit,
@@ -32,8 +32,10 @@ import { createHash } from "node:crypto";
 
 const SUBMIT = process.argv.includes("--submit");
 const POLL = process.argv.includes("--poll");
-/** Bumped only by an explicit retry or after an AMBIGUOUS resolution. */
-const SCHEMA_VERSION = 1;
+// The response schema's own version, from the module that defines it.
+// A hardcoded 1 here would have kept planning work under the old shape
+// after the schema changed, mixing two response formats in one corpus.
+const SCHEMA_VERSION = RESPONSE_SCHEMA_VERSION;
 const MODEL = modelForTier("fast");
 const HAIKU = { in: 1.0, out: 5.0 };
 

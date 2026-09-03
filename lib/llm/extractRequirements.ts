@@ -52,7 +52,7 @@ Rules, in order of importance:
    the role "obviously" needs it. A backend job that never mentions SQL
    has no SQL requirement.
 2. Every requirement must be traceable to specific words in the posting.
-   raw_text must be a short verbatim quote or near-quote from the posting.
+   q (the quote) must be a short verbatim quote or near-quote from the posting.
 3. Classify hardness from the EMPLOYER'S WORDING ONLY.
    HARD      the posting presents it as required, must-have, minimum.
    PREFERRED the posting presents it as preferred, nice to have, bonus,
@@ -105,9 +105,9 @@ Rules, in order of importance:
 3e. Never soften a requirement because a candidate is unlikely to meet
    it, and never harden one because a candidate does meet it. You are not
    told anything about any candidate, and must not reason about one.
-4. minimum_years only when the posting states a number for that specific
+4. y (minimum years) only when the posting states a number for that specific
    requirement. Never infer years from seniority in the title.
-5. normalized_term is the short canonical name of the thing (e.g.
+5. t (the normalized term) is the short canonical name of the thing (e.g.
    "postgresql", "project management", "cpa"). Lowercase. No qualifiers
    like "strong" or "proven".
 5b. Choose "kind" carefully. Three groups behave very differently:
@@ -158,37 +158,103 @@ Rules, in order of importance:
    "3 years in customs brokerage" and "HTS classification" are two
    requirements, not one, and must both be kept.
 
-7. confidence is your confidence in the CLASSIFICATION, 0 to 1. Low
+7. c (confidence) is your confidence in the CLASSIFICATION, 0 to 1. Low
    confidence is useful information, not a failure.
+
+8. Field names are deliberately short: q quote, t term, k kind,
+   h hardness, y minimum years, c confidence. Emit exactly those.
+   Do not explain your classification: there is no field for it and
+   nothing reads one.
 
 Also report the remote policy the posting states, if any. NOT_STATED is a
 valid and common answer; do not infer it from a city name.`;
 
+/**
+ * Response schema version. Part of a batch request's identity, so a
+ * change here makes previously-extracted work eligible for re-extraction
+ * rather than silently mixing two shapes.
+ */
+export const RESPONSE_SCHEMA_VERSION = 2;
+
+/**
+ * The WIRE schema: what the model emits.
+ *
+ * Short keys and no rationale field. Measured over 37,147 historical
+ * requirements, output is 1,265 tokens per job of which ~61% is JSON
+ * scaffolding -- seven long key names repeated per requirement -- and
+ * hard_requirement_reason is another 37% of the content while nothing
+ * reads it. Grepped across lib/, app/ and scripts/: its only appearances
+ * are the two INSERT statements, and requirementLogic.ts already says so
+ * in a comment. Dropping it and shortening the keys halves the response.
+ *
+ * This is a TRANSPORT shape only. fromWire() maps it back to the long
+ * names before anything else sees it, so job_requirements keeps the
+ * column names a person reads, and sanitizeRequirement, the hardness
+ * reconciliation and every downstream consumer are untouched.
+ *
+ * raw_text is NOT capped here. A 160-character cap looked free and is
+ * not: it changes 11 requirementClass outcomes and 15 constraint
+ * categories across the corpus, because raw_text feeds classification,
+ * grounding and constraint parsing rather than only the display. The
+ * quote stays whole.
+ */
 const SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
-    requirements: {
+    r: {
       type: "array",
+      description: "requirements",
       items: {
         type: "object",
         properties: {
-          raw_text: { type: "string", description: "Short verbatim quote from the posting" },
-          normalized_term: { type: "string" },
-          kind: { type: "string", enum: ["SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","OTHER"] },
-          is_hard_requirement: { type: "string", enum: ["HARD","PREFERRED","UNCLEAR"] },
-          hard_requirement_reason: { type: "string", description: "Why you classified it that way, citing the posting's wording" },
-          minimum_years: { type: ["number","null"] },
-          confidence: { type: "number" },
+          q: { type: "string", description: "Short verbatim quote from the posting" },
+          t: { type: "string", description: "normalized term: the short canonical name" },
+          k: { type: "string", enum: ["SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","OTHER"] },
+          h: { type: "string", enum: ["HARD","PREFERRED","UNCLEAR"], description: "is it a hard requirement" },
+          y: { type: ["number","null"], description: "minimum years, or null" },
+          c: { type: "number", description: "confidence in the classification, 0 to 1" },
         },
-        required: ["raw_text","normalized_term","kind","is_hard_requirement","hard_requirement_reason","minimum_years","confidence"],
+        required: ["q","t","k","h","y","c"],
       },
     },
-    remote_policy_stated: { type: "string", enum: ["FULLY_REMOTE","HYBRID","ONSITE","NOT_STATED"] },
-    remote_geographic_restriction: { type: ["string","null"] },
-    notes: { type: ["string","null"], description: "Anything ambiguous worth a human seeing" },
+    rp: { type: "string", enum: ["FULLY_REMOTE","HYBRID","ONSITE","NOT_STATED"], description: "remote policy stated" },
+    rg: { type: ["string","null"], description: "remote geographic restriction" },
+    n: { type: ["string","null"], description: "notes: anything ambiguous worth a human seeing" },
   },
-  required: ["requirements","remote_policy_stated","remote_geographic_restriction","notes"],
+  required: ["r","rp","rg","n"],
 };
+
+/** One wire requirement, as the model emits it. */
+interface WireRequirement { q: string; t: string; k: string; h: string; y: number | null; c: number }
+
+/**
+ * Maps the wire shape back to the names everything downstream expects.
+ *
+ * Applied at the boundary so exactly one function knows the short keys.
+ * A response that is not the wire shape yields nothing, which the
+ * caller's existing fail-closed handling treats as an empty extraction
+ * rather than a partial one.
+ */
+export function fromWire(out: unknown): ExtractionOutput {
+  const o = (out ?? {}) as Record<string, any>;
+  const list: WireRequirement[] = Array.isArray(o["r"]) ? o["r"] : [];
+  return {
+    requirements: list.map((w) => ({
+      raw_text: w?.q,
+      normalized_term: w?.t,
+      kind: w?.k,
+      is_hard_requirement: w?.h,
+      // Nothing reads this and the model no longer emits it. Kept on the
+      // type so the column and every existing consumer stay unchanged.
+      hard_requirement_reason: "",
+      minimum_years: w?.y ?? null,
+      confidence: w?.c,
+    })) as ExtractionOutput["requirements"],
+    remote_policy_stated: o["rp"] ?? "NOT_STATED",
+    remote_geographic_restriction: o["rg"] ?? null,
+    notes: o["n"] ?? null,
+  };
+}
 
 const VALID_KINDS = new Set([
   "SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","OTHER",
@@ -301,7 +367,10 @@ export async function extractRequirements(
   llm: LlmProvider,
   job: { title: string; company: string; descriptionText: string },
 ) {
-  return llm.complete<ExtractionOutput>(buildExtractionRequest(job));
+  const res = await llm.complete<unknown>(buildExtractionRequest(job));
+  // The model speaks the wire shape; everything downstream speaks the
+  // long names. Mapped here so exactly one place knows both.
+  return { ...res, content: fromWire(res.content) };
 }
 
 

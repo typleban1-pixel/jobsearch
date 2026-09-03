@@ -26,7 +26,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { modelForTier } from "../lib/llm/anthropic.ts";
-import { sanitizeRequirement, reconcileHardness, dedupeRequirements,
+import { sanitizeRequirement, reconcileHardness, dedupeRequirements, fromWire,
          EXTRACTION_VERSION } from "../lib/llm/extractRequirements.ts";
 import { getBatch, getResults } from "../lib/llm/batchClient.ts";
 import { TermMatcher } from "../lib/matching/match.ts";
@@ -92,7 +92,9 @@ for (const b of batches ?? []) {
     }
 
     // ---- the synchronous validation pipeline, unchanged --------------
-    const out = toolUse.input ?? {};
+    // Same wire mapping the synchronous path applies, from the same
+    // function, so both transports hand identical objects to sanitize.
+    const out = fromWire(toolUse.input ?? {});
     const reqs: any[] = [];
     for (const raw of out.requirements ?? []) {
       const clean = sanitizeRequirement(raw as any);
