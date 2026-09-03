@@ -35,6 +35,7 @@ export function Figure({
   priority = false,
   crop = "center",
   className = "",
+  offset,
   children,
 }: {
   src: StaticImageData;
@@ -46,6 +47,15 @@ export function Figure({
   priority?: boolean;
   crop?: Crop;
   className?: string;
+  /**
+   * The offset colour block: a rectangle of the given colour sitting
+   * behind the photograph and extending past it on one side, the way
+   * the headshot has always been treated. It is not a border. The
+   * direction and reach vary by use so no two neighbouring photographs
+   * repeat, but the relationship stays recognisable, like slightly
+   * offset printed pieces.
+   */
+  offset?: { color: string; side: "left" | "right" | "below" | "above"; reach?: number };
   children?: ReactNode;
 }) {
   const cap = width === "tight" ? s.cappedTight : s.capped;
@@ -61,7 +71,16 @@ export function Figure({
         of a wider element than the photograph, which put a circle drawn
         around the couch several inches to the right of the couch.
       */}
-      <span className={s.photoBox}>
+      <span
+        className={`${s.photoBox} ${offset ? s.offsetBlock : ""}`}
+        style={offset ? ({
+          "--block": offset.color,
+          ...(offset.side === "left"  ? { "--bi": `${-(offset.reach ?? 16)}px auto auto ${-(offset.reach ?? 16)}px`, "--bw": "70%", "--bh": "104%" } :
+              offset.side === "right" ? { "--bi": `auto ${-(offset.reach ?? 16)}px ${-(offset.reach ?? 16)}px auto`, "--bw": "70%", "--bh": "104%" } :
+              offset.side === "above" ? { "--bi": `${-(offset.reach ?? 16)}px auto auto ${-(offset.reach ?? 16)}px`, "--bw": "104%", "--bh": "62%" } :
+                                        { "--bi": `auto ${-(offset.reach ?? 16)}px ${-(offset.reach ?? 16)}px auto`, "--bw": "104%", "--bh": "62%" }),
+        } as React.CSSProperties) : undefined}
+      >
         <Image
           src={src}
           alt={alt}

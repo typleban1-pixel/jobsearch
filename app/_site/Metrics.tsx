@@ -1,37 +1,37 @@
 /**
- * Four numbers, and the context behind each.
+ * The receipts: four numbers, each with a sentence of context.
  *
- * The number and its label are always visible. The disclosure only adds
- * a sentence of context, so nothing important is hidden behind an
- * interaction, and <details> means it works from the keyboard and on a
- * phone without any script.
+ * The number and its label are always visible; the disclosure only adds
+ * context, so nothing important hides behind an interaction, and
+ * <details> works from the keyboard and on a phone without script.
  *
  * The wording is deliberately flat. These are contributions on real
  * work, not claims of sole authorship, and the context lines say so
- * where that matters.
+ * where that matters. Every figure here is on the confirmed list;
+ * nothing appears in this file that a reference check could not survive.
  */
 import s from "./site.module.css";
 
 const METRICS = [
   {
-    value: "87%",
-    label: "Claims reduced",
-    more: "Diesel logistics coordination at TravelCenters of America. Most of the work was finding out why the claims kept happening.",
-  },
-  {
-    value: "$70K+",
+    value: ">$70K",
     label: "Annual recurring revenue",
-    more: "Genius Academy at its 2022 peak. I helped build it from an idea into something people paid for. The figure is what the offering reached, not revenue I generated on my own.",
+    more: "Genius Academy at its peak. I designed and produced it, from the set to the course people paid for.",
   },
   {
-    value: "$120K",
-    label: "Client project",
-    more: "One project at Anytime Picture.",
+    value: "250+",
+    label: "Students taught and mentored",
+    more: "Teaching video production at Lorain County Community College, where I also supervised three student employees.",
   },
   {
-    value: "3",
-    label: "People supervised",
-    more: "Three people at Genius One.",
+    value: "10+",
+    label: "Video deliverables, national TV",
+    more: "A college and industry collaboration with a nationally broadcast television show. I coordinated it and contributed production work.",
+  },
+  {
+    value: "~$1.2K/mo",
+    label: "RentPup revenue, current",
+    more: "A compliance product I built for property owners. 21 people currently use it, and it earns real revenue every month.",
   },
 ];
 

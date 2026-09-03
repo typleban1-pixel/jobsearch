@@ -1,18 +1,19 @@
 /**
  * The public homepage.
  *
- * One continuous story rather than a set of resume sections. It starts
- * with professional creative work, and each beat quietly turns out to be
- * something the reader did not expect. Nothing on the page tells them
- * that; the sequence does it.
+ * The premise is curiosity, and the page never says so. It opens with a
+ * person who likes figuring things out, walks through what following
+ * that has produced, and lets the visitor assemble the conclusion
+ * themselves. One continuous thought: every beat answers a question the
+ * previous beat raised.
  *
- * The thread down the left is the only structural device, and it is
- * never explained: it changes colour at every subject and does not break
- * anywhere.
+ * The thread down the left is the only structural device and is never
+ * explained. It changes colour at every subject and does not break.
  *
  * Rules this file is held to, and which the accompanying checks enforce:
- * no em dash anywhere, no label that categorises the breadth, and no
- * claim that is not the reader's to verify or Ty's to make.
+ * no em dash anywhere, no label that categorises the breadth, no
+ * mention of anything behind the public page, and no figure that is not
+ * on the confirmed list.
  */
 import type { Metadata } from "next";
 import Image from "next/image";
@@ -21,14 +22,13 @@ import { fontVariables } from "./_site/fonts.ts";
 import { Section } from "./_site/Section.tsx";
 import { Figure } from "./_site/Figure.tsx";
 import { Reveal } from "./_site/Reveal.tsx";
-import { CadWipe } from "./_site/CadWipe.tsx";
 import { WordStorm } from "./_site/WordStorm.tsx";
 import { Paw } from "./_site/Paw.tsx";
 import { MadeBy } from "./_site/MadeBy.tsx";
 import { Metrics } from "./_site/Metrics.tsx";
 import {
   Annotation, ArrowDown, ArrowRight, ArrowUp, ArrowNE, ArrowTo,
-  Circle, Underline, RouteLine,
+  Underline, RouteLine,
 } from "./_site/Marks.tsx";
 import s from "./_site/site.module.css";
 
@@ -43,14 +43,11 @@ import printer from "../public/photos/elegoo-printer.jpg";
 import repair from "../public/photos/printer-repair.jpg";
 import bo from "../public/photos/bo.jpg";
 import sniezka from "../public/photos/sniezka-summit.jpg";
+import rentpupUi from "../public/rentpup/theme-preview-light.png";
+import rentpupLogo from "../public/rentpup/rentpup-logo.png";
 
 const LINKEDIN = "https://www.linkedin.com/in/tylerpleban";
 
-/*
- * Absolute URLs for the social card. Vercel supplies the production
- * host; locally there is nothing to resolve against but localhost, and
- * saying so explicitly is better than the framework guessing out loud.
- */
 const origin = process.env["VERCEL_PROJECT_PRODUCTION_URL"]
   ? `https://${process.env["VERCEL_PROJECT_PRODUCTION_URL"]}`
   : "http://localhost:3000";
@@ -59,10 +56,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(origin),
   title: "Ty Pleban",
   description:
-    "I make things. Sometimes for work, sometimes because I needed one, sometimes because I got curious and it got out of hand.",
+    "I like figuring things out. Usually because I got curious about something I knew nothing about.",
   openGraph: {
     title: "Ty Pleban",
-    description: "I make things. Sometimes for work, sometimes because I got curious.",
+    description: "I like figuring things out.",
     images: ["/photos/ty-headshot.jpg"],
     type: "profile",
   },
@@ -71,14 +68,15 @@ export const metadata: Metadata = {
 /* Each beat takes its colour from the photograph in it. */
 const C = {
   open: "#e85d2a",
-  video: "#7c5fa8",
   set: "#e2611f",
+  clients: "#7c5fa8",
   print: "#f1553f",
+  turn: "#171512",
   cad: "#2e7cc4",
   part: "#e01b22",
-  printer: "#b5642e",
   repair: "#1f7a4d",
-  work: "#1f3a5f",
+  teach: "#1f3a5f",
+  pup: "#2f6f5e",
   loose: "#e4572e",
   garden: "#3e6b3a",
   poland: "#2a7fc1",
@@ -101,11 +99,10 @@ export default function Home() {
         <div className={s.hero}>
           <div>
             <h1 className={`${s.display} ${s.huge}`}>
-              Hi, I&rsquo;m Ty.<br />I make things.
+              Hi, I&rsquo;m Ty.<br />I like figuring things out.
             </h1>
             <p className={s.lead}>
-              Sometimes for work. Sometimes because I needed one. Sometimes because I got
-              curious and it got out of hand.
+              Usually because I got curious about something I knew nothing about.
             </p>
             <p className={s.scrollCue}>
               SEE WHAT I MEAN <ArrowDown />
@@ -125,45 +122,56 @@ export default function Home() {
         </div>
       </Section>
 
-      {/* -------------------------------------------------------- made */}
-      <Section accent={C.video} label="MADE">
+      {/* ----------------------------------------------------- the set */}
+      <Section accent={C.set}>
         <Reveal>
-          <h2 className={`${s.display} ${s.mid}`}>I made this.</h2>
+          <h2 className={`${s.display} ${s.mid}`}>Here&rsquo;s what that looks like.</h2>
           <Figure
-            src={studio}
-            alt="A photographer at work in a blacked out studio, framing a shot beside a large lit softbox."
-            tilt
+            src={productionSet}
+            alt="A multi camera interview set: two people talking on a couch, surrounded by lights, monitors and cameras on tripods."
+            bleed
+            offset={{ color: C.set, side: "right", reach: 18 }}
           />
           <Annotation mark={<ArrowRight />}>
-            SHOOTS, EDITS, EVENTS, AND THE WORKFLOW BEHIND THEM
+            GENIUS ACADEMY<br />SET, CAMERA, EDIT, PRODUCTION
           </Annotation>
-          <p className={s.note}>
-            Video production, photography, and editing, plus the unglamorous part that
-            actually makes a shoot happen on the day.
+          <p className={s.lead}>
+            This is a set I designed for Genius Academy. I also filmed what happened on it,
+            edited it, and produced the thing people were watching.
           </p>
+          <p className={s.note}>
+            An idea became a set, became a course, became something people paid for.
+          </p>
+          <p className={s.bigNumber}>&gt;$70K ARR</p>
+          <p className={s.kicker}>GENIUS ACADEMY AT ITS PEAK</p>
         </Reveal>
       </Section>
 
+      {/* ------------------------------------------------ the audience */}
       <Section accent={C.set}>
         <Reveal>
-          <Figure
-            src={productionSet}
-            alt="A multi camera interview set: two people talking on a couch and chair, surrounded by lights, monitors and cameras on tripods."
-            bleed
-          >
-            {/* Looped around the couch itself, which is the whole joke. */}
-            <span className={s.onPhoto} style={{ left: "45%", top: "47%", width: "24%", height: "17%" }}>
-              <Circle w={120} h={52} />
-              <span className={s.onPhotoLabel}>THE COUCH</span>
-            </span>
-          </Figure>
-          <h2 className={`${s.display} ${s.mid}`} style={{ marginTop: "1.6rem" }}>
-            Well. Not the couch.
+          <h2 className={`${s.display} ${s.small}`}>
+            The course needed people to find it. So I learned that side too.
           </h2>
+          <p className={s.bigNumber}>70K <ArrowTo /> 180K</p>
+          <p className={s.kicker}>EMAIL AUDIENCE</p>
+        </Reveal>
+      </Section>
+
+      {/* -------------------------------------------- other productions */}
+      <Section accent={C.clients}>
+        <Reveal>
+          <h2 className={`${s.display} ${s.mid}`}>Other people&rsquo;s productions, too.</h2>
+          <Figure
+            src={studio}
+            alt="Ty at work in a blacked out studio, framing a shot beside a large lit softbox."
+            offset={{ color: C.clients, side: "left", reach: 16 }}
+            tilt
+          />
           <p className={s.note}>
-            Elsewhere: a film about a new lab for Cleveland Clinic, through Anytime Picture.
-            I planned it, shot it, cut it, and did the motion graphics. Somebody else owned
-            the client.
+            Contract production work, 2019 to 2025, for clients like Amazon, Cleveland
+            Clinic, Ohio State, and Saks Fifth Avenue. Planning, shooting, cutting, and the
+            unglamorous parts that make a shoot happen on the day.
           </p>
         </Reveal>
       </Section>
@@ -171,128 +179,156 @@ export default function Home() {
       {/* ------------------------------------------------------ design */}
       <Section accent={C.print}>
         <Reveal>
-          <h2 className={`${s.display} ${s.mid}`}>And things like this.</h2>
+          <h2 className={`${s.display} ${s.mid}`}>Some of it you could hold.</h2>
           <div className={s.field} style={{ marginTop: "1.8rem" }}>
             <Figure
               src={vapePackage}
               alt="A product and its retail box on a white background: a white device beside a black carton with red graphics."
-              className={s.fieldSoft}
+              offset={{ color: C.print, side: "left", reach: 20 }}
             />
           </div>
           <Figure
             src={vapeDieline}
             alt="The same carton as a flat printing dieline, unfolded, with every panel and fold line laid out."
             tilt
+            width="tight"
           />
-          <Annotation mark={<ArrowRight />}>THE FLAT VERSION, WHICH IS THE PART NOBODY SEES</Annotation>
-          <p className={s.note}>
-            Branding, packaging, graphics, web, campaigns. What I like is turning an idea
-            into something people can pick up, or click, or buy.
+          <Annotation mark={<ArrowRight />}>THE DIELINE <ArrowTo /> THE SHELF</Annotation>
+          <p className={s.note}>I designed the packaging. Flat, it looks like this.</p>
+          <p className={s.bigNumber}>&gt;$68K</p>
+          <p className={s.kicker}>SALES OF PRODUCTS I DESIGNED AND MADE, OVER ABOUT TWO YEARS</p>
+        </Reveal>
+      </Section>
+
+      {/* --------------------------------------------- the resume line */}
+      <Section accent={C.turn} size="roomy">
+        <Reveal>
+          <h2 className={`${s.display}`}>
+            My r&eacute;sum&eacute; makes more sense if you know this about me.
+          </h2>
+          <p className={s.lead}>
+            When something gets my attention, I don&rsquo;t really let go until I
+            understand it.
           </p>
         </Reveal>
       </Section>
 
-      {/* -------------------------------------------------------- turn */}
-      <Section accent={C.cad} size="roomy">
-        <h2 className={`${s.display}`}>
-          But I don&rsquo;t only mean <span className={s.accent}>work things</span>.
-        </h2>
-      </Section>
-
+      {/* --------------------------------------------------------- cad */}
       <Section accent={C.cad}>
         <Reveal>
-          <h2 className={`${s.display} ${s.mid}`}>I made this too.</h2>
-          <CadWipe
-            drawing={onshape}
-            part={printedPart}
-            drawingAlt="A laptop on a garden table showing a CAD program with a sliding box modelled in it."
-            partAlt="The finished part, 3D printed in black, photographed on a red background with its lid propped beside it."
-            before="slide box design v2_1.stl"
-            after="printed. v2."
-            figcaption="The part drawn in Onshape, and the same part after printing."
+          <h2 className={`${s.display} ${s.mid}`}>
+            I couldn&rsquo;t find exactly what I wanted.<br />So I modeled it.
+          </h2>
+          <Figure
+            src={onshape}
+            alt="A laptop on a garden table showing a CAD program with a sliding box modelled in it."
+            offset={{ color: C.cad, side: "above", reach: 16 }}
           />
-          <p className={s.lead}>
-            I wanted something that didn&rsquo;t exist exactly the way I wanted it. So I
-            designed it.
-          </p>
-          <p className={s.note}>
-            Bookends. Watering globes. Brackets for things that came with no bracket. Small
-            problems, solved slightly too thoroughly.
-          </p>
+          <Annotation mark={<ArrowRight />}>
+            MODELED IN CAD.<br />FROM SCRATCH, NOT A DOWNLOAD.
+          </Annotation>
+        </Reveal>
+      </Section>
+
+      <Section accent={C.part}>
+        <Reveal>
+          <h2 className={`${s.display} ${s.mid}`}>And printed it.</h2>
+          <Figure
+            src={printedPart}
+            alt="The finished part, 3D printed in black, photographed on a red background with its lid propped beside it."
+            offset={{ color: C.part, side: "below", reach: 18 }}
+            width="tight"
+          />
           <p className={s.note}>
             Why buy a small plastic thing when you can spend several hours designing one?
           </p>
         </Reveal>
       </Section>
 
-      {/* ----------------------------------------------------- printer */}
-      <Section accent={C.printer}>
-        <Reveal>
-          <h2 className={`${s.display} ${s.mid}`}>Naturally, I bought a 3D printer.</h2>
-          <Figure
-            src={printer}
-            alt="A 3D printer on a sideboard at home, a spool of copper coloured filament mounted on its side, a plant next to it."
-            bleed
-          />
-          <p className={s.note}>
-            Which is how you find out that the printer is also a thing that needs figuring
-            out.
-          </p>
-        </Reveal>
-      </Section>
-
       {/* ------------------------------------------------------- fixed */}
-      <Section accent={C.repair} label="FIXED">
+      <Section accent={C.repair}>
         <Reveal>
-          {/*
-            The photograph comes first and is pulled up into the previous
-            section, so it reads as something dropped on top of the tidy
-            printer shot. It used to sit after the heading and cover it.
-          */}
+          <p className={s.note}>
+            Owning a printer comes with a bonus subject: what to do when it stops.
+          </p>
           <div className={s.stack}>
             <Figure
+              src={printer}
+              alt="A 3D printer on a sideboard at home, a spool of copper coloured filament mounted on its side."
+              bleed
+            />
+            <Figure
               src={repair}
-              alt="The back of an opened 3D printer with its panel off, a hand holding a multimeter probe inside it, the meter reading on the bench."
+              alt="The back of an opened 3D printer with its panel off, a hand holding a multimeter probe inside it."
               className={s.stackOver}
+              offset={{ color: C.repair, side: "below", reach: 14 }}
             />
           </div>
-          <h2 className={`${s.display} ${s.mid}`} style={{ marginTop: "2.4rem" }}>
-            Then this happened.
+          <Annotation mark={<ArrowRight />}>AC BOARD, REPLACED</Annotation>
+          <h2 className={`${s.display} ${s.mid}`} style={{ marginTop: "2rem" }}>
+            When something breaks, &ldquo;it&rsquo;s broken&rdquo; never feels like the end
+            of the story.
           </h2>
-          <Annotation mark={<ArrowRight />}>
-            CULPRIT:<br />AC BOARD
-          </Annotation>
-          <p className={s.lead}>
-            When something stops working, I have a very difficult time accepting
-            &ldquo;it&rsquo;s broken&rdquo; as the end of the story.
-          </p>
         </Reveal>
       </Section>
 
-      {/* -------------------------------------------------------- work */}
-      <Section accent={C.work} label="WORK">
-        <Reveal>
-          <h2 className={`${s.display} ${s.mid}`}>That part follows me to work.</h2>
-          <p className={s.bigNumber}>87%</p>
-          <p className={s.lead}>
-            That&rsquo;s how much I reduced claims in a diesel logistics job.
-          </p>
-          <p className={s.note}>
-            Different problem. Same instinct: find out why it keeps happening before you do
-            anything else.
-          </p>
-        </Reveal>
-      </Section>
-
-      <Section accent={C.work}>
+      {/* ---------------------------------------------------- teaching */}
+      <Section accent={C.teach}>
         <Reveal>
           <h2 className={`${s.display} ${s.small}`}>
-            Sometimes the thing I&rsquo;m building isn&rsquo;t physical.
+            For a few years, my job was helping other people figure things out.
           </h2>
-          <p className={s.bigNumber}>$70K+</p>
           <p className={s.note}>
-            Genius Academy, at its 2022 peak in annual recurring revenue. I helped build it
-            from an idea into something people paid for.
+            Teaching video production at a community college. Understanding something is
+            one thing. Understanding it well enough to hand it to someone else is a
+            different sport.
+          </p>
+          <p className={s.bigNumber}>250+</p>
+          <p className={s.kicker}>STUDENTS TAUGHT AND MENTORED</p>
+        </Reveal>
+      </Section>
+
+      {/* ------------------------------------------------------ rentpup */}
+      <Section accent={C.pup}>
+        <Reveal>
+          <h2 className={`${s.display} ${s.mid}`}>The deepest rabbit hole so far.</h2>
+          <p className={s.lead}>
+            I got curious about a real problem: property owners can be out of compliance
+            with local rules and not even know it.
+          </p>
+          <p className={s.note}>
+            The more I read, the more complicated it turned out to be. So I kept reading.
+            Then I built the thing I wished existed.
+          </p>
+          <div style={{ margin: "2rem 0 1rem", maxWidth: 220 }}>
+            <Image
+              src={rentpupLogo}
+              alt="The RentPup logo: a dog silhouette beside the word RentPup."
+              sizes="220px"
+            />
+          </div>
+          <Figure
+            src={rentpupUi}
+            alt="RentPup's property report screen, showing a property's compliance items and their current status."
+            offset={{ color: C.pup, side: "right", reach: 20 }}
+          />
+          <p className={s.note}>
+            It watches the public records for a property and tells its owner what needs
+            attention before it becomes a problem.
+          </p>
+          <div className={s.field}>
+            <div>
+              <p className={s.bigNumber}>21</p>
+              <p className={s.kicker}>CURRENT USERS</p>
+            </div>
+            <div>
+              <p className={s.bigNumber}>~$1.2K</p>
+              <p className={s.kicker}>MONTHLY REVENUE, CURRENT</p>
+            </div>
+          </div>
+          <p className={s.note}>
+            Real people pay real money for it every month, which is a strange and excellent
+            feeling.
           </p>
         </Reveal>
       </Section>
@@ -303,21 +339,17 @@ export default function Home() {
       </Section>
 
       {/* ------------------------------------------------------- grown */}
-      <Section accent={C.garden} label="GROWN">
+      <Section accent={C.garden}>
         <Reveal>
           <h2 className={`${s.display} ${s.mid}`}>I grow things, too.</h2>
           <p className={s.lead}>Houseplants, mainly.</p>
           <p className={s.note}>Mostly successfully.</p>
-          {/*
-            A photograph drops in here when there is one worth using.
-            <Figure src={plants} alt="…" bleed /> is all it takes; the
-            section is laid out to take it without being rebuilt.
-          */}
+          {/* A photograph drops in here when there is one worth using. */}
         </Reveal>
       </Section>
 
       {/* ------------------------------------------------------- found */}
-      <Section accent={C.poland} label="FOUND">
+      <Section accent={C.poland}>
         <Reveal>
           <h2 className={`${s.display} ${s.mid}`}>I go places.</h2>
           <p className={s.note}>Preferably somewhere I haven&rsquo;t been before.</p>
@@ -330,6 +362,7 @@ export default function Home() {
             alt="Ty at the summit of Śnieżka in Karpacz, Poland, giving a thumbs up, with green mountain ridges behind him."
             bleed
             crop="right"
+            offset={{ color: C.poland, side: "left", reach: 18 }}
           />
           <Annotation mark={<ArrowRight />}>
             SUMMIT OF ŚNIEŻKA<br />KARPACZ, POLAND
@@ -373,6 +406,7 @@ export default function Home() {
             src={bo}
             alt="Bo, a large cream coloured Great Pyrenees, grinning at the camera with his tongue out, a stadium behind him."
             bleed
+            offset={{ color: C.bo, side: "below", reach: 16 }}
           />
           <h2 className={`${s.display} ${s.mid}`} style={{ marginTop: "1.8rem" }}>
             I did not make this.<br />This is <span className={s.accent}>Bo</span>.
@@ -404,21 +438,11 @@ export default function Home() {
         </Reveal>
       </Section>
 
-      {/* --------------------------------------------------- the point */}
-      <Section accent={C.ink}>
+      {/* --------------------------------------------------- the thesis */}
+      <Section accent={C.ink} size="roomy">
         <Reveal>
-          <h2 className={`${s.display} ${s.mid}`}>
-            So what does any of this have to do with work?
-          </h2>
-          <p className={s.lead}>Probably more than you&rsquo;d think.</p>
-          <p className={s.note}>
-            I like understanding how things work. I like making things that didn&rsquo;t
-            exist before. I like finding out why something isn&rsquo;t working and figuring
-            out how to make it better.
-          </p>
-          <p className={s.note}>
-            Sometimes that&rsquo;s a 3D printer. Sometimes it&rsquo;s a marketing campaign.
-            Sometimes it&rsquo;s a process. Sometimes it&rsquo;s a business.
+          <p className={s.lead}>
+            I&rsquo;m pretty comfortable not knowing the answer yet.
           </p>
         </Reveal>
       </Section>
@@ -430,9 +454,9 @@ export default function Home() {
       </Section>
 
       {/* ------------------------------------------------------ numbers */}
-      <Section accent={C.work}>
+      <Section accent={C.teach}>
         <Reveal>
-          <p className={s.kicker}>SOME OF IT IN NUMBERS</p>
+          <p className={s.kicker}>SOME OF IT BY THE NUMBERS</p>
           <Metrics />
         </Reveal>
       </Section>

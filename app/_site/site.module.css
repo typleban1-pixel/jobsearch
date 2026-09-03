@@ -502,3 +502,18 @@
   gap: 0.4rem;
 }
 .metaLine svg { flex: none; }
+
+/* The offset colour block behind a photograph. Not a border: it reaches
+   past the image on one side, set per use through custom properties. */
+.offsetBlock { position: relative; }
+.offsetBlock::before {
+  content: "";
+  position: absolute;
+  inset: var(--bi);
+  width: var(--bw);
+  height: var(--bh);
+  background: var(--block);
+  border-radius: 2px;
+  z-index: -1;
+}
+.offsetBlock img { position: relative; }
