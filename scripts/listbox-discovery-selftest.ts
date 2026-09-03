@@ -66,6 +66,35 @@ const find = (s: any, l: string) => (s.fields ?? []).find((f: any) => f.label ==
   ok((s.fields ?? []).length === 1, `only the real control is kept (got ${(s.fields ?? []).length})`);
 }
 
+// ---- 3b. an OPEN dropdown does not become thirty new questions -------
+// This is the Greenhouse regression: an opened country list turned every
+// option into a field, one labelled "Australia" with a label-only
+// selector that matched 30 controls.
+{
+  const s = await snap(`
+    <div id="cl">Country</div>
+    <button data-automation-id="country" aria-haspopup="listbox" aria-labelledby="cl">Select</button>
+    <ul role="listbox">
+      <li role="option" aria-label="Australia">Australia</li>
+      <li role="option" aria-label="Austria">Austria</li>
+      <li role="option" aria-label="United States">United States</li>
+    </ul>`);
+  ok(!labels(s).includes("Australia"), "an option in an open list is not a field");
+  ok(!labels(s).includes("United States"), "no option becomes a field");
+  ok(labels(s).includes("Country"), "the trigger itself is still discovered");
+  ok((s.fields ?? []).length === 1, `an open dropdown is one question (got ${(s.fields ?? []).length})`);
+}
+
+// ---- 3c. a widget with no targetable identity is skipped -------------
+{
+  const s = await snap(`
+    <div role="combobox" aria-label="Australia">Australia</div>
+    <label for="c2">City</label><input id="c2" name="city">`);
+  ok(!labels(s).includes("Australia"),
+     "aria-label alone is not identity: a label-only selector is what matched 30 controls");
+  ok((s.fields ?? []).length === 1, "only the identifiable control is kept");
+}
+
 // ---- 4. a plain native form is completely unchanged -------------------
 {
   const s = await snap(`

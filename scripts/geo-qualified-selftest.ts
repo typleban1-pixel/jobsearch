@@ -69,5 +69,19 @@ ok(!sameGeography("Cleveland, OH", "East Cleveland, Ohio"), "sameGeography still
 ok(geoSearchTerm("Cleveland, OH") === "Cleveland", "the search term is the place name alone");
 ok(geoSearchTerm("Cleveland, Ohio, United States") === "Cleveland", "a fuller place still searches by name");
 
+// ---- 7. read-back compares against the option, not the answer --------
+// The control speaks in full place names; the answer may state less. The
+// check is that the control kept exactly the option that was clicked.
+{
+  const chosen = qualifiedGeoMatches(OFFERED, "Cleveland, OH", PROFILE)[0]!;
+  ok(sameGeography("Cleveland, Ohio, United States", chosen),
+     "a control holding the chosen option reads back as committed");
+  ok(!sameGeography("East Cleveland, Ohio, United States", chosen),
+     "a control holding a neighbouring city fails read-back");
+  ok(!sameGeography("Cleveland, Tennessee, United States", chosen),
+     "a control holding the wrong state fails read-back");
+  ok(!sameGeography("", chosen), "an empty control fails read-back");
+}
+
 console.log(`${n - bad}/${n} assertions passed`);
 process.exit(bad ? 1 : 0);

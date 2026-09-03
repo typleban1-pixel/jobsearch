@@ -607,7 +607,15 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         await page.keyboard.press("Tab").catch(() => undefined);
         await page.waitForTimeout(600);
         const held = await committedValue(ctx.frame, f.selector);
-        if (!held || !sameGeography(held, value)) {
+        // Read back against the option that was actually clicked, not
+        // against the answer. The answer may legitimately state less than
+        // the control does -- "Cleveland, OH" against a control that only
+        // speaks in "Cleveland, Ohio, United States" -- and comparing to
+        // it failed a field that was holding precisely the right place.
+        // hits[0] is not a weaker standard: it was already proved to be
+        // the single option equal to the answer, so requiring the control
+        // to hold exactly that is the strictest check available here.
+        if (!held || !sameGeography(held, hits[0]!)) {
           throw new Stop("READBACK_MISMATCH",
             `"${f.label || f.key}" holds ${JSON.stringify(held ?? "")} after selecting ${JSON.stringify(hits[0])}; `
             + "the location was not committed");

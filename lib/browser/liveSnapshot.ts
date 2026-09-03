@@ -134,13 +134,25 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
      * chrome, not a question of its own.
      */
     const listboxes = Array.from(document.querySelectorAll(
-      '[aria-haspopup="listbox"], [role="combobox"], [role="listbox"]'))
+      '[aria-haspopup="listbox"], [role="combobox"]'))
       .filter((el) => visible(el))
       .filter((el) => !el.querySelector("input,select,textarea"))
       .filter((el) => !el.closest("select"))
+      // The trigger is a control; the popup it opens is not. role=listbox
+      // was in this list once and matched the open option list itself:
+      // on Greenhouse an opened country dropdown turned every option into
+      // a "field", one of which was labelled "Australia" and, having no
+      // identity of its own, fell back to a label selector that matched
+      // 30 elements. An open menu is a rendering of one question, never
+      // thirty new ones.
+      .filter((el) => el.getAttribute("role") !== "option"
+        && !el.closest('[role="listbox"], [role="option"], [role="menu"]'))
+      // Identity has to be targetable. aria-label is not: it yields a
+      // label selector, which is the fallback that produced the 30-way
+      // ambiguity in the first place.
       .filter((el) => Boolean(
-        el.id || el.getAttribute("data-automation-id") || el.getAttribute("data-testid")
-        || el.getAttribute("name") || el.getAttribute("aria-label")));
+        el.id || el.getAttribute("data-automation-id")
+        || el.getAttribute("data-testid") || el.getAttribute("name")));
 
     const controls = [...Array.from(document.querySelectorAll("input,select,textarea"))
       .filter((el) => {
