@@ -221,7 +221,16 @@ async function resolveOne(company: any): Promise<void> {
     // most nonprofits -- looked never-attempted forever, and each run
     // spent its budget re-asking the same organisations that had already
     // answered "no board".
-    if (!rows.length) {
+    // ALWAYS, not only when there were no candidates. Guessed tokens
+    // collide across companies ("parker" is a plausible token for more
+    // than one company), and the candidate upsert keys on provider and
+    // token, so a collision reassigns the existing row to whichever
+    // company tested last -- stealing the other company's only attempt
+    // record. Eighteen companies ping-ponged through every slice of a
+    // loop this way, each un-marking its twin. The per-company marker
+    // has a token nothing else can claim, so the attempt state survives
+    // whatever happens to the shared rows.
+    {
       rows.push({
         company_id: company.id, company_name: company.name,
         ats_provider: "UNKNOWN" as any, candidate_token: `none:${company.id}`,
