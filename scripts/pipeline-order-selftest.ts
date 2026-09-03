@@ -138,6 +138,29 @@ console.log("\n8. hourly pay is annualised before the floor applies:");
   check("$90/hr clears the floor", verdict(high, true).eligibility === "ELIGIBLE", JSON.stringify(high));
 }
 
+console.log("\n9. the scheduled scan is a full funnel with a spend ceiling:");
+{
+  const src = readFileSync("scripts/pipeline.ts", "utf8");
+  const at = (needle: string) => src.indexOf(needle);
+  check("the scan ingests", at('scripts/ingest.ts') > -1);
+  check("the scan extracts", at('scripts/extract.ts') > -1);
+  check("extraction carries the unattended ceiling", at('--max-expected-dollars=25') > -1);
+  check("cheap gates run before extraction",
+    at('scripts/eligibility.ts') > -1 && at('scripts/eligibility.ts') < at('scripts/extract.ts'));
+  check("ingest runs before extraction", at('scripts/ingest.ts') < at('scripts/extract.ts'));
+  check("extraction runs before scoring", at('scripts/extract.ts') < at('scripts/score.ts'));
+  check("scoring runs before candidacy", at('scripts/score.ts') < at('scripts/score-candidacy.ts'));
+  check("the worker sweep runs last, as reconciliation",
+    at('scripts/application-worker.ts') > at('scripts/score-candidacy.ts'));
+}
+{
+  const ex = readFileSync("scripts/extract.ts", "utf8");
+  check("unchanged descriptions are reused, not re-extracted",
+    ex.includes("description changed since extraction"));
+  check("above the ceiling a scheduled run spends nothing",
+    ex.includes("SKIPPING EXTRACTION") && ex.includes("left unspent"));
+}
+
 console.log(`\n${pass} passed, ${fails.length} failed`);
 if (fails.length) { console.log(fails.map((f) => `  - ${f}`).join("\n")); process.exit(1); }
 console.log("hydration, then renormalization, then the gate, then the refresh");

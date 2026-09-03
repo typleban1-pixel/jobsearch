@@ -193,6 +193,28 @@ const leaderPool = plan.leaders.map((l) => withText.find((j: any) => j.id === l.
 const estimate = estimateExtraction({ jobs: withText.length, calls: leaderPool.length, price: { in: 1.0, out: 5.0 } });
 console.log(`planned cost: ${formatEstimate(estimate)}`);
 
+/**
+ * The self-gate that lets a scheduled scan extract at all.
+ *
+ * A routine incremental scan pays cents: only new or changed
+ * description hashes select, and dedupe collapses those further. The
+ * gate exists for the day that stops being true -- a bulk ingest lands
+ * thousands of never-seen descriptions -- because a scheduled run has
+ * nobody to ask. Above the ceiling it extracts NOTHING and says so
+ * loudly, leaving the pool intact for a person to approve, rather than
+ * spending up to the ceiling and asking forgiveness.
+ */
+const capArg = process.argv.find((a) => a.startsWith("--max-expected-dollars="));
+if (capArg) {
+  const ceiling = Number(capArg.split("=")[1]);
+  if (Number.isFinite(ceiling) && estimate.expectedCents / 100 > ceiling) {
+    console.log(`\nSKIPPING EXTRACTION: expected $${(estimate.expectedCents / 100).toFixed(2)} exceeds the `
+      + `$${ceiling.toFixed(2)} unattended ceiling. ${leaderPool.length} call(s) are left unspent `
+      + `for a person to approve (run extract or batch-extract by hand, or raise the ceiling).`);
+    process.exit(0);
+  }
+}
+
 // A run without --commit used to CALL THE MODEL and then throw the
 // answer away: `commit` gated persistence only, never the paid request.
 // So "dry run: nothing written" was true and deeply misleading -- the
