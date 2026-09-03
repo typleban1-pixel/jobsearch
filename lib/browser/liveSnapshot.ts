@@ -69,7 +69,7 @@ export interface LiveSnapshot {
  * walk, which is how a snapshot ends up describing two different forms.
  */
 export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
-  return frame.evaluate(() => {
+  const snap = await frame.evaluate(() => {
     const visible = (el: Element): boolean => {
       const s = window.getComputedStyle(el);
       if (s.display === "none" || s.visibility === "hidden") return false;
@@ -404,4 +404,36 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
       formCount: document.querySelectorAll("form").length,
     };
   });
+  return { ...snap, fields: dedupeByStrongestSelector(snap.fields) };
+}
+
+/**
+ * Drops a phantom duplicate of a control.
+ *
+ * A react-select renders enough structure that discovery finds the same
+ * logical field twice: once as its real input, with an id or name
+ * selector, and once as a label-only field pointing at a wrapper that
+ * getByLabel cannot resolve. The main fill filled the real one and then
+ * tried the phantom, whose selector matched zero, and stopped a whole
+ * submission one field short. When several fields share a label and at
+ * least one has a strong selector (id, name, testid), the label-only
+ * ones are that same control seen again and are dropped. Two fields that
+ * genuinely differ keep their own strong selectors and are untouched.
+ */
+function dedupeByStrongestSelector(fields: LiveField[]): LiveField[] {
+  const byLabel = new Map<string, LiveField[]>();
+  for (const f of fields) {
+    const key = (f.label || "").trim();
+    if (!key) continue;
+    byLabel.set(key, [...(byLabel.get(key) ?? []), f]);
+  }
+  const drop = new Set<LiveField>();
+  for (const [, group] of byLabel) {
+    if (group.length < 2) continue;
+    const strong = group.filter((f) => f.selectorKind !== "label");
+    if (strong.length >= 1 && strong.length < group.length) {
+      for (const f of group) if (f.selectorKind === "label") drop.add(f);
+    }
+  }
+  return fields.filter((f) => !drop.has(f));
 }
