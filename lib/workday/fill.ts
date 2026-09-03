@@ -46,6 +46,50 @@ export interface FillReport {
 const KNOWN = new Set(["text", "email", "tel", "textarea", "checkbox", "radio", "select-one", "search"]);
 
 /**
+ * Selects one option of a radio group by its visible LABEL.
+ *
+ * The stored answer is the label a person chose -- "No" -- while the
+ * DOM's value attribute is whatever the application uses internally.
+ * Northern Trust's are "true" and "false", so a selector built from the
+ * label matched nothing at all.
+ *
+ * The mapping is read from the live page rather than assumed, because
+ * every tenant is free to choose its own encoding.
+ */
+export async function selectRadioByLabel(
+  page: Page, groupName: string, label: string,
+): Promise<FillOutcome> {
+  const options = await page.evaluate((name: string) =>
+    [...document.querySelectorAll(`input[type="radio"][name="${CSS.escape(name)}"]`)]
+      .filter((e) => e.getClientRects().length > 0)
+      .map((e: any) => ({
+        value: e.value,
+        label: (e.closest("label")?.textContent
+          || document.querySelector(`label[for="${e.id}"]`)?.textContent || "").trim(),
+        checked: e.checked,
+      })), groupName);
+
+  if (!options.length) return { status: "FAILED", why: `no visible radio group named "${groupName}"` };
+  const want = options.filter((o: any) => o.label.toLowerCase() === label.trim().toLowerCase());
+  if (want.length === 0) {
+    return { status: "FAILED",
+      why: `no option labelled ${JSON.stringify(label)} in "${groupName}"; it offers `
+        + JSON.stringify(options.map((o: any) => o.label)) };
+  }
+  if (want.length > 1) return { status: "FAILED", why: `${want.length} options labelled ${JSON.stringify(label)}` };
+
+  const value = want[0]!.value;
+  const sel = `input[type="radio"][name="${groupName}"][value="${value}"]`;
+  const el = page.locator(sel).first();
+  try { await el.check({ timeout: 10_000 }); }
+  catch (e) { return { status: "FAILED", why: `could not select: ${String(e).split("\n")[0]!.slice(0, 110)}` }; }
+
+  const checked = await el.isChecked().catch(() => false);
+  if (!checked) return { status: "FAILED", why: `read-back: the option did not stay selected` };
+  return { status: "FILLED", readBack: `${label} (value=${value})` };
+}
+
+/**
  * Fills one control and reads it back.
  *
  * The read-back is from the DOM, not from what we intended, so a value

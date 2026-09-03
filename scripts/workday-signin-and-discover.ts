@@ -20,8 +20,8 @@ import { tenantFromToken, candidateHomeUrl } from "../lib/workday/tenant.ts";
 import { observe, waitForWorkdayReady, readSignals } from "../lib/workday/probe.ts";
 import { snapshotLive } from "../lib/browser/liveSnapshot.ts";
 import { mergeDiscovery, summarise } from "../lib/applications/fieldMerge.ts";
-import { fillOne, failures, type FillTarget, type FillReport } from "../lib/workday/fill.ts";
-import { radioOptionSelector, radioGroupKey } from "../lib/workday/radioGroups.ts";
+import { fillOne, selectRadioByLabel, failures, type FillTarget, type FillReport } from "../lib/workday/fill.ts";
+import { radioOptionSelector, radioGroupKey, collapseRadioGroups } from "../lib/workday/radioGroups.ts";
 
 const ID = process.argv[2] ?? "35eaed21-599e-4480-bc7b-192677c80f18";
 const DONE = ".workday-signin-done";
@@ -342,7 +342,31 @@ if (snap.fields?.length) {
   // form has been read, and nothing has been answered. Resolution
   // against verified truth is the answer pipeline's job, not this
   // script's, and pre-filling here would bypass the evidence rules.
-  const rows = snap.fields.map((f: any) => ({
+  // Radio options collapse into one question keyed by group identity
+  // BEFORE anything is recorded. Without this, discovery re-creates a
+  // field named after an option label -- "Yes" -- every single pass,
+  // undoing the repointing and reintroducing the selector that matches
+  // three controls.
+  const collapsed = collapseRadioGroups(snap.fields.map((f: any) => ({
+    label: String(f.label ?? ""), htmlType: String(f.htmlType ?? "text"),
+    name: f.name ?? null, selector: f.selector ?? null,
+    required: Boolean(f.required), value: f.value ?? null,
+  })));
+  const rows = collapsed.map((f: any) => ({
+    application_id: ID,
+    question_text: f.question,
+    field_key: f.key,
+    field_label: f.question,
+    is_required: Boolean(f.required),
+    options: f.options ?? null,
+    category: "E_UNKNOWN" as const,
+    provenance: "USER_RESPONSE" as const,
+    confidence_state: "BLOCKED" as const,
+    block_kind: "UNKNOWN" as const,
+    blocked_reason: "discovered on the employer's form; not yet resolved against verified evidence",
+    answer_text: null,
+  }));
+  const _unusedRows = snap.fields.map((f: any) => ({
     application_id: ID,
     question_text: String(f.label ?? f.name ?? "unlabelled field").slice(0, 500),
     field_key: String(f.selector ?? f.name ?? f.label ?? "").slice(0, 300),
@@ -440,9 +464,30 @@ if (process.argv.includes("--fill")) {
     if (pre.signals.captcha) { console.log(`\nNOT filling: a CAPTCHA is present.`); fillOk = false; }
     else if (!pre.onTenant) { console.log(`\nNOT filling: the page left ${tenant.host}.`); fillOk = false; }
     else {
+      // What the radios actually are, before anything is written. The
+      // stored answer is the option's LABEL; the DOM's value attribute
+      // may be something else entirely, and a selector built on the
+      // wrong one matches nothing.
+      const radios = await page.evaluate(() =>
+        [...document.querySelectorAll('input[type="radio"]')]
+          .filter((e) => e.getClientRects().length > 0)
+          .map((e: any) => ({ name: e.name, value: e.value,
+            label: (e.closest("label")?.textContent || document.querySelector(`label[for="${e.id}"]`)?.textContent || "").trim().slice(0, 40) })));
+      if (radios.length) {
+        console.log(`  visible radios: ${JSON.stringify(radios)}`);
+      }
+
       console.log(`\nfilling ${answers!.length} resolved answer(s) and reading each back`);
       const reports: FillReport[] = [];
-      for (const a of answers ?? []) {
+      // Fields a checkbox reveals must be written after it. Sorting the
+      // revealers first makes the order explicit rather than relying on
+      // whatever order the rows came back in.
+      const ordered = [...(answers ?? [])].sort((x: any, y: any) => {
+        const rank = (r: any) => /preferred name/i.test(String(r.question_text)) && !/^(first|last) name$/i.test(String(r.question_text)) ? 0
+          : /preferredName--/i.test(String(r.field_key ?? "")) ? 2 : 1;
+        return rank(x) - rank(y);
+      });
+      for (const a of ordered) {
         // A radio group's stored key is its identity, not a selector.
         // The selector needs the group name AND the chosen value, or it
         // matches every identically-labelled option on the page.
@@ -459,8 +504,19 @@ if (process.argv.includes("--fill")) {
           reports.push({ target, outcome: { status: "FAILED", why: "no selector recorded for this field" } });
           continue;
         }
-        const outcome = await fillOne(page, target);
+        // A radio group resolves its option from the LABEL the user
+        // chose, because the DOM's value attribute is the tenant's own
+        // encoding -- "true"/"false" here, not "Yes"/"No".
+        const outcome = storedKey.startsWith("radio-group:")
+          ? await selectRadioByLabel(page, storedKey.slice("radio-group:".length), String(a.answer_text ?? ""))
+          : await fillOne(page, target);
         reports.push({ target, outcome });
+        // Ticking a checkbox can reveal further controls. Give the page
+        // a chance to render them before the next field is looked up,
+        // rather than failing on a control that is about to exist.
+        if (outcome.status === "FILLED" && /preferred name|checkbox/i.test(target.label)) {
+          await page.waitForTimeout(2500);
+        }
         const mark = outcome.status === "FAILED" ? "FAIL " : outcome.status === "SKIPPED_BLANK" ? "blank" : "ok   ";
         console.log(`  ${mark} ${target.label.slice(0, 30).padEnd(32)} ${outcome.status === "FAILED" ? outcome.why.slice(0, 76) : JSON.stringify(target.value).slice(0, 40)}`);
       }
