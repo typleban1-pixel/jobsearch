@@ -31,6 +31,15 @@ export interface LiveField extends FormField {
   /** Ids this control declares a relationship to. */
   associated: string[];
   /**
+   * The DOM name attribute, shared by every option of a radio group.
+   *
+   * Without it collapseRadioGroups cannot tell that two radios belong to
+   * one question, so Northern Trust's previous-worker group arrived as a
+   * field called "Yes" and the confirmed answer "No", stored against the
+   * group, matched nothing and was never filled.
+   */
+  name?: string | null;
+  /**
    * For a group of checkboxes sharing one name: the selector that
    * reaches each option, keyed by that option's own label.
    *
@@ -300,7 +309,7 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
         : [];
 
       fields.push({
-        key, label, type: typeOf(el),
+        key, label, type: typeOf(el), name: name || null,
         // A listbox button reports "select" here too. Reporting its tag
         // would tell every downstream reader it is a button, and they
         // would treat a dropdown as something to click once.

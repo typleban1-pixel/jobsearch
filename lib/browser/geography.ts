@@ -66,6 +66,20 @@ const COUNTRIES: Record<string, string> = {
  * answer to an option means normalising both, because "United States"
  * and "US" are the same country and neither contains the other.
  */
+/**
+ * A region written either way: "OH" and "Ohio" are one place.
+ *
+ * Workday's State dropdown offers full names while the profile records
+ * the postal abbreviation, so matching them as text found nothing and
+ * the required State field could not be filled at all.
+ */
+export function normalizeRegionName(s: string): string {
+  const raw = String(s ?? "").trim();
+  const up = raw.toUpperCase();
+  if (REGIONS[up]) return REGIONS[up];
+  return clean(raw);
+}
+
 export function normalizeCountryName(s: string): string {
   const raw = String(s ?? "").trim();
   const upper = raw.toUpperCase().replace(/\.$/, "");

@@ -17,25 +17,27 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
+import { chromium } from "playwright";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
 import { tenantFromToken, candidateHomeUrl } from "../lib/workday/tenant.ts";
 import { observe, waitForWorkdayReady } from "../lib/workday/probe.ts";
 import { snapshotLive } from "../lib/browser/liveSnapshot.ts";
 import { mergeDiscovery, summarise } from "../lib/applications/fieldMerge.ts";
-import { fillOne, selectRadioByLabel, type FillTarget } from "../lib/workday/fill.ts";
-import { radioGroupKey, collapseRadioGroups } from "../lib/workday/radioGroups.ts";
-import { resolveField, type ResolveContext, type BankedAnswer } from "../lib/applications/answer.ts";
+import { fillOne, selectRadioByLabel, selectListboxOption, selectPromptPath, type FillTarget } from "../lib/workday/fill.ts";
+import { collapseRadioGroups } from "../lib/workday/radioGroups.ts";
+import { resolveField, guardInheritedAnswer, type ResolveContext } from "../lib/applications/answer.ts";
+import { loadContext, applicationScope } from "../lib/applications/prepare.ts";
 import { chooseAdvance } from "../lib/workday/advance.ts";
 
 const ID = process.argv[2] ?? "35eaed21-599e-4480-bc7b-192677c80f18";
 const DONE = ".workday-signin-done";
-const MAX_PAGES = 12;
+const MAX_PAGES = 30;          // re-passes on one page consume iterations too
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 
 // ---- the record ------------------------------------------------------
 const { data: app } = await db.from("applications").select("id,job_id,status,resume_id").eq("id", ID).single();
 if (!app) { console.error("no such application"); process.exit(1); }
-const { data: job } = await db.from("jobs").select("id,title,company_id,source,application_form_url,remote_policy").eq("id", app.job_id).single();
+const { data: job } = await db.from("jobs").select("id,title,company_id,source,application_form_url,url,remote_policy").eq("id", app.job_id).single();
 const { data: co } = await db.from("companies").select("id,name,ats_token").eq("id", job!.company_id).single();
 const { data: profile } = await db.from("profile").select("*").single();
 const { data: employment } = await db.from("employment").select("*").order("start_date", { ascending: false });
@@ -43,37 +45,60 @@ const { data: bankRows } = await db.from("question_bank").select("*").eq("reuse_
 const { data: jobLoc } = await db.from("job_locations").select("city,state,metro").eq("job_id", job!.id).maybeSingle();
 const tenant = tenantFromToken(co!.ats_token);
 
-const bank = new Map<string, BankedAnswer>();
-for (const b of bankRows ?? []) {
-  if (!b.intent_key || !b.approved_answer) continue;
-  bank.set(b.intent_key, { answer: b.approved_answer, provenance: (b.answer_provenance ?? "PROFILE") as any,
-    evidenceIds: b.evidence_ids ?? [], sensitive: Boolean(b.sensitive) } as BankedAnswer);
-}
-const ctx: ResolveContext = {
-  profileRowId: profile!.id, profile: profile as Record<string, any>,
-  employment: (employment ?? []) as any, bank,
-  application: { provider: job!.source, employer: co?.name ?? null, jobId: job!.id,
-    conditions: { locationCity: jobLoc?.city ?? null, locationState: jobLoc?.state ?? null,
-      locationMetro: jobLoc?.metro ?? null, remotePolicy: job!.remote_policy ?? null } },
-};
+/**
+ * The same context prepare.ts and submit-application.ts build.
+ *
+ * This script used to assemble its own from `db.from("employment")` -- a
+ * table that does not exist. The query failed silently, the employment
+ * history arrived empty, and every question about where he has worked
+ * resolved to nothing. Truth here is the FROZEN profile version, not the
+ * live tables, so a resolution made now matches the one the resume was
+ * rendered from.
+ */
+const ctx: ResolveContext = await loadContext(db);
+ctx.application = await applicationScope(db, job!.id).catch(() => undefined);
 
 console.log(`${co!.name} — ${job!.title}`);
 console.log(`  application ${ID.slice(0, 8)}  ${app.status}`);
 console.log(`  tenant ${tenant.host}/${tenant.site}\n`);
 
-// ---- open, and wait for a person to sign in --------------------------
-const browser = await launchApplicationContext();
-const page = await browser.newPage();
-page.setDefaultTimeout(60_000);
-await page.goto(candidateHomeUrl(tenant), { waitUntil: "domcontentloaded" });
-await waitForWorkdayReady(page, 30_000);
+// ---- open, or join a window that is already signed in ----------------
+//
+// Attaching exists because the session cannot be moved. Workday's cookie
+// dies with the browser process, so a window a person signed into can
+// only ever be driven by a process that reaches THAT browser -- and
+// launching another one, or reopening the profile, throws the sign-in
+// away. --attach joins over the debugging port instead, and leaves the
+// browser running when it is done.
+const ATTACH = process.argv.includes("--attach");
+let browser: any, page: any, cdp: any = null;
+if (ATTACH) {
+  cdp = await chromium.connectOverCDP("http://127.0.0.1:9222");
+  browser = cdp.contexts()[0];
+  const pages = browser.pages().filter((p: any) => !p.url().startsWith("about:"));
+  page = pages[0] ?? browser.pages()[0];
+  page.setDefaultTimeout(60_000);
+  console.log(`attached to the running browser (${page.url()})`);
+} else {
+  browser = await launchApplicationContext();
+  page = await browser.newPage();
+  page.setDefaultTimeout(60_000);
+  await page.goto(candidateHomeUrl(tenant), { waitUntil: "domcontentloaded" });
+  await waitForWorkdayReady(page, 30_000);
+}
 
 console.log("This window is the automated profile (.browser-profile). SIGN IN HERE.");
 console.log("Nothing is typed for you and no consent control is touched.");
 console.log(`Waiting for an authenticated session... (touch ${DONE} to abandon)\n`);
 
 let signedIn = false;
-for (let i = 0; i < 2400; i++) {                    // up to ~2 hours
+if (ATTACH) {
+  const o = await observe(page, tenant).catch(() => null);
+  signedIn = o?.state === "SIGNED_IN";
+  console.log(`observed: ${o?.state ?? "unreadable"}`);
+  if (!signedIn) console.log("this window is not signed in; not proceeding.");
+}
+for (let i = 0; !ATTACH && i < 2400; i++) {         // up to ~2 hours
   if (existsSync(DONE)) { unlinkSync(DONE); console.log("abandoned by request."); await browser.close(); process.exit(0); }
   const o = await observe(page, tenant).catch(() => null);
   if (o && o.state === "SIGNED_IN") {
@@ -88,9 +113,18 @@ if (!signedIn) { console.log("no session appeared; leaving the window open."); }
 // ---- where is this application now? ---------------------------------
 const stepOf = async () => await page.evaluate(() => {
   const t = (s: string) => (document.querySelector(s) as HTMLElement | null)?.innerText?.trim() ?? "";
-  const heading = t('[data-automation-id="jobApplicationHeader"]') || t("h1") || t("h2");
+  // The page heading is the careers site's banner, "NT Careers", on every
+  // step. Using it to detect progress meant Save and Continue worked and
+  // the run still concluded the page had not advanced. The progress bar
+  // names the actual step.
+  const marker = [...document.querySelectorAll("*")]
+    .map((e) => (e as HTMLElement).innerText ?? "")
+    .find((x) => /current step \d+ of \d+/i.test(x) && x.length < 120) ?? "";
+  const m = /current step (\d+) of (\d+)\s*\n?\s*(.*)/i.exec(marker.replace(/\s+\n/g, "\n"));
+  const heading = (m?.[3] ?? "").trim()
+    || t('[data-automation-id="jobApplicationHeader"]') || t("h1") || t("h2");
   const prog = [...document.querySelectorAll('[data-automation-id="progressBar"] *, [role="navigation"] li')]
-    .map((e) => (e as HTMLElement).innerText.trim()).filter(Boolean).slice(0, 12);
+    .map((e) => ((e as HTMLElement).innerText ?? "").trim()).filter(Boolean).slice(0, 12);
   return { heading, prog, url: location.href, title: document.title };
 });
 
@@ -107,24 +141,78 @@ async function onApplicationPage(): Promise<boolean> {
   return await page.evaluate(() => {
     const q = (s: string) => document.querySelector(s);
     const vis = (e: Element | null) => Boolean(e && e.getClientRects().length > 0);
+    // A posting is not an application. The url test that used to live
+    // here matched "/job/", which every posting url contains, so the
+    // posting page passed as an application and its two filter
+    // dropdowns were recorded as questions. Only a control that exists
+    // solely inside the application counts.
     if (vis(q('[data-automation-id="jobSearchPage"]')) || vis(q('[data-automation-id="jobSearch"]'))) return false;
+    if (vis(q('[data-automation-id="jobPostingHeader"]')) && !vis(q('[data-automation-id="progressBar"]'))) return false;
     return vis(q('[data-automation-id="progressBar"]'))
       || vis(q('[data-automation-id="jobApplicationHeader"]'))
-      || /\/job\/|apply|application/i.test(location.pathname);
+      || vis(q('[data-automation-id="applyFlowPage"]'))
+      || vis(q('[data-automation-id="quickApplyModal"]'));
   });
+}
+
+/** True when this is the posting, which is where Apply lives. */
+async function onPostingPage(): Promise<boolean> {
+  return await page.evaluate(() =>
+    [...document.querySelectorAll('a, button, [role="button"], [role="link"]')]
+      .filter((e) => e.getClientRects().length > 0)
+      .some((e) => /^apply$/i.test(((e as HTMLElement).innerText || "").trim())));
 }
 
 /** Finds the in-progress application and opens it. */
 async function openApplication(): Promise<boolean> {
   if (await onApplicationPage()) return true;
   const base = candidateHomeUrl(tenant).replace(/\/$/, "");
-  for (const url of [`${base}/candidatehome`, job!.application_form_url ?? "", base]) {
+  // application_form_url is null for this posting; the canonical url
+  // is the one the ingest recorded, so both are tried.
+  // The Apply control is an anchor with a real href: the posting url
+  // plus /apply. Navigating to it is steadier than clicking a button
+  // whose overlay pattern differs per tenant.
+  const posting = String((job as any)!.url ?? "");
+  for (const url of [job!.application_form_url ?? "", posting ? `${posting}/apply` : "", posting]) {
     if (!url) continue;
     console.log(`  looking at ${url}`);
     await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => undefined);
     await waitForWorkdayReady(page, 30_000).catch(() => undefined);
     await page.waitForTimeout(1500);
     if (await onApplicationPage()) { console.log("  application page reached"); return true; }
+
+    /**
+     * Workday asks HOW to start: autofill from a resume, use the last
+     * application, or enter it by hand. Only the manual path is taken.
+     * The other two import data this system has not verified and cannot
+     * attribute, which is the whole thing the evidence pipeline exists
+     * to prevent -- and "use my last application" would copy answers
+     * given to a different employer.
+     */
+    const manual = page.getByRole("button", { name: /apply manually/i })
+      .or(page.getByRole("link", { name: /apply manually/i }));
+    if (await manual.count().catch(() => 0)) {
+      console.log("  choosing Apply Manually (autofill and last-application are not used)");
+      await manual.first().click({ timeout: 15_000 }).catch(() => undefined);
+      await page.waitForTimeout(3500);
+      await waitForWorkdayReady(page, 30_000).catch(() => undefined);
+      if (await onApplicationPage()) { console.log("  application page reached"); return true; }
+    }
+
+    // On the posting, Apply resumes an application already started.
+    if (await onPostingPage()) {
+      console.log("  posting page; clicking Apply to resume");
+      await page.getByRole("button", { name: /^apply$/i }).first().click({ timeout: 15_000 })
+        .catch(async () => { await page.getByRole("link", { name: /^apply$/i }).first().click({ timeout: 15_000 }).catch(() => undefined); });
+      await page.waitForTimeout(4000);
+      await waitForWorkdayReady(page, 30_000).catch(() => undefined);
+      // Workday may offer "Use My Last Application" / "Apply Manually".
+      const choices = await page.evaluate(() =>
+        [...document.querySelectorAll('a, button, [role="button"]')].filter((e) => e.getClientRects().length > 0)
+          .map((e) => ((e as HTMLElement).innerText || "").trim()).filter(Boolean));
+      console.log(`  after Apply: ${choices.slice(0, 12).join(" | ").slice(0, 240)}`);
+      if (await onApplicationPage()) { console.log("  application page reached"); return true; }
+    }
 
     // Candidate home lists tasks. Take the one naming this posting, or a
     // plain Continue; never guess between several.
@@ -135,7 +223,7 @@ async function openApplication(): Promise<boolean> {
         .filter(Boolean));
     console.log(`  controls here: ${links.slice(0, 18).join(" | ").slice(0, 300)}`);
     const title = String(job!.title ?? "");
-    const wanted = links.filter((l) => l === title || /continue application|continue|resume application/i.test(l));
+    const wanted = links.filter((l: string) => l === title || /continue application|continue|resume application/i.test(l));
     if (wanted.length === 1) {
       console.log(`  opening ${JSON.stringify(wanted[0])}`);
       await page.getByRole("link", { name: wanted[0]!, exact: true }).first().click({ timeout: 15_000 })
@@ -150,6 +238,7 @@ async function openApplication(): Promise<boolean> {
   return false;
 }
 
+const passes = new Map<string, number>();
 let reachable = false;
 if (signedIn) {
   console.log(`\n--- locating the application ---`);
@@ -207,6 +296,14 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
     label: String(f.label ?? ""), htmlType: String(f.htmlType ?? "text"), name: f.name ?? null,
     selector: String(f.selector ?? f.key ?? ""), required: Boolean(f.required), value: null,
   }))).map((r: any) => ({ ...r, htmlType: typeBySelector.get(r.key) ?? "text" }));
+  // An unlabelled control is not a question. The page header's language
+  // and settings menus are listbox buttons with ids and no labels, so
+  // they look exactly like a form dropdown to discovery and arrived as
+  // two blank questions on the application.
+  const named = live.filter((f: any) => String(f.question ?? "").trim().length > 0);
+  const dropped = live.length - named.length;
+  if (dropped) console.log(`ignoring ${dropped} unlabelled control(s); an unlabelled control is not a question`);
+  live.length = 0; live.push(...named);
   console.log(`discovered ${live.length} field(s)`);
   for (const f of live) console.log(`   ${f.required ? "*" : " "} ${String(f.question).slice(0, 48).padEnd(50)} ${f.htmlType}`);
 
@@ -223,9 +320,16 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
   console.log(`merge: ${t.PRESERVED} preserved, ${t.ADDED} added, ${t.RECONCILE} reconcile, ${t.RETAINED_OFFPAGE} retained`);
   for (const m of merged) {
     if (m.action === "PRESERVED" || m.action === "RETAINED_OFFPAGE") continue;
+    // A rediscovered control carries no answer. Writing it over a stored
+    // one turned the confirmed "No" for previous-worker into a blank the
+    // moment the group's identity was reconciled.
+    const existing = (stored ?? []).find((x: any) => x.field_key === m.field.field_key);
+    const keptAnswer = m.field.answer_text ?? existing?.answer_text ?? null;
+    const keptState = m.field.answer_text ? m.field.confidence_state
+      : (existing?.answer_text ? existing.confidence_state : m.field.confidence_state);
     const row: any = { application_id: ID, question_text: m.field.question_text, field_key: m.field.field_key,
-      field_label: m.field.question_text, is_required: m.field.is_required, answer_text: m.field.answer_text,
-      confidence_state: m.field.confidence_state, category: m.field.category ?? "E_UNKNOWN",
+      field_label: m.field.question_text, is_required: m.field.is_required, answer_text: keptAnswer,
+      confidence_state: keptState, category: m.field.category ?? "E_UNKNOWN",
       provenance: m.field.provenance ?? "USER_RESPONSE", block_kind: m.field.block_kind,
       blocked_reason: m.field.blocked_reason, evidence_ids: m.field.evidence_ids ?? [] };
     if ((m.field as any).id) await db.from("application_answers").update(row).eq("id", (m.field as any).id);
@@ -237,12 +341,50 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
     .select("id,question_text,field_key,is_required,confidence_state,answer_text")
     .eq("application_id", ID);
   for (const r of rows ?? []) {
+    // An answer that already stands is not re-derived. Re-resolving
+    // VERIFIED rows overwrote the PREFERRED first name with the legal
+    // one, because both questions are called "First Name" and the intent
+    // matcher can only see the label. Only empty or blocked rows are
+    // resolved here.
     if (r.confidence_state === "HUMAN_CONFIRMED") continue;
+    if (r.answer_text && r.confidence_state !== "BLOCKED") continue;
     const match = live.find((f: any) => String(f.key) === r.field_key);
     if (!match) continue;
-    const res: any = resolveField({ key: r.field_key, label: r.question_text, required: Boolean(r.is_required),
+    let res: any = resolveField({ key: r.field_key, label: r.question_text, required: Boolean(r.is_required),
       type: match.htmlType, options: match.options ?? [] } as any, ctx);
     if (!res || res.refused) continue;
+
+    // A secondary field that merely echoed its primary is left blank.
+    // guardInheritedAnswer existed and was tested, but nothing in
+    // production called it -- so "Address Line 2" resolved to the street
+    // address and "Phone Extension" to the phone number, and both were
+    // written into the live form.
+    res = guardInheritedAnswer(res, [
+      String((profile as any)?.address_line ?? ""),
+      String((profile as any)?.phone ?? ""),
+      String((profile as any)?.phone_e164 ?? ""),
+    ].filter(Boolean));
+
+    /**
+     * An answer that is not on the control's own list is not an answer.
+     *
+     * "Phone Device Type" matched a phone intent and resolved to the
+     * phone NUMBER, against a control offering Fax, Landline and Mobile.
+     * The listbox filler refused it, correctly, but by then it was
+     * recorded as this field's answer. Where the live control states its
+     * choices, an answer outside them is blocked for a person instead.
+     */
+    const opts: string[] = (match.options ?? []) as string[];
+    if (res.answer && opts.length && !opts.some((o) => String(o).trim().toLowerCase() === String(res.answer).trim().toLowerCase())) {
+      const { normalizeCountryName, normalizeRegionName } = await import("../lib/browser/geography.ts");
+      const same = opts.some((o) => normalizeCountryName(o) === normalizeCountryName(res.answer)
+        || normalizeRegionName(o) === normalizeRegionName(res.answer));
+      if (!same) {
+        res = { ...res, answer: null, confidence: "BLOCKED", blockKind: "UNKNOWN",
+          blockedReason: `the control offers ${opts.length} choices and ${JSON.stringify(res.answer)} is not one of them `
+            + `(${opts.slice(0, 8).join(" | ")}${opts.length > 8 ? " ..." : ""})` };
+      }
+    }
     await db.from("application_answers").update({
       answer_text: res.answer ?? null, confidence_state: res.confidence ?? "BLOCKED",
       block_kind: res.blockKind ?? null, blocked_reason: res.blockedReason ?? null,
@@ -260,9 +402,37 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
     if (!a.answer_text || a.confidence_state === "BLOCKED") continue;
     const target: FillTarget = { selector: a.field_key, label: a.question_text, value: a.answer_text,
       confidence: a.confidence_state, required: Boolean(a.is_required) };
+    // A dropdown that is a button, not a select, needs the listbox path;
+    // fillOne has nothing to write to and reports the control type as
+    // unfamiliar, which is how Country stopped this page dead.
+    // A multiSelectContainer is a TREE prompt: its levels have to be
+    // walked. Sending it to the flat listbox path typed a category name
+    // into the search box and committed nothing.
+    const isPromptTree = await page.locator(`${a.field_key}:visible`).first()
+      .evaluate((el: any) => Boolean(el.closest('[data-automation-id="multiSelectContainer"]')))
+      .catch(() => false);
+    const isListbox = await page.locator(`${a.field_key}:visible`).first()
+      .evaluate((el: any) => {
+        const tag = el.tagName;
+        if (tag === "SELECT" || tag === "TEXTAREA") return false;
+        // An input that opens a listbox is a chooser, not a text box.
+        if (tag === "INPUT") {
+          return el.getAttribute("role") === "combobox"
+            || el.getAttribute("aria-haspopup") === "listbox"
+            || el.getAttribute("aria-autocomplete") === "list";
+        }
+        return true;
+      })
+      .catch(() => false);
     const out = a.field_key.startsWith("radio-group:")
-      ? await selectRadioByLabel(page, radioGroupKey(a.field_key), a.answer_text)
-      : await fillOne(page, target);
+      // The stored key already carries the prefix; radioGroupKey ADDS
+      // one, so passing it through produced "radio-group:radio-group:...".
+      ? await selectRadioByLabel(page, a.field_key.slice("radio-group:".length), a.answer_text)
+      : isPromptTree
+        ? await selectPromptPath(page, a.field_key, a.answer_text)
+        : isListbox
+        ? await selectListboxOption(page, a.field_key, a.answer_text)
+        : await fillOne(page, target);
     if (out.status === "FAILED") { failed++; console.log(`   FAIL ${a.question_text}: ${out.why}`); }
     else { filled++; console.log(`   ok   ${String(a.question_text).slice(0, 40).padEnd(42)} ${JSON.stringify((out as any).readBack ?? "")}`); }
   }
@@ -276,12 +446,79 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
   }
   if (failed) { console.log("\nSTOPPING: a control did not accept its value; not advancing on a partial page."); break; }
 
+  /**
+   * Everything visible and required has to be accounted for.
+   *
+   * Discovery finding fewer controls than the page shows is not
+   * detectable from inside discovery: it reports what it found, and a
+   * question it never saw is simply absent. So the page is read a second
+   * time, independently, for anything marked required, and any required
+   * control that is not among the discovered fields stops the run. A
+   * missed required field would otherwise be left blank and the page
+   * submitted as if complete.
+   */
+  /**
+   * Workday reveals fields as earlier ones are answered: the address
+   * block does not exist until Country is chosen. Discovering once and
+   * advancing would leave every revealed field blank, so the page is
+   * read again and re-processed while it keeps growing.
+   */
+  {
+    const again: any = await snapshotLive(page.mainFrame() as any).catch(() => ({ fields: [] }));
+    const namedAgain = (again.fields ?? []).filter((f: any) => String(f.label ?? "").trim().length > 0);
+    if (namedAgain.length > live.length) {
+      passes.set(step.heading, (passes.get(step.heading) ?? 0) + 1);
+      if ((passes.get(step.heading) ?? 0) <= 4) {
+        console.log(`the page revealed ${namedAgain.length - live.length} more field(s); reading it again`);
+        pageNo--;                       // the same page, not the next one
+        continue;
+      }
+      console.log(`the page is still revealing fields after 4 passes; stopping rather than looping`);
+      break;
+    }
+  }
+
+  const covered = new Set(live.map((f: any) => String(f.key)));
+  const uncovered = await page.evaluate((known: string[]) => {
+    const vis = (e: Element) => e.getClientRects().length > 0;
+    const out: { label: string; id: string; tag: string }[] = [];
+    const seen = new Set(known);
+    const nodes = [...document.querySelectorAll('[aria-required="true"], [required]')].filter(vis);
+    for (const el of nodes) {
+      const id = el.id ? `#${el.id}` : "";
+      const name = el.getAttribute("name") ? `[name="${el.getAttribute("name")}"]` : "";
+      const auto = el.getAttribute("data-automation-id") ? `[data-automation-id="${el.getAttribute("data-automation-id")}"]` : "";
+      // Any identity discovery might have stored it under.
+      if ([id, name, auto].some((k) => k && seen.has(k))) continue;
+      if (name && [...seen].some((k) => k.startsWith("radio-group:") && name.includes(k.slice("radio-group:".length)))) continue;
+      const lbl = (el.getAttribute("aria-label")
+        || (el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent : "")
+        || el.closest("label")?.textContent
+        || el.closest("[data-automation-id]")?.getAttribute("data-automation-id") || "").replace(/\s+/g, " ").trim();
+      out.push({ label: lbl.slice(0, 70), id: id || name || auto || "(no identity)", tag: el.tagName });
+    }
+    return out;
+  }, [...covered]);
+
+  if (uncovered.length) {
+    console.log(`\nSTOPPING: ${uncovered.length} visible required control(s) discovery did not account for:`);
+    for (const u of uncovered) console.log(`   - ${u.label || "(unlabelled)"}  ${u.id}  <${u.tag.toLowerCase()}>`);
+    console.log("Not clicking Save and Continue on a page whose required fields are not all represented.");
+    break;
+  }
+
   const next = await advance();
   if (!next) { console.log("\nno Continue control advanced the page; stopping here."); break; }
   console.log(`advanced to: ${next}`);
 }
 
 console.log(`\nThe browser stays open so the session survives. touch ${DONE} to close it.`);
+if (ATTACH) {
+  // Disconnect, leaving the window and the session exactly as found.
+  await cdp.close().catch(() => undefined);
+  console.log("detached; the browser and its session are untouched.");
+  process.exit(0);
+}
 for (;;) {
   if (existsSync(DONE)) { unlinkSync(DONE); break; }
   await new Promise((r) => setTimeout(r, 3000));
