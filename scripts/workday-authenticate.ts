@@ -14,6 +14,8 @@
  * mode, no hashes. An application that authenticates is exactly as
  * unapproved as it was before.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
@@ -27,6 +29,8 @@ const applicationId = process.argv[2];
 const WRITE = process.argv.includes("--write");
 if (!applicationId) { console.error("usage: workday-authenticate.ts <application_id> [--write]"); process.exit(2); }
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+const ROOT = process.cwd();
+const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 
 const { data: app } = await db.from("applications")
   .select("id,job_id,status,submitted_at,human_approved,authorization_mode,is_test").eq("id", applicationId).single();
@@ -125,6 +129,28 @@ if (result.outcome !== "AUTHENTICATED") {
     });
     // hasValue is a boolean. No field value is ever read out.
     console.log(`\n  DIAGNOSTIC CAPTURE (no secret values):\n${JSON.stringify(dom, null, 2).slice(0, 3000)}`);
+
+    // Kept on disk, not just printed.
+    //
+    // The first failed attempt printed all of this to stdout and nothing
+    // else, so by the time the question "was the credential rejected, or
+    // did the form not submit" was asked, the only evidence was gone and
+    // answering it would have cost a second login against a one-attempt
+    // budget. The alert text is the part that separates those two cases,
+    // so it is written down whole rather than regex-matched away.
+    const dir = join(ROOT, ".workday-auth", `${tenant.host}-${stamp}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "diagnostic.json"), JSON.stringify({
+      tenant: tenant.host, site: tenant.site, application: applicationId,
+      outcome: result.outcome, path: result.path, reason: result.reason,
+      authBefore, authAfter, title: await page.title().catch(() => null),
+      priorSessionState: prior?.session_state ?? null,
+      priorAccountState: prior?.account_state ?? null,
+      lastAuthenticatedAt: prior?.last_authenticated_at ?? null,
+      dom,
+    }, null, 2));
+    await page.screenshot({ path: join(dir, "final.png"), fullPage: false }).catch(() => undefined);
+    console.log(`  evidence: ${dir}`);
   } catch (e) { console.log(`  capture failed: ${String(e).slice(0, 120)}`); }
 }
 
