@@ -71,11 +71,21 @@ if ((ambiguous ?? []).length) {
 if (POLL) { await poll(); process.exit(0); }
 
 // ---- plan --------------------------------------------------------------
-const jobs = await page("jobs", "id,title,company_id,source,status,eligibility,extracted_at,description_hash");
+const jobs = await page("jobs", "id,title,company_id,source,status,eligibility,extracted_at,extraction_version,description_hash");
 const descs = await page("job_descriptions", "job_id,description_text", "job_id");
 const text = new Map(descs.map((d: any) => [d.job_id, d.description_text ?? ""]));
+/**
+ * The same pool extract.ts pays for, not a narrower one.
+ *
+ * This used to take only ELIGIBLE and never-extracted, which silently
+ * excluded every UNCERTAIN job -- 7,464 of the current pool -- along
+ * with stale re-extractions. UNCERTAIN is exactly the population
+ * extraction exists to decide; leaving it out preserved cost by
+ * abandoning recall, which is the one trade this pipeline refuses.
+ */
 const pending = jobs.filter((j: any) =>
-  j.status === "OPEN" && j.eligibility === "ELIGIBLE" && !j.extracted_at
+  j.status === "OPEN" && ["ELIGIBLE", "UNCERTAIN"].includes(j.eligibility)
+  && (!j.extracted_at || (j.extraction_version ?? 0) < EXTRACTION_VERSION)
   && (text.get(j.id) ?? "").trim().length > 0);
 
 const companyName = new Map((await page("companies", "id,name")).map((c: any) => [c.id, c.name]));
@@ -95,7 +105,23 @@ const live = (liveRows as any[]).map((r) => ({
               schemaVersion: r.schema_version, attempt: r.attempt },
   status: r.status,
 }));
-const { plan: toSend, heldBack } = planAgainstLive(wanted, live);
+const { plan: planned, heldBack } = planAgainstLive(wanted, live);
+
+/**
+ * Deterministic chunks, so a large cohort is paid for in measured slices.
+ *
+ * Ordered by job id -- stable across runs -- and sliced. After a chunk
+ * completes and is consumed, its leaders carry extractions and drop out
+ * of `pending`, so the next invocation naturally selects the next chunk.
+ * Yield is measured between chunks; a cohort that keeps producing
+ * nothing loses its expansion priority rather than its recall.
+ */
+const CHUNK = Number(process.argv.find((a) => a.startsWith("--limit="))?.split("=")[1] ?? 0);
+const ordered = [...planned].sort((a, b) => a.jobId.localeCompare(b.jobId));
+const toSend = CHUNK > 0 ? ordered.slice(0, CHUNK) : ordered;
+if (CHUNK > 0 && ordered.length > toSend.length) {
+  console.log(`chunked: sending ${toSend.length} of ${ordered.length} planned requests; the rest follow in later chunks`);
+}
 
 const estimate = estimateExtraction({ jobs: pending.length, calls: toSend.length, price: HAIKU, batch: true });
 console.log(`\npending eligible with text: ${pending.length}`);
