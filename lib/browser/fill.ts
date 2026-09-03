@@ -27,6 +27,7 @@ import { exactlyOne, fillText, readBack, selectOption, setChecked, setFiles, cli
 import { readLazyOptions, readFilteredOptions, exactOptions } from "./inspectCombobox.ts";
 import { geoSearchTerm, exactGeoMatches, qualifiedGeoMatches, sameGeography } from "./geography.ts";
 import { matchCountryOption } from "../applications/workCountry.ts";
+import { isDemographicField, resolveEeoOption } from "./eeo.ts";
 import { reconcileAll, answerFitsControl, type Reconciled } from "./reconcile.ts";
 import { attachResume, type AttachmentEvidence } from "./upload.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
@@ -513,6 +514,22 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
             for (const spelling of equivalents(value)) {
               const hit = exactOptions(options, spelling);
               if (hit.length === 1) { options = hit; value = hit[0]!; break; }
+            }
+          }
+
+          // A demographic self-ID field is matched to the employer's own
+          // vocabulary: the exact option, then a standard synonym
+          // (Male -> Man), then the form's decline-to-answer option.
+          // Only for a field recognised as demographic; everything else
+          // still requires an exact match and fails closed below.
+          if (options && isDemographicField(f.label || f.key) && exactOptions(options, value).length !== 1) {
+            const choice = resolveEeoOption(value, options);
+            if (choice.kind !== "NONE") {
+              inspections.push({ field: f.label || f.key, optionsFound: options.length,
+                sample: options.slice(0, 3),
+                resolvedAs: `demographic ${choice.kind.toLowerCase()}: ${JSON.stringify(value)} -> ${JSON.stringify(choice.option)}` });
+              options = [choice.option];
+              value = choice.option;
             }
           }
 
