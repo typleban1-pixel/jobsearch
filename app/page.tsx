@@ -47,7 +47,7 @@ export default function Home() {
             I&rsquo;m currently in the process of relocating to Chicago.
           </p>
           <div className={s.oneScreenCta}>
-            <h2 className={`${s.display} ${s.ctaHead}`}>Have something worth figuring out?</h2>
+            <h2 className={`${s.display} ${s.ctaHead}`}>Working on something interesting?</h2>
             <p className={s.note}>
               I&rsquo;m looking for my next opportunity in Chicago. If you think I could be
               useful on your team, I&rsquo;d love to hear from you.
