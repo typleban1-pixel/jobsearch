@@ -23,6 +23,8 @@ import { spawn } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
+import { parseStopDetail, resolveStopRecord, formatStopDetail, assertStopRecorded, STOP_EVENT }
+  from "../lib/applications/stopReason.ts";
 import { readSwitches } from "../lib/automation/policy.ts";
 import { classifyOutcome } from "../lib/applications/submitOutcome.ts";
 
@@ -37,7 +39,7 @@ const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROL
 const log = (m: string) => console.log(`${new Date().toISOString().slice(11, 19)}  ${m}`);
 
 /** Runs the real submitter, isolated. A crash here must not end the loop. */
-function runSubmitter(applicationId: string): Promise<{ ok: boolean; tail: string }> {
+function runSubmitter(applicationId: string): Promise<{ ok: boolean; tail: string; timedOut: boolean }> {
   return new Promise((done) => {
     const child = // process.execPath, not "node": launchd runs with a minimal PATH
     // that does not include /usr/local/bin, so a bare "node" is ENOENT
@@ -47,12 +49,19 @@ function runSubmitter(applicationId: string): Promise<{ ok: boolean; tail: strin
     const cap = (d: Buffer) => { out += d.toString(); if (out.length > 20_000) out = out.slice(-20_000); };
     child.stdout.on("data", cap);
     child.stderr.on("data", cap);
-    const timer = setTimeout(() => child.kill("SIGKILL"), 20 * 60_000);
+    // Remembered rather than inferred: a SIGKILL at the wall clock and a
+    // clean non-zero exit both arrive here as "close", and only this flag
+    // separates "we ran out of time" from "it decided to stop".
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, 20 * 60_000);
     child.on("close", (code) => {
       clearTimeout(timer);
-      done({ ok: code === 0, tail: out.trim().split("\n").slice(-3).join(" | ").slice(0, 300) });
+      done({ ok: code === 0, tail: out.trim().split("\n").slice(-3).join(" | ").slice(0, 300), timedOut });
     });
-    child.on("error", (e) => { clearTimeout(timer); done({ ok: false, tail: `could not start: ${e.message}` }); });
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      done({ ok: false, tail: `could not start: ${e.message}`, timedOut: false });
+    });
   });
 }
 
@@ -128,6 +137,35 @@ async function poll(): Promise<void> {
         claimedAt,
       });
 
+      // ---- the reason goes on the record BEFORE the request is cleared ----
+      //
+      // Ordering is the whole point. Clearing submit_requested_at is what
+      // makes the run irretrievable: the next tick will not pick it up and
+      // nothing else remembers what happened. If the reason were written
+      // after, a crash in between would leave exactly the state that
+      // started this work — an outcome with no cause, and no way to learn
+      // one except by going back to the employer.
+      if (outcome === "SAFE_STOP") {
+        // The runner records its own stop, from the code standing at the
+        // failure. Only stops from THIS claim count; an event from an
+        // earlier run describes an earlier run.
+        const { data: stops } = await db.from("application_events")
+          .select("detail,occurred_at").eq("application_id", app.id).eq("event", STOP_EVENT)
+          .gte("occurred_at", claimedAt).order("occurred_at", { ascending: false }).limit(1);
+        const recorded = parseStopDetail(stops?.[0]?.detail ?? null);
+        const record = resolveStopRecord({ recorded, ok: r.ok, tail: r.tail, timedOut: r.timedOut });
+        assertStopRecorded(outcome, record);
+        // Written only when the runner could not: otherwise its own event
+        // already stands and a second one would just be an echo.
+        if (!recorded) {
+          await db.from("application_events").insert({
+            application_id: app.id, event: STOP_EVENT, actor: "worker",
+            detail: formatStopDetail(record),
+          });
+        }
+        log(`  stop: ${record.code} @ ${record.stage}${record.pageReached ? ` (${record.url})` : " (no page)"}`);
+      }
+
       // Cleared either way: a request that has been acted on must not be
       // picked up again on the next tick. The outcome is written in the
       // same statement, so the portal never sees a cleared request with
@@ -161,6 +199,22 @@ async function poll(): Promise<void> {
         clickAttemptedAt: post?.submit_click_attempted_at ?? null,
         claimedAt: new Date(Date.now() - 25 * 60_000).toISOString(),
       });
+      // The listener itself is the thing that broke, so it writes the
+      // reason before clearing here too. Same ordering, same invariant.
+      if (outcome === "SAFE_STOP") {
+        const { data: stops } = await db.from("application_events")
+          .select("detail").eq("application_id", app.id).eq("event", STOP_EVENT)
+          .order("occurred_at", { ascending: false }).limit(1);
+        if (!parseStopDetail(stops?.[0]?.detail ?? null)) {
+          await db.from("application_events").insert({
+            application_id: app.id, event: STOP_EVENT, actor: "worker",
+            detail: formatStopDetail({
+              code: "RUNNER_CRASHED", stage: "launch", pageReached: false,
+              detail: `The listener failed while running this request: ${(err as Error).message}`,
+            }),
+          }).then(() => undefined, () => undefined);
+        }
+      }
       await db.from("applications")
         .update({
           submit_requested_at: null, submit_started_at: null,

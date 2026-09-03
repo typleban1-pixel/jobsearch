@@ -40,6 +40,8 @@ import { revalidateBeforeSubmit } from "../lib/applications/revalidate.ts";
 import { answerSetHash } from "../lib/applications/approvalBinding.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
 import { startFillRun, recordFillRun } from "../lib/applications/fillRun.ts";
+import { formatStopDetail, fillStopCode, STOP_EVENT, type StopCode, type StopStage, type StopRecord }
+  from "../lib/applications/stopReason.ts";
 
 const applicationId = process.argv[2];
 const hold = process.argv.includes("--hold");
@@ -56,12 +58,48 @@ const paged = async (t: string, c: string, f: (q: any) => any = (q) => q, o = "i
   return out;
 };
 
+/**
+ * Record why this run is stopping, then stop.
+ *
+ * Every non-submitting exit below goes through here. The listener used to
+ * be the only thing that wrote an outcome, and it only ever knew "no click
+ * happened" — the stage, the page, and the cause all died with this
+ * process. Writing it here, from the code that is actually standing at the
+ * failure, is the only place the reason exists.
+ *
+ * The event is always written before the process ends, so it is on the
+ * record before the listener clears submit_requested_at.
+ */
+async function stopAt(
+  code: StopCode, stage: StopStage, detail: string,
+  opts: { mismatches?: StopRecord["mismatches"]; page?: any } = {},
+): Promise<never> {
+  let url: string | null = null, title: string | null = null, pageReached = false;
+  if (opts.page) {
+    pageReached = true;
+    url = await Promise.resolve(opts.page.url()).catch(() => null);
+    title = await opts.page.title().catch(() => null);
+  }
+  const record: StopRecord = { code, stage, detail, pageReached, url, title, mismatches: opts.mismatches ?? [] };
+  console.error(`\nSTOP [${code} @ ${stage}] ${detail}`);
+  await db.from("application_events").insert({
+    application_id: applicationId, event: STOP_EVENT, actor: "worker",
+    detail: formatStopDetail(record),
+  }).then(() => undefined, (e: any) => console.error(`  (could not record stop: ${e?.message})`));
+  // Past the browser's existence, releasing it is the caller's business.
+  if (typeof (globalThis as any).__releaseBrowser === "function") {
+    await (globalThis as any).__releaseBrowser().catch(() => undefined);
+  }
+  process.exit(1);
+}
+
 // ---- nothing proceeds unless the package is exactly as approved ------
 const { data: app } = await db.from("applications")
   .select("id,job_id,job_version_id,status,human_approved,human_approved_at,authorization_mode,all_fields_confident,form_snapshot,form_snapshot_hash,resume_id,approved_artifact_sha256,approved_content_sha256,approved_answers_sha256,submitted_at")
   .eq("id", applicationId).single();
 if (!app) { console.error("no such application"); process.exit(1); }
-if (app.submitted_at) { console.error(`already submitted at ${app.submitted_at}`); process.exit(1); }
+if (app.submitted_at) await stopAt("ALREADY_SUBMITTED", "preflight",
+  `This application was already submitted at ${app.submitted_at}; nothing further was attempted.`);
 // Either authorization path may submit, and which one it was stays
 // visible. human_approved means a person read this application;
 // POLICY_AUTHORIZED means it matched rules enabled in advance and nobody
@@ -69,23 +107,35 @@ if (app.submitted_at) { console.error(`already submitted at ${app.submitted_at}`
 // artifact hash that matches the bytes on disk.
 const authorized = app.human_approved || app.authorization_mode === "POLICY_AUTHORIZED";
 if (app.status !== "READY_TO_SUBMIT" || !authorized) {
-  console.error(`this application is ${app.status}, authorization=${app.authorization_mode ?? "none"}`);
-  process.exit(1);
+  await stopAt("REVALIDATION_REFUSED", "preflight",
+    `The application is ${app.status} with authorization=${app.authorization_mode ?? "none"}; `
+    + `submitting needs READY_TO_SUBMIT plus an approval or a policy authorization.`);
 }
 console.log(app.human_approved
   ? "authorized by you"
   : "authorized by policy; no person reviewed this application");
 const artifact = await approvedArtifact(db, applicationId);
-if (!artifact.ok) { console.error(`cannot submit: ${artifact.why}`); process.exit(1); }
+if (!artifact.ok) {
+  await stopAt("ARTIFACT_MISMATCH", "preflight",
+    `The approved resume artifact could not be loaded: ${artifact.why}`);
+  // stopAt calls process.exit, so this never runs. It is here because a
+  // Promise<never> does not end control flow for the type checker, and
+  // without it every later use of the artifact widens back to the
+  // failure shape.
+  throw new Error("unreachable");
+}
 if (artifact.sha256 !== app.approved_artifact_sha256) {
-  console.error(`the stored artifact ${artifact.sha256} is not the approved ${app.approved_artifact_sha256}`); process.exit(1);
+  await stopAt("ARTIFACT_MISMATCH", "preflight",
+    `The stored artifact ${artifact.sha256?.slice(0, 12)} is not the approved `
+    + `${app.approved_artifact_sha256?.slice(0, 12)}; the bytes on disk changed after approval.`);
 }
 
 const { data: job } = await db.from("jobs")
   .select("id,title,source,application_form_url,company_id").eq("id", app.job_id).single();
 const { data: company } = await db.from("companies").select("name,domain,ats_token").eq("id", job!.company_id).single();
 const { data: version } = await db.from("job_versions").select("id,is_current").eq("id", app.job_version_id).single();
-if (!version?.is_current) { console.error("the posting has a newer version; re-prepare rather than submitting"); process.exit(1); }
+if (!version?.is_current) await stopAt("STALE_JOB_VERSION", "preflight",
+  "The posting has a newer version than the one approved; re-prepare rather than submitting.");
 
 // Revalidate against facts read now, not facts read at approval time.
 // See lib/applications/revalidate.ts for why an approval alone is not
@@ -133,10 +183,12 @@ if (!version?.is_current) { console.error("the posting has a newer version; re-p
     readbackPassed: true,
   });
   if (!check.ok) {
-    console.error("refusing to submit; the approval no longer matches current facts:");
     for (const r of check.refusals) console.error(`  ${r.code}: ${r.detail}`);
-    console.error("\nthe application and its approval are unchanged. re-prepare and re-approve to proceed.");
-    process.exit(1);
+    await stopAt("REVALIDATION_REFUSED", "revalidation",
+      `The approval no longer matches current facts: `
+      + check.refusals.map((r: any) => `${r.code} (${r.detail})`).join("; ")
+      + `. The application and its approval are unchanged.`,
+      { mismatches: check.refusals.map((r: any) => ({ field: r.code, expected: "approved", actual: r.detail })) });
   }
 }
 
@@ -208,11 +260,15 @@ const context = await launchApplicationContext();
  * person. It has to be asked for; it is never the default.
  */
 let released = false;
+// stopAt is defined above the browser exists, so it reaches the releaser
+// through a slot rather than a forward reference it cannot have.
 async function releaseBrowser(): Promise<void> {
   if (released || stayOpen) return;
   released = true;
   await context.close().catch(() => undefined);
 }
+
+(globalThis as any).__releaseBrowser = releaseBrowser;
 
 /** Ends the process deterministically rather than waiting on the loop. */
 async function finish(code: number): Promise<never> {
@@ -221,13 +277,25 @@ async function finish(code: number): Promise<never> {
 }
 
 // A throw anywhere below must not strand the profile either.
+// A crash is still a stop, and it still needs a reason on the record.
+// Best effort by necessity: the process is already unwinding.
+async function recordCrash(what: string): Promise<void> {
+  await db.from("application_events").insert({
+    application_id: applicationId, event: STOP_EVENT, actor: "worker",
+    detail: formatStopDetail({
+      code: "RUNNER_CRASHED", stage: "fill", pageReached: false,
+      detail: `The run threw and did not reach the submit click: ${what}`,
+    }),
+  }).then(() => undefined, () => undefined);
+}
 process.on("uncaughtException", (e) => {
   console.error(`unhandled: ${(e as Error).message}`);
-  void releaseBrowser().finally(() => process.exit(1));
+  void recordCrash((e as Error).message)
+    .then(() => releaseBrowser()).finally(() => process.exit(1));
 });
 process.on("unhandledRejection", (e) => {
   console.error(`unhandled rejection: ${String(e)}`);
-  void releaseBrowser().finally(() => process.exit(1));
+  void recordCrash(String(e)).then(() => releaseBrowser()).finally(() => process.exit(1));
 });
 
 
@@ -269,8 +337,12 @@ const outcome = await fillApplication({
 console.log(`fill outcome: ${outcome.reason}`);
 console.log(`  filled ${outcome.filled.length}, left blank ${outcome.leftBlank.length}`);
 if (outcome.reason !== "HANDOFF") {
-  console.error(`\nnot submitting: the fill did not reach handoff (${outcome.message})`);
-  await finish(1);
+  await stopAt(fillStopCode(outcome.reason), "fill",
+    `The fill ended as ${outcome.reason} rather than HANDOFF: ${outcome.message}`,
+    { page: context.pages()[context.pages().length - 1] ?? undefined,
+      mismatches: (outcome.leftBlank ?? []).map((f: any) => ({
+        field: typeof f === "string" ? f : (f?.label ?? f?.key ?? "unknown"),
+        expected: "filled", actual: "left blank" })) });
 }
 
 const page: Page = context.pages().find((p) => p.url().includes("greenhouse.io")) ?? context.pages()[context.pages().length - 1]!;
@@ -291,8 +363,9 @@ const submit = page.locator("form button[type=submit], form input[type=submit]")
   .or(page.getByRole("button", { name: /submit application/i }));
 const count = await submit.count();
 if (count !== 1) {
-  console.error(`\nnot submitting: the submit control resolved to ${count} elements, not exactly one`);
-  await finish(1);
+  await stopAt("SUBMIT_CONTROL_AMBIGUOUS", "pre-submit",
+    `The submit control resolved to ${count} elements, not exactly one, so no click was attempted.`,
+    { page });
 }
 console.log(`\nclicking submit (${await submit.first().innerText().catch(() => "?")})`);
 const requestedAt = new Date();

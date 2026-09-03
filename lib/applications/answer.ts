@@ -18,6 +18,8 @@ import { relocationDestination, relocationDate, requiresRelocationAssistance } f
 
 export const ANSWER_RESOLVER_VERSION = 2;
 
+import { matchesPriorEmployment, PRIOR_EMPLOYMENT_ANSWER } from "./priorEmployment.ts";
+
 export type Confidence = "VERIFIED" | "DERIVED" | "HUMAN_CONFIRMED" | "BLOCKED";
 export type BlockKind = "UNKNOWN" | "AMBIGUOUS";
 
@@ -698,6 +700,41 @@ const normalizeEmployer = (s: string): string =>
 
 function resolvePriorEmployment(field: FormField, ctx: ResolveContext, matchedBy: string): ResolvedField {
   const employer = ctx.application?.employer ?? null;
+
+  // ---- the standing declaration ---------------------------------------
+  //
+  // Declared truth about the person, so it outranks the inference from the
+  // employment records below and resolves VERIFIED. It is checked against
+  // the label AND the field key, because Workday puts the meaning in
+  // candidateIsPreviousWorker while showing a label as bare as "Yes/No".
+  const rule = matchesPriorEmployment(`${field.label ?? ""} ${(field as any).key ?? ""}`);
+  if (rule.covered) {
+    // One exception, and it is not a hedge. If the employer actually
+    // appears in his own verified employment history, two verified
+    // sources disagree, and writing "No" onto an employment form on the
+    // strength of the more general one would be stating something false.
+    // That is worth a person's attention rather than an automatic answer.
+    const conflict = employer
+      ? (ctx.employment ?? []).find((e) => {
+          const known = normalizeEmployer(e.employer), wanted = normalizeEmployer(employer);
+          return known === wanted || known.includes(wanted) || wanted.includes(known);
+        })
+      : undefined;
+    if (conflict) {
+      return blocked(field, "previously_employed_here", matchedBy, "AMBIGUOUS",
+        `the standing answer to prior employment is No, but ${conflict.employer} in the employment history `
+        + `resembles ${employer}. Two verified sources disagree and this one goes on an employment form, `
+        + "so it needs a person rather than a default.",
+        [{ rowId: conflict.rowId, what: `employment record: ${conflict.employer}`,
+           whyRejected: "it contradicts the standing prior-employment answer" }]);
+    }
+    const fit = fitOption(field, PRIOR_EMPLOYMENT_ANSWER);
+    if (!fit.ok) return blocked(field, "previously_employed_here", matchedBy, "AMBIGUOUS", fit.why);
+    return { field, intentKey: "previously_employed_here", matchedBy, answer: fit.value,
+      confidence: "VERIFIED", blockKind: null, blockedReason: null,
+      evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+  }
+
   if (!employer) {
     return blocked(field, "previously_employed_here", matchedBy, "UNKNOWN",
       "the employer this posting belongs to is not recorded, so there is nothing to check the employment history against.");

@@ -88,6 +88,11 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
       const tag = el.tagName.toLowerCase();
       if (tag === "textarea") return "textarea";
       if (tag === "select") return "select";
+      // A button that opens a listbox is a dropdown, whatever its tag.
+      // Typed as "select" so everything downstream that already knows
+      // how to pick an option from a list keeps working unchanged.
+      if (tag !== "input" && (el.getAttribute("aria-haspopup") === "listbox"
+        || el.getAttribute("role") === "combobox" || el.getAttribute("role") === "listbox")) return "select";
       const t = (el.getAttribute("type") ?? "text").toLowerCase();
       if (t === "file") return "file";
       if (t === "checkbox" || t === "radio") return "boolean";
@@ -107,7 +112,37 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
     const fields: any[] = [];
     const helpers: Array<{ label: string; why: string }> = [];
     const seen = new Set<string>();
-    const controls = Array.from(document.querySelectorAll("input,select,textarea"))
+    /**
+     * Dropdowns that are not <select> elements.
+     *
+     * Workday's address block renders Country and State/Province as a
+     * button with aria-haspopup="listbox" and a popup that does not
+     * exist in the DOM until it is opened. There is no input, no select
+     * and no textarea anywhere in the widget, so enumerating native form
+     * elements could not see them: on the Northern Trust form the two
+     * controls that went missing were exactly the two rendered this way,
+     * while every control that WAS captured is a native input or select.
+     *
+     * A missing control is worse than an unanswerable one. An unanswered
+     * question blocks and asks; a control nobody discovered is simply
+     * left empty, and the form is called complete with a required field
+     * blank.
+     *
+     * Deliberately conservative: a widget only counts when it announces
+     * itself as a listbox or combobox AND carries something to target it
+     * by. Anything containing a native control is that control's
+     * chrome, not a question of its own.
+     */
+    const listboxes = Array.from(document.querySelectorAll(
+      '[aria-haspopup="listbox"], [role="combobox"], [role="listbox"]'))
+      .filter((el) => visible(el))
+      .filter((el) => !el.querySelector("input,select,textarea"))
+      .filter((el) => !el.closest("select"))
+      .filter((el) => Boolean(
+        el.id || el.getAttribute("data-automation-id") || el.getAttribute("data-testid")
+        || el.getAttribute("name") || el.getAttribute("aria-label")));
+
+    const controls = [...Array.from(document.querySelectorAll("input,select,textarea"))
       .filter((el) => {
         const t = (el.getAttribute("type") ?? "").toLowerCase();
         if (t === "hidden") return false;
@@ -119,12 +154,16 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
         // skipped the upload step entirely.
         if (t === "file") return true;
         return visible(el);
-      });
+      }), ...listboxes];
 
     for (const el of controls) {
       const name = (el as HTMLInputElement).name || "";
       const id = el.id || "";
-      const testid = el.getAttribute("data-testid") ?? el.getAttribute("data-qa") ?? "";
+      // data-automation-id is Workday's stable identity and survives
+      // the rerenders that churn generated ids, so it ranks with the
+      // other test hooks rather than below them.
+      const testid = el.getAttribute("data-testid") ?? el.getAttribute("data-qa")
+        ?? el.getAttribute("data-automation-id") ?? "";
       const named = labelFor(el);
       const label = named.text.replace(/\s+/g, " ").replace(/\*$/, "").trim();
 
@@ -139,7 +178,11 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
       // the resume and cover-letter controls and therefore ambiguous.
       else if (id && !/^:.+:$|^«.+»$|^(?:mui|radix|headlessui|reach|chakra)-/.test(id)) {
         selector = `#${CSS.escape(id)}`; selectorKind = "id";
-      } else if (testid) { selector = `[data-testid="${CSS.escape(testid)}"]`; selectorKind = "testid"; }
+      } else if (testid) {
+        const attr = el.getAttribute("data-testid") ? "data-testid"
+          : el.getAttribute("data-qa") ? "data-qa" : "data-automation-id";
+        selector = `[${attr}="${CSS.escape(testid)}"]`; selectorKind = "testid";
+      }
       else if (label) { selector = label; selectorKind = "label"; }
       else { selector = ""; selectorKind = "label"; }
 
@@ -193,7 +236,11 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
 
       fields.push({
         key, label, type: typeOf(el),
-        htmlType: (el.getAttribute("type") ?? el.tagName).toLowerCase(),
+        // A listbox button reports "select" here too. Reporting its tag
+        // would tell every downstream reader it is a button, and they
+        // would treat a dropdown as something to click once.
+        htmlType: typeOf(el) === "select" ? "select"
+          : (el.getAttribute("type") ?? el.tagName).toLowerCase(),
         required: el.hasAttribute("required") || el.getAttribute("aria-required") === "true",
         options, selector, selectorKind, unlabelled: label === "",
         groupKey: groupOf(el),
