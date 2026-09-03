@@ -3,6 +3,9 @@
 # contains Chrome's SingletonLock, a symlink broken anywhere but here,
 # which fails Vercel's upload tracing with ENOENT.
 .browser-profile
+.secrets
+logs
+.next
 .fill-runs
 .workday-auth
 .claude
