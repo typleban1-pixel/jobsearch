@@ -28,6 +28,7 @@ export interface AnswerRow {
 }
 
 export interface ApplicationSummary {
+  discoveredFields: number;
   id: string;
   jobId: string;
   jobVersionId: string;
@@ -116,6 +117,8 @@ export async function loadApplications(db: SupabaseClient): Promise<ApplicationS
       submissionMode: a.submission_mode,
       preparedAt: a.prepared_at, createdAt: a.created_at, resumeId: a.resume_id,
       blocked: rows.filter((r) => r.confidence_state === "BLOCKED").length,
+      // Zero means the form was never read; approval of nothing is refused.
+      discoveredFields: rows.length,
       required: required.length,
       accountedFor: required.filter((r) => r.confidence_state !== "BLOCKED").length,
       postingChanged: a.job_version_id ? currentVersion.get(a.job_version_id) === false : false,

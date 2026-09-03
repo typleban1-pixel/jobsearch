@@ -1,74 +1,75 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentSession } from "../../lib/portal/session.ts";
-import { loadApplications, loadQueue } from "../../lib/portal/applications.ts";
+import { loadBlockerBoard, type BoardRow } from "../../lib/portal/blockerBoard.ts";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Which pile an application belongs in.
- *
- * One function, decided per application, rather than a list of statuses
- * matched per group. The list version needed a guard to stop two groups
- * claiming the same row, and that guard silently emptied a whole group
- * the moment a status appeared in two lists.
+ * The applications page answers one question at a glance: what, if
+ * anything, does the pipeline need from you? Every application shows its
+ * one real blocker -- derived from actual gate state, never guessed at
+ * this layer -- and the page leads with the compact counts, actionable
+ * piles first.
  */
-const BUCKETS = [
-  "Needs your answers",
-  "Ready to review",
-  "Approved, ready to submit",
-  "Being assembled",
-  "Submitted",
-  "Closed",
-] as const;
+const CLOSED = new Set(["REJECTED", "WITHDRAWN", "ABANDONED"]);
 
-function bucketOf(a: { status: string; blocked: number; humanApproved: boolean }): string | null {
-  if (["REJECTED", "WITHDRAWN", "ABANDONED"].includes(a.status)) return "Closed";
-  if (["SUBMITTED", "ACKNOWLEDGED", "IN_PROCESS", "INTERVIEWING", "OFFER"].includes(a.status)) return "Submitted";
-  // Blocked answers outrank everything else that is still in progress:
-  // a question you have not answered is the thing to show you.
-  if (a.blocked > 0) return "Needs your answers";
-  if (a.status === "READY_TO_SUBMIT") return "Approved, ready to submit";
-  if (a.status === "DRAFT") return "Being assembled";
-  // Nothing blocked and not yet approved: it is waiting on you to read it,
-  // whatever the lifecycle column happens to say.
-  return "Ready to review";
-}
+const PILES: Array<{ label: string; match: (r: BoardRow) => boolean }> = [
+  { label: "Needs your answer", match: (r) => r.blocker.code === "WAITING_FOR_MY_ANSWER" },
+  { label: "Needs your review", match: (r) => r.blocker.code === "WAITING_FOR_MY_REVIEW" },
+  { label: "Needs your eyes", match: (r) => ["AMBIGUOUS_SUBMIT_STATE", "SUBMISSION_FAILED", "REVALIDATION_FAILED"].includes(r.blocker.code) },
+  { label: "Finish on the employer's site", match: (r) => ["ATS_NOT_AUTOMATED", "AUTHENTICATION_REQUIRED"].includes(r.blocker.code) },
+  { label: "Ready — the listener owns these", match: (r) => ["READY_TO_SUBMIT", "ENQUEUED", "SUBMISSION_IN_PROGRESS", "DAILY_CAP_REACHED"].includes(r.blocker.code) },
+  { label: "Processing", match: (r) => ["PROCESSING", "FORM_NOT_READ", "JOB_CLOSED_OR_CHANGED"].includes(r.blocker.code) },
+  { label: "Submitted", match: (r) => r.blocker.code === "SUBMITTED" },
+];
+
 export default async function Applications() {
   const session = await currentSession();
   if (!session) redirect("/login");
-  const apps = await loadApplications(session.client);
-  const queue = await loadQueue(session.client);
+  const { rows, summary } = await loadBlockerBoard(session.client);
+  const open = rows.filter((r) => !CLOSED.has(r.app.status));
+  const closed = rows.filter((r) => CLOSED.has(r.app.status));
+  const seen = new Set<string>();
 
   return (
     <main className="wrap">
       <p className="back"><Link href="/jobs">← all jobs</Link></p>
       <h1>Applications</h1>
+
       <p className="muted">
-        {apps.length} application{apps.length === 1 ? "" : "s"}.{" "}
-        {queue.length > 0
-          ? <><Link href="/applications/queue"><strong>{queue.length} question{queue.length === 1 ? "" : "s"} waiting for you</strong></Link>.</>
-          : "No questions are waiting."}
+        {summary.needAnswer > 0 && <><strong>{summary.needAnswer} need your answer</strong> · </>}
+        {summary.needReview > 0 && <><strong>{summary.needReview} need your review</strong> · </>}
+        {summary.issue > 0 && <><strong>{summary.issue} with a submission issue</strong> · </>}
+        {summary.ready} ready · {summary.processing} processing · {summary.submittedToday} submitted today ·{" "}
+        {summary.submittedTotal} submitted all-time
       </p>
 
-      {BUCKETS.map((label) => {
-        const rows = apps.filter((a) => bucketOf(a) === label);
-        if (!rows.length) return null;
+      {PILES.map(({ label, match }) => {
+        const pile = open
+          .filter((r) => !seen.has(r.app.id) && match(r));
+        for (const r of pile) seen.add(r.app.id);
+        if (!pile.length) return null;
         return (
           <section key={label}>
             <h2>{label}</h2>
             <table className="apps">
               <tbody>
-                {rows.map((a) => (
-                  <tr key={a.id}>
+                {pile.map(({ app, blocker }) => (
+                  <tr key={app.id}>
                     <td>
-                      <Link href={`/applications/${a.id}`}>{a.company} — {a.title}</Link>
-                      {a.postingChanged && <span className="chip warn"> posting changed since freeze</span>}
+                      <Link href={`/applications/${app.id}`}>{app.company} — {app.title}</Link>
+                      {app.postingChanged && <span className="chip warn"> posting changed since freeze</span>}
                     </td>
-                    <td className="num">{a.accountedFor}/{a.required} required</td>
-                    <td className="num">{a.blocked > 0 ? `${a.blocked} blocked` : "none blocked"}</td>
-                    <td>{a.allFieldsConfident ? "all fields accounted for" : "incomplete"}</td>
-                    <td>{a.humanApproved ? "approved" : "not approved"}</td>
+                    <td>
+                      <strong>{blocker.status}.</strong>{" "}
+                      <span className="muted">{blocker.reason}</span>
+                    </td>
+                    <td>
+                      {blocker.action
+                        ? <a className="btn-primary" href={blocker.action.href}>{blocker.action.label}</a>
+                        : <span className="muted">no action needed</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -77,11 +78,23 @@ export default async function Applications() {
         );
       })}
 
-      {apps.length === 0 && (
-        <p className="muted">
-          Nothing yet. Open a job and choose to apply; the application is assembled by the
-          local worker, which is where the model key lives.
-        </p>
+      {closed.length > 0 && (
+        <section>
+          <h2>Closed</h2>
+          <table className="apps"><tbody>
+            {closed.map(({ app }) => (
+              <tr key={app.id}>
+                <td><Link href={`/applications/${app.id}`}>{app.company} — {app.title}</Link></td>
+                <td className="muted">{app.status.toLowerCase()}</td>
+                <td />
+              </tr>
+            ))}
+          </tbody></table>
+        </section>
+      )}
+
+      {rows.length === 0 && (
+        <p className="muted">Nothing yet. Open a job and choose to apply.</p>
       )}
     </main>
   );

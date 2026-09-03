@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { userClient } from "../../../../lib/portal/supabase.ts";
+import { evaluateReadiness } from "../../../../lib/applications/readiness.ts";
 
 /**
  * Answering one blocked question.
@@ -157,6 +158,28 @@ export async function POST(request: Request): Promise<Response> {
         await db.from("applications").update({ status: "AWAITING_REVIEW" }).eq("id", target.application_id);
       }
     }
+  }
+
+  /**
+   * Fixing the blocker resumes the pipeline, now.
+   *
+   * The person just supplied what the system was waiting for; making
+   * them wait for the next scheduled scan to notice would be the system
+   * asking twice. Every application this answer touched is re-evaluated:
+   * one that now passes every gate is enqueued immediately and the
+   * listener picks it up within seconds. The evaluator is idempotent, so
+   * a concurrent trigger cannot double-queue, and a failure here is
+   * swallowed deliberately -- the scheduled reconciliation sweep
+   * re-evaluates everything, so the worst case is a short delay, never a
+   * lost application.
+   */
+  const touched = new Set<string>([row.application_id]);
+  for (const reuseId of reuseIds) {
+    const { data: t } = await db.from("application_answers").select("application_id").eq("id", reuseId).maybeSingle();
+    if (t?.application_id) touched.add(t.application_id);
+  }
+  for (const appId of touched) {
+    await evaluateReadiness(db as any, appId).catch(() => undefined);
   }
 
   const safe = returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/applications/queue";
