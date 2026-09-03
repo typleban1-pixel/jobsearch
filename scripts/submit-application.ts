@@ -243,7 +243,29 @@ const fillRun = startFillRun({
   fillMode: "AUTOMATED", formSnapshotHash: app.form_snapshot_hash,
 });
 const stayOpen = process.argv.includes("--stay-open");
-const context = await launchApplicationContext();
+/**
+ * A launch that fails is a stop with a reason, not a silent death.
+ *
+ * When a stale browser held the profile lock, this threw before the
+ * try/catch that records stops was in scope, so the listener saw only
+ * RUNNER_DIED_WITHOUT_REASON. The failure is caught here and recorded as
+ * what it is, so the portal can say "the browser could not start" rather
+ * than "unknown".
+ */
+let context: Awaited<ReturnType<typeof launchApplicationContext>>;
+try {
+  context = await launchApplicationContext();
+} catch (e) {
+  await db.from("application_events").insert({
+    application_id: applicationId, event: STOP_EVENT, actor: "worker",
+    detail: formatStopDetail({
+      code: "BROWSER_LAUNCH_FAILED", stage: "launch", pageReached: false,
+      detail: `The browser could not start, so nothing was attempted: ${(e as Error).message}`,
+    }),
+  }).then(() => undefined, () => undefined);
+  console.error(`STOP [BROWSER_LAUNCH_FAILED @ launch] ${(e as Error).message}`);
+  process.exit(1);
+}
 
 /**
  * Releasing the browser, exactly once, whatever happens next.

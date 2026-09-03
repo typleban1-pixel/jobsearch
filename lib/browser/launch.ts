@@ -18,6 +18,8 @@
  * A function would be compiled by the same transform and would reference
  * __name before defining it.
  */
+import { existsSync, readlinkSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext } from "playwright";
 
 /**
@@ -83,25 +85,52 @@ export async function launchApplicationContext(
   options: { profileDir?: string; viewport?: { width: number; height: number } | null; debugPort?: number } = {},
 ): Promise<BrowserContext> {
   const viewport = options.viewport === undefined ? null : options.viewport;
-  const context = await chromium.launchPersistentContext(options.profileDir ?? ".browser-profile", {
-    channel: "chrome",
-    headless: false,
-    viewport,
-    // Only meaningful with a null viewport, where the window itself sets
-    // the size. A fixed viewport ignores it.
-    // A debugging port, so a live session can be reached again.
-    //
-    // Workday's session cookie dies with the browser process, and a
-    // second process cannot open the same profile. That combination
-    // meant an authenticated window could only ever be driven by the
-    // process that opened it: once that process finished its work and
-    // sat down, continuing required a restart, which threw the session
-    // away and cost a person another manual sign-in. With the port open,
-    // a later run attaches instead.
-    args: [
-      ...(viewport === null ? ["--window-size=1440,1000"] : []),
-      `--remote-debugging-port=${options.debugPort ?? 9222}`,
-    ],
-  });
+  const profileDir = options.profileDir ?? ".browser-profile";
+
+  /**
+   * The debugging port is opt-in, and this is why.
+   *
+   * It used to be on always, at a fixed 9222. A debug port can be bound
+   * by exactly one process, and a persistent profile can be opened by
+   * exactly one process, so a single leftover Chrome holding 9222 and
+   * the profile's SingletonLock made EVERY later launch die instantly.
+   * That is precisely what broke production submission: a stale Chrome
+   * from an interactive Workday session held both, and each queued
+   * Greenhouse submission launched a browser that popped an about:blank
+   * window and exited before it reached a page.
+   *
+   * Only the interactive CDP-attach flow needs the port; the submitter
+   * does not, and now does not ask for one. When a port IS requested,
+   * a stale lock is cleared first so a crashed prior session cannot wedge
+   * the next one.
+   */
+  const args = viewport === null ? ["--window-size=1440,1000"] : [];
+  if (options.debugPort) args.push(`--remote-debugging-port=${options.debugPort}`);
+
+  // A SingletonLock left by a process that is gone is not a live lock.
+  // Chrome writes it as a symlink to host-pid; if nothing answers, it is
+  // debris that would otherwise fail the launch with an opaque error.
+  const lock = join(profileDir, "SingletonLock");
+  if (existsSync(lock)) {
+    try {
+      const target = readlinkSync(lock);              // "host-PID"
+      const pid = Number(target.split("-").pop());
+      const alive = Number.isFinite(pid) && (() => { try { process.kill(pid, 0); return true; } catch { return false; } })();
+      if (!alive) unlinkSync(lock);
+    } catch { /* a lock we cannot read is left for Chrome to adjudicate */ }
+  }
+
+  let context: BrowserContext;
+  try {
+    context = await chromium.launchPersistentContext(profileDir, {
+      channel: "chrome", headless: false, viewport, args,
+    });
+  } catch (e) {
+    // The real reason, not "the runner died". A launch that fails here
+    // fails because the profile is in use or the port is taken, and the
+    // caller should be able to say so.
+    throw new Error(`browser launch failed for profile ${profileDir}`
+      + `${options.debugPort ? ` (debug port ${options.debugPort})` : ""}: ${(e as Error).message}`);
+  }
   return prepareContext(context);
 }

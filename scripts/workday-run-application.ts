@@ -81,7 +81,7 @@ if (ATTACH) {
   page.setDefaultTimeout(60_000);
   console.log(`attached to the running browser (${page.url()})`);
 } else {
-  browser = await launchApplicationContext();
+  browser = await launchApplicationContext({ debugPort: 9222 });
   page = await browser.newPage();
   page.setDefaultTimeout(60_000);
   await page.goto(candidateHomeUrl(tenant), { waitUntil: "domcontentloaded" });

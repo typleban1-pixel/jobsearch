@@ -47,7 +47,7 @@ console.log(`batches in window:            ${batches.length} (${batches.map((b: 
 console.log(`paid extraction calls:        ${paidCalls}`);
 console.log(`actual extraction cost:       $${cost.toFixed(2)}`);
 
-const extractions = await allRows("job_requirement_extractions", "id,job_id,created_at,succeeded",
+const extractions = await allRows("job_extractions", "id,job_id,created_at,succeeded",
   (q) => q.gte("created_at", since)).catch(() => []);
 const reusedRows = await allRows("jobs", "id,extraction_reuse_hash,created_at",
   (q) => q.not("extraction_reuse_hash", "is", null).gte("updated_at", since)).catch(() => []);
