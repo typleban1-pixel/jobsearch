@@ -28,16 +28,29 @@ const RECIPIENT = "typleban1@gmail.com";
 const EMPLOYER = { name: "Acme Robotics", domain: "acmerobotics.com" };
 const BOARD = ["us.greenhouse-mail.io"];
 
-// The page an ordinary email verification shows: it says what it is
-// verifying, and claims nothing about the applicant being a person.
+// The page an ordinary email verification shows: it says a code was
+// mailed to this inbox, which makes it an emailed-code round-trip.
 const ORDINARY_PAGE = {
   text: "Verify your email address. We sent a 6-character verification code to "
     + "typleban1@gmail.com. Enter it below to confirm your email address.",
 };
-// Stripe's actual wording, which is a human-presence claim.
-const STRIPE_PAGE = {
+// A pure account/email verification that never says it mailed anything:
+// the extractable ORDINARY_OTP path that has no inbox signal to catch.
+const PURE_ORDINARY_PAGE = {
+  text: "Please verify your email address to continue. Enter the verification code.",
+};
+// The Greenhouse security-code challenge, verbatim from the live Samsara
+// form: a code mailed to this very inbox, framed as a human check. The
+// human-confirmation wording is Greenhouse's label for the email
+// round-trip, so this is EMAILED_CODE and extractable, not a handoff.
+const GREENHOUSE_CHALLENGE_PAGE = {
   text: "A verification code was sent to typleban1@gmail.com. To submit your "
     + "application, enter the 8-character code to confirm you're a human.",
+};
+// A human check with NO mailed code: the genuine handoff the emailed-code
+// path must never swallow.
+const HUMAN_ONLY_PAGE = {
+  text: "Before you continue, confirm you're a human. Check the box to proceed.",
 };
 
 const msg = (over: Partial<MessageBody> = {}): MessageBody => ({
@@ -63,24 +76,35 @@ const request = (over: Partial<OtpRequest> = {}): OtpRequest => ({
 
 // ---- classification ---------------------------------------------------
 console.log("classification");
-check("ordinary email verification is ORDINARY_OTP",
-  classify(ORDINARY_PAGE).classification === "ORDINARY_OTP", classify(ORDINARY_PAGE).why);
-check("Stripe's wording is HUMAN_PRESENCE",
-  classify(STRIPE_PAGE).classification === "HUMAN_PRESENCE", classify(STRIPE_PAGE).why);
+check("a pure email verification is ORDINARY_OTP",
+  classify(PURE_ORDINARY_PAGE).classification === "ORDINARY_OTP", classify(PURE_ORDINARY_PAGE).why);
+check("a page that says it mailed a code is EMAILED_CODE",
+  classify(ORDINARY_PAGE).classification === "EMAILED_CODE", classify(ORDINARY_PAGE).why);
+check("the Greenhouse challenge is EMAILED_CODE, not a human-presence handoff",
+  classify(GREENHOUSE_CHALLENGE_PAGE).classification === "EMAILED_CODE", classify(GREENHOUSE_CHALLENGE_PAGE).why);
+check("and the human-confirmation wording no longer routes it to a handoff",
+  classify(GREENHOUSE_CHALLENGE_PAGE).classification !== "HUMAN_PRESENCE");
 check("a visible CAPTCHA is HUMAN_PRESENCE",
   classify({ text: "Verify your email address. Enter the code.", captchaChallengeVisible: true })
     .classification === "HUMAN_PRESENCE");
+check("a visible CAPTCHA beats an emailed-code signal and always wins",
+  classify({ ...GREENHOUSE_CHALLENGE_PAGE, captchaChallengeVisible: true }).classification === "HUMAN_PRESENCE"
+  && classify({ ...GREENHOUSE_CHALLENGE_PAGE, captchaChallengeVisible: true }).mayExtract === false);
+check("a human check with no mailed code stays HUMAN_PRESENCE",
+  classify(HUMAN_ONLY_PAGE).classification === "HUMAN_PRESENCE", classify(HUMAN_ONLY_PAGE).why);
 check("a code request with no stated purpose is UNKNOWN",
   classify({ text: "Enter the security code to continue." }).classification === "UNKNOWN");
 check("a page not asking for a code at all is UNKNOWN",
   classify({ text: "First name. Last name. Resume." }).classification === "UNKNOWN");
-check("only ORDINARY_OTP may extract",
-  classify(ORDINARY_PAGE).mayExtract && !classify(STRIPE_PAGE).mayExtract);
-check("a human claim beats a verification purpose in the same page",
+check("both extractable classes may extract; the handoffs may not",
+  classify(PURE_ORDINARY_PAGE).mayExtract && classify(GREENHOUSE_CHALLENGE_PAGE).mayExtract
+  && !classify(HUMAN_ONLY_PAGE).mayExtract
+  && !classify({ ...GREENHOUSE_CHALLENGE_PAGE, captchaChallengeVisible: true }).mayExtract);
+check("a human claim with a verification purpose but no mailed code stops",
   classify({ text: "Verify your email address, then confirm you are a human." })
     .classification === "HUMAN_PRESENCE");
 check("the expected length is read off the page", expectedCodeLength(ORDINARY_PAGE.text) === 6);
-check("and off Stripe's page", expectedCodeLength(STRIPE_PAGE.text) === 8);
+check("and off the Greenhouse challenge page", expectedCodeLength(GREENHOUSE_CHALLENGE_PAGE.text) === 8);
 
 // ---- the query is constrained on every axis ---------------------------
 console.log("\nthe search cannot be widened");
@@ -121,8 +145,20 @@ check("and returns provenance bound to the application",
   success.ok === true && success.provenance.applicationId === "app-1"
   && success.provenance.messageId === "m1");
 
+// An emailed-code challenge, framed as a human check, now completes: it
+// reaches the mailbox, the one matching message supplies the code, and
+// the callback runs. This is the behaviour the whole feature exists for.
+const challenge = await run(
+  { page: GREENHOUSE_CHALLENGE_PAGE },
+  [msg({ subject: "Security code for your application to Acme Robotics",
+         text: "Your security code is 4F2K9B12. Enter it to submit your application." })]);
+check("an emailed-code challenge reaches the mailbox and completes", challenge.ok === true,
+  challenge.ok ? "" : challenge.reason);
+
 const cases: Array<[string, Awaited<ReturnType<typeof run>>, RegExp]> = [
-  ["human presence stops", await run({ page: STRIPE_PAGE }, [msg()]), /HUMAN_PRESENCE/],
+  ["a human-only check stops", await run({ page: HUMAN_ONLY_PAGE }, [msg()]), /HUMAN_PRESENCE/],
+  ["a CAPTCHA over an emailed-code page still stops",
+    await run({ page: { ...GREENHOUSE_CHALLENGE_PAGE, captchaChallengeVisible: true } }, [msg()]), /HUMAN_PRESENCE/],
   ["a visible CAPTCHA stops",
     await run({ page: { ...ORDINARY_PAGE, captchaChallengeVisible: true } }, [msg()]), /HUMAN_PRESENCE/],
   ["unknown wording stops",

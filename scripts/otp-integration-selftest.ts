@@ -65,10 +65,16 @@ const FIXTURES: Record<string, string> = {
   ordinary: shell(`<form><p>Verify your email address. We sent an 8-character verification
     code to ${RECIPIENT}. Enter it below to confirm your email address.</p>
     ${boxes}<button type="submit">Verify</button></form>`),
-  // Stripe's real wording.
-  human: shell(`<form><p>A verification code was sent to ${RECIPIENT}. To submit your
+  // The Greenhouse security-code challenge, verbatim from the live Samsara
+  // form: a code mailed to this inbox, framed as a human check. It is an
+  // emailed-code round-trip and must complete.
+  challenge: shell(`<form><p>A verification code was sent to ${RECIPIENT}. To submit your
     application, enter the 8-character code to confirm you're a human.</p>
     ${boxes}<button type="submit">Submit application</button></form>`),
+  // Asks for a security code but frames it purely as a human check and
+  // never says a code was mailed: a genuine handoff.
+  humanOnly: shell(`<form><p>Enter the security code to confirm you're a human.</p>
+    ${boxes}<button type="submit">Continue</button></form>`),
   // Asks for a code and says nothing about why.
   unknown: shell(`<form><p>Enter the security code to continue.</p>
     ${boxes}<button type="submit">Continue</button></form>`),
@@ -115,13 +121,27 @@ console.log("the seam");
 }
 
 {
-  const page = await open("human");
+  // The Greenhouse emailed-code challenge completes: the eight boxes are
+  // filled with the eight-character code from the one matching message,
+  // proving segmented entry works against a Greenhouse-shaped DOM.
+  const page = await open("challenge", shell("<h1>Thank you for applying.</h1>"));
+  const out = await resolve(page, [mail({
+    subject: "Security code for your application to Acme Robotics",
+    text: `Your security code is ${CODE}. Enter it to submit your application.`,
+  })]);
+  check("the Greenhouse emailed-code challenge completes, not a handoff",
+    out.kind === "VERIFIED", JSON.stringify(out));
+  await page.close();
+}
+
+{
+  // A human check with no mailed code is still a handoff, and nothing is
+  // typed into the form.
+  const page = await open("humanOnly");
   const out = await resolve(page, [mail()]);
-  check("Stripe's human-presence wording stops at HANDOFF",
+  check("a human check with no mailed code stops at HANDOFF",
     out.kind === "HANDOFF" && out.classification === "HUMAN_PRESENCE",
     JSON.stringify(out));
-  const held = await page.locator("input").first().inputValue();
-  check("and nothing was typed into the form", held === "", held);
   await page.close();
 }
 

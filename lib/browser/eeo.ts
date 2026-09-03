@@ -41,6 +41,40 @@ const SYNONYMS: Record<string, string[]> = {
 
 const DECLINE = /\b(decline|do not wish|don'?t wish|prefer not|not to (?:answer|say|disclose|identify)|i (?:do not|don'?t) wish|wish not to|choose not)\b/i;
 
+/**
+ * Disability self-identification is a standard Yes / No / decline
+ * question, and the stored answer states the fact: "No, I do not have a
+ * disability and have not had one in the past." Employers word the
+ * options differently -- some spell out that whole federal sentence,
+ * others offer a bare "No" -- so an exact match often misses even though
+ * the truthful answer is plainly on offer. Declining then would refuse a
+ * question the person has actually answered.
+ *
+ * These map the stored answer to the option of the SAME polarity and
+ * nothing else: a "No" answer to the form's "No", a "Yes" to its "Yes".
+ * The mapping is deliberately narrow. It reads only the leading yes/no
+ * and the standard "(do not) have a disability" phrasing, never infers,
+ * requires EXACTLY ONE same-polarity option to exist, and otherwise
+ * falls through to the decline path. A stored answer that is itself a
+ * decline has no polarity and is left to decline.
+ */
+export function isDisabilityField(label: string): boolean {
+  return /\bdisabilit|impairment/i.test(String(label ?? ""));
+}
+
+const DISABILITY_YES = /^\s*yes\b|\bi have (?:a |an )?(?:disab|impairment|condition)|have had (?:a\b|one\b)|had one in the past/i;
+const DISABILITY_NO = /^\s*no\b|(?:do not|don'?t|does not|doesn'?t) have (?:a |an )?(?:disab|impairment|condition)|have (?:never had|not had)|\bno disab/i;
+
+type DisabilityPolarity = "YES" | "NO" | null;
+function disabilityPolarity(text: string): DisabilityPolarity {
+  const t = String(text ?? "");
+  // Decline wording is neither pole, even when it contains the word "no".
+  if (DECLINE.test(t)) return null;
+  if (DISABILITY_NO.test(t)) return "NO";
+  if (DISABILITY_YES.test(t)) return "YES";
+  return null;
+}
+
 const norm = (s: string) => String(s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 
 export type EeoChoice =
@@ -53,7 +87,7 @@ export type EeoChoice =
  * The option to select for a demographic answer, in priority order:
  * the exact option, then a standard synonym, then the decline option.
  */
-export function resolveEeoOption(answer: string, options: string[]): EeoChoice {
+export function resolveEeoOption(answer: string, options: string[], fieldLabel?: string): EeoChoice {
   const opts = options.filter((o) => String(o ?? "").trim());
   if (!opts.length) return { kind: "NONE", why: "the control offered no options" };
   const want = norm(answer);
@@ -69,6 +103,18 @@ export function resolveEeoOption(answer: string, options: string[]): EeoChoice {
   }
   // Or the answer is a synonym the option lists under a standard term.
   for (const o of opts) if ((SYNONYMS[norm(o)] ?? []).includes(want)) return { kind: "SYNONYM", option: o };
+
+  // Disability: the stored answer states the fact, so map it to the
+  // option of the same polarity before ever declining. Requires exactly
+  // one same-polarity option so an unexpected option set falls through
+  // safely rather than picking one of several.
+  if (fieldLabel && isDisabilityField(fieldLabel)) {
+    const pole = disabilityPolarity(answer);
+    if (pole) {
+      const same = opts.filter((o) => disabilityPolarity(o) === pole);
+      if (same.length === 1) return { kind: "SYNONYM", option: same[0]! };
+    }
+  }
 
   const decline = opts.find((o) => DECLINE.test(o));
   if (decline) return { kind: "DECLINE", option: decline };

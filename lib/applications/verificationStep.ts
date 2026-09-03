@@ -58,11 +58,22 @@ export async function readPageContext(page: Page): Promise<PageContext & { contr
   }));
 }
 
+// Code inputs only. Every selector names a code, a security/verification
+// field, or a digit slot, so none of them can match an ordinary name,
+// email, or phone field still on the page. A segmented control (one box
+// per character, which is what Greenhouse renders for its 8-character
+// code) is matched by the digit/one-time-code selectors; a single input
+// by the rest. If this resolves to the wrong count enterCode refuses
+// rather than typing into a guess, so breadth here is safe.
 const CODE_INPUT = [
   "input[autocomplete='one-time-code']",
   "input[name*='security' i]",
   "input[name*='verification' i]",
   "input[name*='code' i]",
+  "input[aria-label*='security code' i]",
+  "input[aria-label*='verification code' i]",
+  "input[aria-label*='confirmation code' i]",
+  "input[aria-label*='digit' i]",
 ].join(", ");
 
 export async function resolveVerificationStep(args: {

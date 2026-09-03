@@ -523,7 +523,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
           // Only for a field recognised as demographic; everything else
           // still requires an exact match and fails closed below.
           if (options && isDemographicField(f.label || f.key) && exactOptions(options, value).length !== 1) {
-            const choice = resolveEeoOption(value, options);
+            const choice = resolveEeoOption(value, options, f.label || f.key);
             if (choice.kind !== "NONE") {
               inspections.push({ field: f.label || f.key, optionsFound: options.length,
                 sample: options.slice(0, 3),
