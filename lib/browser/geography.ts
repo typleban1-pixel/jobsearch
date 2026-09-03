@@ -70,7 +70,13 @@ export function geoParts(place: string): string[] {
     const upper = part.toUpperCase();
     const isLast = i === raw.length - 1;
     if (isLast && COUNTRIES[upper]) return COUNTRIES[upper]!;
-    if (!isLast && i > 0 && REGIONS[upper]) return REGIONS[upper]!;
+    // Any component after the first may be a region, including the last
+    // one. Requiring a following component meant "Cleveland, OH" never
+    // expanded to Ohio, so it did not equal "Cleveland, Ohio" and the
+    // two-component form of a US address matched nothing at all. The
+    // country slot is still tried first, which is what keeps "CA" as
+    // California here and Canada only where COUNTRIES says so.
+    if (i > 0 && REGIONS[upper]) return REGIONS[upper]!;
     return part;
   });
 }
@@ -113,4 +119,52 @@ export function exactGeoMatches(options: string[], place: string): string[] {
 export function geoSearchTerm(place: string): string {
   const parts = String(place ?? "").split(",").map((p) => p.trim()).filter(Boolean);
   return parts[0] ?? String(place ?? "").trim();
+}
+
+/**
+ * Places that name this place, allowing the answer to state less than the
+ * option does — but only where the profile independently supplies the
+ * rest.
+ *
+ * "Cleveland, OH" and "Cleveland, Ohio, United States" are the same place
+ * written to different depths. sameGeography rejects that pairing on
+ * purpose: bare "Cleveland" against "Cleveland, Ohio, United States" is
+ * also a depth difference, and accepting it would select Cleveland,
+ * Tennessee for someone who typed a city name.
+ *
+ * The difference here is where the missing component comes from. It is
+ * not inferred from the option — that would be the option telling us what
+ * we meant — it is required to equal what the profile already states
+ * independently. If the profile says the country is US, an option ending
+ * in "United States" states nothing the profile does not already claim,
+ * and the components the answer DOES state must still match exactly.
+ *
+ * So this never approximates the city. "East Cleveland", "Cleveland
+ * Heights", "New Cleveland" and "Cleveland, Tennessee" all differ in a
+ * component the answer states, and all still fail.
+ */
+export function qualifiedGeoMatches(
+  options: string[], place: string, profile: { state?: string | null; country?: string | null },
+): string[] {
+  const answer = geoParts(place);
+  if (!answer.length) return [];
+  // The profile's own words, normalised the way an option would be.
+  // Expanded by slot rather than through geoParts: a lone "OH" is the
+  // last component of its own string, and geoParts only expands regions
+  // in a middle slot, so it would come back as "oh" and never equal the
+  // option's "ohio".
+  const supplied = [
+    profile.state ? (REGIONS[String(profile.state).trim().toUpperCase()] ?? clean(String(profile.state))) : null,
+    profile.country ? (COUNTRIES[String(profile.country).trim().toUpperCase()] ?? clean(String(profile.country))) : null,
+  ].filter((p): p is string => Boolean(p));
+
+  return options.filter((o) => {
+    const opt = geoParts(o);
+    if (opt.length < answer.length) return false;
+    // Everything the answer states must match, component for component.
+    if (!answer.every((part, i) => part === opt[i])) return false;
+    if (opt.length === answer.length) return true;
+    // Whatever the option adds has to be something the profile already says.
+    return opt.slice(answer.length).every((extra) => supplied.includes(extra));
+  });
 }

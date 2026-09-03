@@ -25,7 +25,7 @@ import { snapshotLive, type LiveField } from "./liveSnapshot.ts";
 import { resolveFormContext, assertContextIntact, type FormContext } from "./formContext.ts";
 import { exactlyOne, fillText, readBack, selectOption, setChecked, setFiles, clickOptionWithin } from "./actions.ts";
 import { readLazyOptions, readFilteredOptions, exactOptions } from "./inspectCombobox.ts";
-import { geoSearchTerm, exactGeoMatches, sameGeography } from "./geography.ts";
+import { geoSearchTerm, exactGeoMatches, qualifiedGeoMatches, sameGeography } from "./geography.ts";
 import { reconcileAll, answerFitsControl, type Reconciled } from "./reconcile.ts";
 import { attachResume, type AttachmentEvidence } from "./upload.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
@@ -53,7 +53,9 @@ export interface FillOutcome {
   /** Snapshot entries that turned out to be the same live control. */
   aliases: Array<{ field: string; sameAs: string }>;
   /** Lazily-rendered controls opened read-only to identify them. */
-  inspections: Array<{ field: string; optionsFound: number; sample: string[]; resolvedAs: string }>;
+  inspections: Array<{ field: string; optionsFound: number; sample: string[]; resolvedAs: string;
+    /** Every option the control offered, so a stop can show the real list. */
+    allOptions?: string[] }>;
   /** How each live control was matched to the reviewed question. */
   reconciliation: Array<{ field: string; basis: string | null; apiKey: string | null; controlTypeDiffers: boolean; blocked: string | null }>;
   /** Proof the approved artifact is attached. */
@@ -446,9 +448,24 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
      * an arbitrary control accepts it. Where the live control offers
      * choices they are read first, and the answer has to be one of them.
      */
+    /** A place-picker, which is matched geographically rather than as text. */
+    const locationField = (f: LiveField): boolean =>
+      /^candidate-location$/i.test(f.key) || /^location\b/i.test(f.label ?? "");
+
     const proveAnswerFits = async (f: LiveField, value: string): Promise<string> => {
       const m = matchFor.get(f.key);
       let options: string[] | null = f.options?.length ? f.options : null;
+
+      // A place is not a string, and this is the wrong place to decide it.
+      //
+      // This ran before the write path and compared "Cleveland, OH" to the
+      // offered "Cleveland, Ohio, United States" as text, found no exact
+      // equality, and stopped the whole submission — while the write path
+      // below already knew how to match a place componentwise. Deciding it
+      // here twice, with the weaker rule winning, is what turned a
+      // fillable field into a dead run. The write path still proves the
+      // answer and still refuses anything but a single exact place.
+      if (locationField(f)) return value;
 
       if (!options && (f.htmlType === "text" || f.type === "text")) {
         const looksCombobox = await (await control(ctx, f))
@@ -533,7 +550,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list")
         .catch(() => false);
 
-      const isLocation = /^candidate-location$/i.test(f.key) || /^location\b/i.test(f.label);
+      const isLocation = locationField(f);
 
       if (isCombobox && isLocation) {
         // A place, not a string.
@@ -562,14 +579,25 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
           offered = await optionsForControl(ctx.frame, f.selector);
           if (offered.length) break;
         }
-        const hits = exactGeoMatches(offered, value);
+        // Exact equality first. Only if the answer states less than the
+        // options do is the profile allowed to supply the remainder, and
+        // only components the profile independently states.
+        let hits = exactGeoMatches(offered, value);
+        let how = "exact";
+        if (hits.length === 0) {
+          const prof = (resolveContext as any)?.profile ?? {};
+          hits = qualifiedGeoMatches(offered, value, { state: prof.state, country: prof.country });
+          how = "qualified by profile state/country";
+        }
         inspections.push({ field: f.label || f.key, optionsFound: offered.length,
-          sample: offered.slice(0, 3), resolvedAs: `searched ${JSON.stringify(term)}, ${hits.length} exact geographic match(es)` });
+          sample: offered.slice(0, 3),
+          resolvedAs: `searched ${JSON.stringify(term)}, ${hits.length} geographic match(es) [${how}]`,
+          allOptions: offered });
 
         if (hits.length !== 1) {
           throw new Stop("READBACK_MISMATCH",
             `"${f.label || f.key}": searching ${JSON.stringify(term)} gave ${hits.length} places equal to `
-            + `${JSON.stringify(value)} (offered ${offered.slice(0, 6).join(" | ")}${offered.length > 6 ? ", ..." : ""})`);
+            + `${JSON.stringify(value)}. The control offered: ${offered.join(" | ") || "(nothing)"}`);
         }
         await clickOptionWithin(ctx.frame.locator("body"), hits[0]!);
         await page.waitForTimeout(600);
