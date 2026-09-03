@@ -207,13 +207,14 @@ async function poll(): Promise<void> {
       const status = line.result.type === "succeeded" ? "SUCCEEDED"
         : line.result.type === "expired" ? "EXPIRED"
         : line.result.type === "canceled" ? "CANCELLED" : "FAILED";
-      // A job is marked extracted only when ITS OWN result validated and
-      // persisted. Persistence of the requirements themselves is the
-      // synchronous path's job and is wired in a following change; this
-      // records the per-request outcome so nothing is lost meanwhile.
+      // Polling records what the PROVIDER did. It does not touch
+      // result_persisted_at: that column means "we validated this result
+      // and wrote its requirements", which is batch-consume.ts's job.
+      // Setting it here marked all 18 requests consumed while nothing
+      // had been written, and the consumer then skipped every one of
+      // them as already done.
       await db.from("extraction_batch_requests").update({
         status, error: line.result.type === "errored" ? JSON.stringify(line.result.error).slice(0, 400) : null,
-        result_persisted_at: status === "SUCCEEDED" ? new Date().toISOString() : null,
       }).eq("batch_id", b.id).eq("custom_id", line.custom_id);
       status === "SUCCEEDED" ? ok++ : bad++;
     }

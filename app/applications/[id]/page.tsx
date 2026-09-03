@@ -132,10 +132,31 @@ export default async function ApplicationReview(props: { params: Promise<{ id: s
               own form.
             </p>
           </form>
-        ) : (
+        ) : answers.length === 0 ? (
+          // No fields at all is not "every field is accounted for", and it
+          // is not "fields are blocked" either. The old copy could only
+          // say the second, which produced "Approval is unavailable while
+          // 0 fields are blocked" -- a sentence that is both wrong and
+          // self-contradictory. An application whose form was never read
+          // has nothing to approve, and saying so is the whole point.
+          <p className="muted">
+            No application fields have been discovered for this posting, so there is nothing to
+            approve yet. That is not the same as the form being complete: the form has not been
+            read. Re-run preparation against the employer&apos;s form to discover its fields.
+          </p>
+        ) : blocked.length > 0 ? (
           <p className="muted">
             Approval is unavailable while {blocked.length} field{blocked.length === 1 ? " is" : "s are"} blocked.{" "}
             <Link href="/applications/queue">Answer them here.</Link>
+          </p>
+        ) : (
+          // Confident is false for a reason the two cases above do not
+          // cover -- a required field with no answer, most often. Naming
+          // the count beats inventing a cause.
+          <p className="muted">
+            Approval is unavailable: {s.accountedFor} of {s.required} required field
+            {s.required === 1 ? "" : "s"} are accounted for and none is blocked, so something is
+            unanswered rather than refused. <Link href="/applications/queue">Review the queue.</Link>
           </p>
         )
       )}

@@ -235,6 +235,8 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       humanApproved: Boolean(a.human_approved),
       allFieldsConfident: Boolean(a.all_fields_confident),
       blockedAnswers,
+      // Zero is not coverage. See ApplicationFacts.discoveredFields.
+      discoveredFields: mine.length,
       submittedAt: a.submitted_at ?? null,
       confirmationReceived: Boolean(a.confirmation_email_received || a.confirmation_reference),
       provider: j.source,

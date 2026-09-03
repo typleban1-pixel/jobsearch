@@ -28,6 +28,19 @@ export interface ApplicationFacts {
   handoff: boolean;
   /** A submission request is queued but no worker has claimed it. */
   submitQueued?: boolean;
+  /**
+   * How many application fields have actually been discovered.
+   *
+   * Zero is not coverage. all_fields_confident is recomputed by a
+   * trigger over the answer rows, so with no rows it cannot be
+   * recomputed at all and an older true can survive a form that was
+   * never read. Northern Trust sat in exactly that state: no fields, no
+   * answers, and a page offering to approve nothing.
+   *
+   * Optional so existing callers keep working; when it is absent the
+   * old behaviour applies, and when it is zero approval is refused.
+   */
+  discoveredFields?: number;
   /** A worker has claimed the request and is running it now. */
   submitRunning?: boolean;
   /** How the last request ended. */
@@ -170,12 +183,18 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
       action: { label: "Review application", href: `${href}/review` } };
   }
 
-  if (f.status === "AWAITING_REVIEW" || (f.allFieldsConfident && !f.humanApproved)) {
+  // An application with no discovered fields is never ready, whatever
+  // the confidence flag says: there is nothing to have been confident
+  // about. Checked before the ready paths below rather than inside them,
+  // so no route can reach approval past it.
+  const nothingDiscovered = f.discoveredFields === 0;
+
+  if (f.status === "AWAITING_REVIEW" || (f.allFieldsConfident && !nothingDiscovered && !f.humanApproved)) {
     return { state: "READY", summary: "Application prepared and checked.",
       action: { label: "Review application", href: `${href}/review` } };
   }
 
-  if (f.status === "READY_TO_SUBMIT" && f.humanApproved && f.allFieldsConfident) {
+  if (f.status === "READY_TO_SUBMIT" && f.humanApproved && f.allFieldsConfident && !nothingDiscovered) {
     if (f.submitOutcome === "SAFE_STOP") {
       return { state: "READY",
         summary: "The last attempt stopped before anything was sent. You can try again.",
