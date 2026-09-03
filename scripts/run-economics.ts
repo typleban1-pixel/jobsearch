@@ -61,11 +61,11 @@ for (const v of verdicts) {
   const prev = newest.get(v.job_id);
   if (!prev || v.created_at > prev.at) newest.set(v.job_id, { v: v.verdict, at: v.created_at });
 }
-const tally = { APPLICATION_CANDIDATE: 0, STRETCH: 0, MANUAL_REVIEW: 0, REJECT: 0 } as Record<string, number>;
-for (const { v } of newest.values()) if (v in tally) tally[v]++;
+const tally: Record<string, number> = { APPLICATION_CANDIDATE: 0, STRETCH: 0, MANUAL_REVIEW: 0, REJECT: 0 };
+for (const { v } of newest.values()) if (v in tally) tally[v] = (tally[v] ?? 0) + 1;
 console.log(`\nnew verdicts in window:       ${newest.size}`);
 for (const [k, n] of Object.entries(tally)) console.log(`  ${k.padEnd(22)} ${n}`);
-const cand = tally.APPLICATION_CANDIDATE, cs = cand + tally.STRETCH;
+const cand = tally.APPLICATION_CANDIDATE ?? 0, cs = cand + (tally.STRETCH ?? 0);
 if (newest.size) console.log(`\ncost per newly evaluated job: $${(cost / newest.size).toFixed(3)}`);
 if (cand) console.log(`cost per APPLICATION_CANDIDATE: $${(cost / cand).toFixed(2)}`);
 if (cs) console.log(`cost per CANDIDATE+STRETCH:   $${(cost / cs).toFixed(2)}`);
