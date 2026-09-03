@@ -104,7 +104,30 @@ if (!confirmed) {
 }
 
 const submittedAt = new Date().toISOString();
-await db.from("applications").update({ status: "SUBMITTED", submitted_at: submittedAt }).eq("id", ID);
+/**
+ * The write is checked.
+ *
+ * This update failed once -- the state machine refuses a transition
+ * from AWAITING_REVIEW -- and the run reported "SUBMITTED and recorded"
+ * anyway, because nobody read the error. The employer held an
+ * application our own record said had never been sent, which is the
+ * worst of both worlds: a real submission and a record that denies it.
+ */
+const { error: statusError } = await db.from("applications")
+  .update({ status: "SUBMITTED", submitted_at: submittedAt }).eq("id", ID);
+if (statusError) {
+  console.error(`\nTHE EMPLOYER HAS THIS APPLICATION, BUT THE RECORD DOES NOT SAY SO.`);
+  console.error(`  confirmation: ${confirmed.slice(0, 200)}`);
+  console.error(`  the status write was refused: ${statusError.message}`);
+  console.error(`  evidence ${runDir}`);
+  await db.from("application_events").insert({
+    application_id: ID, event: "SUBMIT_CONFIRMED_UNRECORDED", actor: "worker",
+    detail: `The employer confirmed receipt but the status could not be written: ${statusError.message}. `
+      + `Clicked ${clickedAt}. Confirmation: "${confirmed.slice(0, 300)}". Evidence in ${runDir}`,
+  }).then(() => undefined, () => undefined);
+  await b.close();
+  process.exit(1);
+}
 await db.from("application_events").insert({
   application_id: ID, event: "SUBMIT_CONFIRMED", actor: "worker",
   detail: `Confirmed by the live page. requisition ${job!.external_id}, artifact `
