@@ -236,20 +236,27 @@ async function resolveOne(company: any): Promise<void> {
     // whole tranche on a single "fetch failed" 26 companies in. It still
     // stops when persistence is genuinely broken: three failures in a
     // row on the same rows is not weather.
+    // The retry has to outlast the resolver's own weather. With hundreds
+    // of concurrent probes -- many to dead domains -- the process starves
+    // its own network stack, and the DB write fails with the same "fetch
+    // failed" a broken database would produce. Three quick retries died
+    // inside the storm twice; the later attempts here wait long enough
+    // for in-flight probes to drain, which is what actually
+    // distinguishes weather from breakage.
     let candidateError: { message: string } | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       const { error } = await db.from("company_token_candidates")
         .upsert(rows, { onConflict: "ats_provider,candidate_token" });
       candidateError = error ?? null;
       if (!candidateError) break;
-      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+      await new Promise((r) => setTimeout(r, Math.min(30_000, 2000 * 2 ** attempt)));
     }
     if (candidateError) {
       // A silent failure here re-creates the endless-reprobe bug, so it
       // is loud and it stops the run: continuing would burn the whole
       // tranche budget re-testing companies whose results were never
       // going to persist.
-      console.error(`\nSTOPPING: attempt records are not persisting after 3 tries: ${candidateError.message}`);
+      console.error(`\nSTOPPING: attempt records are not persisting after 6 tries over ~1 minute: ${candidateError.message}`);
       process.exit(1);
     }
     if (hit) {
