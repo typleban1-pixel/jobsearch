@@ -10,6 +10,9 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 let n=0,bad=0; const ok=(c:boolean,w:string)=>{n++;if(!c){bad++;console.error(`FAIL ${w}`);}};
 
+// The full story moved to _site/FullStory.tsx when the live page went
+// minimal; the guard follows the content, and the minimal page is held
+// to the same language rules.
 const files = ["app/page.tsx",
   ...readdirSync("app/_site").filter((f) => f.endsWith(".tsx")).map((f) => `app/_site/${f}`)];
 const all = files.map((f) => ({ f, text: readFileSync(f, "utf8") }));
@@ -41,7 +44,7 @@ for (const re of [/job discovery/i, /job matching/i, /application automation/i,
 }
 
 // ---- the confirmed figures are present, correctly worded -------------
-const page = readFileSync("app/page.tsx", "utf8");
+const page = readFileSync("app/_site/FullStory.tsx", "utf8");
 ok(page.includes("$70K"), "Genius Academy ARR appears");
 ok(page.includes("180K"), "the email audience growth appears");
 ok(page.includes("$68K"), "product sales appear");
@@ -80,6 +83,15 @@ ok(page.indexOf("deepest rabbit hole") < page.indexOf("enough work stuff"),
 // The thread labels rendered through Section's label prop; the thread
 // survives, the taxonomy does not.
 ok(!/label="(MADE|FIXED|WORK|GROWN|FOUND)"/.test(page), "the old thread labels are removed");
+
+// The minimal live page keeps its own promises.
+const mini = readFileSync("app/page.tsx", "utf8");
+ok(mini.includes("figuring things out"), "the live page keeps the opening line");
+ok(/relocating to Chicago/i.test(mini), "the live page says the move is in progress");
+ok(mini.includes("linkedin.com/in/tylerpleban"), "the live page links LinkedIn");
+ok(mini.includes("oneScreen"), "the live page is the one-screen layout");
+// A comment may name the file; what must not exist is an import of it.
+ok(!/import .*FullStory/.test(mini), "the live page does not route the full story");
 
 console.log(`${n-bad}/${n} assertions passed`);
 process.exit(bad?1:0);

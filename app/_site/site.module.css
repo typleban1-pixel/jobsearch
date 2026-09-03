@@ -517,3 +517,33 @@
   z-index: -1;
 }
 .offsetBlock img { position: relative; }
+
+/* The one-screen homepage: everything fits the viewport, nothing
+   scrolls. The headshot keeps its offset block; on short screens the
+   image cedes height before the text does. */
+.oneScreen {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(1.2rem, 4vw, 3rem);
+  overflow: hidden;
+}
+.oneScreenInner {
+  display: flex;
+  align-items: center;
+  gap: clamp(1.6rem, 5vw, 4.5rem);
+  max-width: 1040px;
+  width: 100%;
+}
+.oneScreenText { flex: 1 1 auto; min-width: 0; }
+.oneScreenText .lead { margin-top: 1.2rem; }
+.oneScreenText .bigLink { margin-top: clamp(1.2rem, 3vh, 2rem); display: inline-flex; }
+.oneScreen .headshotHolder { flex: 0 0 clamp(180px, 30vw, 380px); }
+.oneScreen .headshot { max-height: 58dvh; width: 100%; object-fit: cover; }
+@media (max-width: 719px) {
+  .oneScreenInner { flex-direction: column-reverse; text-align: left; gap: 1.4rem; }
+  .oneScreen .headshotHolder { flex: 0 1 auto; width: min(52vw, 240px); }
+  .oneScreen .headshot { max-height: 32dvh; }
+  .oneScreen h1 { font-size: clamp(1.9rem, 8.5vw, 2.6rem); }
+}
