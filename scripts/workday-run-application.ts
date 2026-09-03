@@ -27,7 +27,7 @@ import { fillOne, selectRadioByLabel, selectListboxOption, selectPromptPath, typ
 import { collapseRadioGroups } from "../lib/workday/radioGroups.ts";
 import { resolveField, guardInheritedAnswer, type ResolveContext } from "../lib/applications/answer.ts";
 import { loadContext, applicationScope } from "../lib/applications/prepare.ts";
-import { chooseAdvance } from "../lib/workday/advance.ts";
+import { chooseAdvance, classifyAcceptance } from "../lib/workday/advance.ts";
 
 const ID = process.argv[2] ?? "35eaed21-599e-4480-bc7b-192677c80f18";
 const DONE = ".workday-signin-done";
@@ -398,10 +398,56 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
     .eq("application_id", ID);
   const here = (toFill ?? []).filter((a: any) => live.some((f: any) => String(f.key) === a.field_key));
   let failed = 0, filled = 0;
+  const blockedAcceptance: { q: string; why: string }[] = [];
   for (const a of here as any[]) {
+    // An agreement is entered into by a person, never filled in from a
+    // profile. A stored acceptance for one employer is not consent to
+    // another's terms.
+    const acc = classifyAcceptance(`${a.question_text} ${a.field_key}`);
+    if (acc.kind === "NEEDS_A_PERSON") {
+      console.log(`   STOP ${String(a.question_text).slice(0, 40).padEnd(42)} ${acc.why}`);
+      blockedAcceptance.push({ q: String(a.question_text), why: acc.why });
+      continue;
+    }
+    if (acc.kind === "STANDARD") {
+      const box = page.locator(`${a.field_key}:visible`).first();
+      if (await box.count().catch(() => 0)) {
+        if (!(await box.isChecked().catch(() => false))) await box.check({ timeout: 8000 }).catch(() => undefined);
+        const on = await box.isChecked().catch(() => false);
+        console.log(`   ${on ? "ok  " : "FAIL"} ${String(a.question_text).slice(0, 40).padEnd(42)} acknowledged (${on})`);
+        if (!on) failed++;
+      }
+      continue;
+    }
     if (!a.answer_text || a.confidence_state === "BLOCKED") continue;
     const target: FillTarget = { selector: a.field_key, label: a.question_text, value: a.answer_text,
       confidence: a.confidence_state, required: Boolean(a.is_required) };
+    /**
+     * A checkbox that IS an option, not a yes/no.
+     *
+     * Workday's disability self-identification renders three mutually
+     * exclusive statements as three checkboxes. The stored answer is the
+     * text of the chosen statement, so applying it to every checkbox in
+     * the group ticked the wrong ones. A checkbox is ticked only when
+     * its own label is the answer.
+     */
+    const isOptionCheckbox = live.some((f: any) => String(f.key) === a.field_key && f.htmlType === "checkbox")
+      && !/^(yes|no|true|false|)$/i.test(String(a.answer_text ?? "").trim());
+    if (isOptionCheckbox) {
+      const box = page.locator(`${a.field_key}:visible`).first();
+      if (await box.count().catch(() => 0)) {
+        const mine = String(a.question_text).trim().toLowerCase()
+          === String(a.answer_text).trim().toLowerCase();
+        if (mine) await box.check({ timeout: 8000 }).catch(() => undefined);
+        else await box.uncheck({ timeout: 8000 }).catch(() => undefined);
+        const on = await box.isChecked().catch(() => false);
+        const ok = on === mine;
+        console.log(`   ${ok ? "ok  " : "FAIL"} ${String(a.question_text).slice(0, 40).padEnd(42)} ${on ? "checked" : "unchecked"}`);
+        if (!ok) failed++; else filled++;
+      }
+      continue;
+    }
+
     // A dropdown that is a button, not a select, needs the listbox path;
     // fillOne has nothing to write to and reports the control type as
     // unfamiliar, which is how Country stopped this page dead.
@@ -438,10 +484,30 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
   }
   console.log(`filled ${filled}, failed ${failed}`);
 
-  const blocked = (here as any[]).filter((a) => a.is_required && (!a.answer_text || a.confidence_state === "BLOCKED"));
+  // An acknowledgment is ticked above and has no stored answer text, so
+  // counting it as unanswered stopped a page it had just completed.
+  /**
+   * A deliberately unticked option is answered, not missing.
+   *
+   * Mutually exclusive checkboxes are each marked required because the
+   * GROUP is required. Counting the two the person did not choose as
+   * unanswered stopped a page where the right box was already ticked.
+   * An empty answer only means "unanswered" for a control you write
+   * into.
+   */
+  const isCheckbox = (key: string) => live.some((f: any) => String(f.key) === key && f.htmlType === "checkbox");
+  const blocked = (here as any[]).filter((a) => a.is_required
+    && classifyAcceptance(`${a.question_text} ${a.field_key}`).kind === "NOT_ACCEPTANCE"
+    && (a.confidence_state === "BLOCKED"
+        || (!a.answer_text && !(isCheckbox(a.field_key) && a.answer_text === ""))));
   if (blocked.length) {
     console.log(`\nSTOPPING: ${blocked.length} required question(s) this system will not answer for you:`);
     for (const b of blocked) console.log(`   - ${b.question_text}`);
+    break;
+  }
+  if (blockedAcceptance.length) {
+    console.log(`\nSTOPPING: ${blockedAcceptance.length} acknowledgment(s) need you to read them:`);
+    for (const x of blockedAcceptance) console.log(`   - ${x.q.slice(0, 90)}  (${x.why})`);
     break;
   }
   if (failed) { console.log("\nSTOPPING: a control did not accept its value; not advancing on a partial page."); break; }
@@ -483,9 +549,15 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
     const vis = (e: Element) => e.getClientRects().length > 0;
     const out: { label: string; id: string; tag: string }[] = [];
     const seen = new Set(known);
-    const nodes = [...document.querySelectorAll('[aria-required="true"], [required]')].filter(vis);
+    const nodes = [...document.querySelectorAll('[aria-required="true"], [required]')].filter(vis)
+      // A fieldset marked required is the group, not a control; its
+      // members are audited individually just below.
+      .filter((e) => !["FIELDSET", "DIV", "SECTION"].includes(e.tagName));
     for (const el of nodes) {
-      const id = el.id ? `#${el.id}` : "";
+      // Escaped the same way discovery escapes it. An id beginning with
+      // a digit becomes "#\36 4cbff..." there and "#64cbff..." here, so
+      // controls that WERE discovered looked unaccounted for.
+      const id = el.id ? `#${CSS.escape(el.id)}` : "";
       const name = el.getAttribute("name") ? `[name="${el.getAttribute("name")}"]` : "";
       const auto = el.getAttribute("data-automation-id") ? `[data-automation-id="${el.getAttribute("data-automation-id")}"]` : "";
       // Any identity discovery might have stored it under.

@@ -47,3 +47,28 @@ export function dateMatches(monthRead: string, yearRead: string, iso: string): b
   const gotYear = String(yearRead ?? "").trim();
   return gotMonth === String(Number(wm)) && gotYear === wy;
 }
+
+/**
+ * A signing date is today, not a stored value.
+ *
+ * The date beside a certification says when the form was completed, so
+ * it has to be the day the application is actually filled in. Storing it
+ * would make every later application claim it was signed on the day this
+ * code was written.
+ */
+export function toMMDDYYYY(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}/${dd}/${d.getFullYear()}`;
+}
+
+export const signatureKeystrokes = (d: Date): string => toMMDDYYYY(d).replace(/\//g, "");
+
+/** Labels that ask when the form was completed or signed. */
+export function isSignatureDate(label: string): boolean {
+  return /\b(date|today)\b/i.test(String(label ?? ""))
+    // "to" and "from" are matched whole: with a trailing \w* they also
+    // matched "Today", so a signing date labelled "Today's Date" was
+    // excluded as if it were an end date.
+    && !/\b(?:birth|dob|start|end|graduat\w*|hire|expir\w*)\b|\bfrom\b|\bto\b/i.test(String(label ?? ""));
+}

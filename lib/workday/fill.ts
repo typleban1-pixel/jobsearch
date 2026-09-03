@@ -234,6 +234,30 @@ export async function selectListboxOption(
 
   const want = wanted.trim().toLowerCase();
   let hits = labels.filter((l) => l.toLowerCase() === want);
+
+  /**
+   * The same choice, worded the tenant's way.
+   *
+   * Workday qualifies EEO options by country -- "White (United States of
+   * America)" -- and renders a two-way question as Yes/No while the
+   * stored answer is spelled out, so "Not Hispanic or Latino" met a
+   * control offering only "Yes" and "No". Both are the same answer
+   * written differently, and neither is a different answer.
+   */
+  const unqualify = (l: string) => l.replace(/\s*\((?:[^()]*)\)\s*$/, "").trim().toLowerCase();
+  if (!hits.length) {
+    hits = labels.filter((l) => unqualify(l) === want);
+  }
+  if (!hits.length) {
+    const yesNo = labels.filter((l) => /^(yes|no)$/i.test(l.trim()));
+    // Only where the control genuinely offers just Yes and No.
+    if (yesNo.length === 2) {
+      const negative = /^(not\b|no\b|i am not\b|i do not\b|i don't\b|decline)/i.test(wanted.trim());
+      const positive = /^(yes\b|i am\b|i do\b)/i.test(wanted.trim());
+      if (negative) hits = labels.filter((l) => /^no$/i.test(l.trim()));
+      else if (positive) hits = labels.filter((l) => /^yes$/i.test(l.trim()));
+    }
+  }
   if (!hits.length) {
     const { normalizeCountryName, normalizeRegionName } = await import("../browser/geography.ts");
     const wc = normalizeCountryName(wanted);

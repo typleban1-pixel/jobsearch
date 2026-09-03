@@ -41,5 +41,19 @@ ok(splitMMYYYY("03/2024").year === "2024", "a rendered value splits");
 ok(splitMMYYYY("3/2024").month === "03", "a rendered unpadded month is normalised");
 ok(splitMMYYYY("12/").year === "", "the broken state splits to nothing");
 
+// ---- a signing date is today, in MM/DD/YYYY --------------------------
+import { toMMDDYYYY, signatureKeystrokes, isSignatureDate } from "../lib/workday/dateControl.ts";
+ok(toMMDDYYYY(new Date(2026, 8, 3)) === "09/03/2026", "3 Sep 2026 renders as 09/03/2026");
+ok(toMMDDYYYY(new Date(2026, 0, 1)) === "01/01/2026", "the first of January pads both parts");
+ok(toMMDDYYYY(new Date(2026, 11, 31)) === "12/31/2026", "the last of December needs no padding");
+ok(signatureKeystrokes(new Date(2026, 8, 3)) === "09032026", "the keystrokes carry no separators");
+ok(signatureKeystrokes(new Date(2026, 8, 3)).length === 8, "a signing date is always eight digits");
+
+ok(isSignatureDate("Date"), "a bare Date is a signing date");
+ok(isSignatureDate("Today's Date"), "Today's Date is a signing date");
+for (const other of ["Date of Birth", "DOB", "Start Date", "End Date", "From", "To",
+                     "Graduation Date", "Hire Date", "Expiration Date"])
+  ok(!isSignatureDate(other), `${other} is not a signing date`);
+
 console.log(`${n-bad}/${n} assertions passed`);
 process.exit(bad?1:0);

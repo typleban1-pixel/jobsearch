@@ -81,6 +81,10 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
     // bound to THIS control names it; one inherited from a surrounding
     // fieldset names the group, and every control in that group will
     // report it.
+    // A placeholder is not a label: Workday's questionnaire dropdowns
+    // carry aria-label="Select One Required" and no label element.
+    const placeholder = /^\s*(select one|select|choose one|choose|required|—|-)?\s*(required)?\s*$/i;
+
     const labelFor = (el: Element): { text: string; direct: boolean } => {
       const id = el.id;
       if (id) {
@@ -88,17 +92,47 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
         if (l?.textContent?.trim()) return { text: l.textContent.trim(), direct: true };
       }
       const aria = el.getAttribute("aria-label");
-      if (aria?.trim()) return { text: aria.trim(), direct: true };
+      if (aria?.trim() && !placeholder.test(aria)) return { text: aria.trim(), direct: true };
       const by = el.getAttribute("aria-labelledby");
       if (by) {
         const text = by.split(/\s+/).map((i) => document.getElementById(i)?.textContent ?? "").join(" ").trim();
         if (text) return { text, direct: true };
       }
+      /**
+       * A placeholder is not a label.
+       *
+       * Workday's questionnaire dropdowns carry aria-label="Select One
+       * Required" and no label element, so seven distinct legal
+       * questions all arrived called "Select One Required" -- one of
+       * them asking about sponsorship and another about government
+       * service. The question itself sits in the text block just before
+       * the control, which is where a person reads it too.
+       */
+      const nearestText = (): string => {
+        let node: Element | null = el.closest('[data-automation-id^="formField-"]') ?? el;
+        while (node) {
+          let prev: Element | null = node.previousElementSibling;
+          while (prev) {
+            const text = (prev as HTMLElement).innerText?.replace(/\s+/g, " ").trim() ?? "";
+            // Long enough to be a question, and not another control's
+            // rendering of its own value.
+            if (text.length > 12 && !placeholder.test(text)) return text.slice(0, 300);
+            prev = prev.previousElementSibling;
+          }
+          node = node.parentElement;
+        }
+        return "";
+      };
+
       const wrapping = el.closest("label");
       if (wrapping?.textContent?.trim()) return { text: wrapping.textContent.trim(), direct: false };
       const group = el.closest("fieldset");
       const legend = group?.querySelector("legend");
       if (legend?.textContent?.trim()) return { text: legend.textContent.trim(), direct: false };
+      // Last resort, and only for controls that would otherwise be
+      // nameless or named by a placeholder.
+      const near = nearestText();
+      if (near) return { text: near, direct: false };
       return { text: "", direct: false };
     };
 
@@ -151,9 +185,24 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
      * by. Anything containing a native control is that control's
      * chrome, not a question of its own.
      */
+    /**
+     * Page furniture is not part of the application.
+     *
+     * The header's language and settings menus are listbox buttons, and
+     * once controls could be named by nearby text they started arriving
+     * as questions called "Please view Northern Trust's cookie policy
+     * here." Nothing inside the header, utility bar or legal notice is
+     * ever a question on the form.
+     */
+    const isChrome = (el: Element): boolean => Boolean(el.closest(
+      '[data-automation-id="header"], [data-automation-id="utilityButtonBar"], '
+      + '[data-automation-id="legalNotice"], [data-automation-id="navigationContainer"], '
+      + 'header, nav, footer'));
+
     const listboxes = Array.from(document.querySelectorAll(
       '[aria-haspopup="listbox"], [role="combobox"]'))
       .filter((el) => visible(el))
+      .filter((el) => !isChrome(el))
       .filter((el) => !el.querySelector("input,select,textarea"))
       .filter((el) => !el.closest("select"))
       // The trigger is a control; the popup it opens is not. role=listbox
@@ -183,7 +232,7 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
         // was never attached and the parser never ran, which silently
         // skipped the upload step entirely.
         if (t === "file") return true;
-        return visible(el);
+        return visible(el) && !isChrome(el);
       }), ...listboxes];
 
     for (const el of controls) {
