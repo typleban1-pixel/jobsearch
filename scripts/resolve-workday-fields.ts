@@ -66,7 +66,7 @@ const ctx: ResolveContext = {
 };
 
 const { data: fields } = await db.from("application_answers")
-  .select("id,question_text,field_key,field_label,is_required,confidence_state")
+  .select("id,question_text,field_key,field_label,is_required,confidence_state,answer_text")
   .eq("application_id", ID).order("question_text");
 
 console.log(`${co?.name} — ${job!.title}`);
@@ -78,6 +78,18 @@ const byLabel = new Map<string, any>((snap?.fields ?? []).map((f: any) => [Strin
 let resolvedCount = 0, blockedCount = 0;
 const results: Array<{ row: any; r: any }> = [];
 for (const row of fields ?? []) {
+  // A human answer is not re-derived.
+  //
+  // The resolver runs from evidence and knows nothing about what a
+  // person has since supplied, so re-running it pushed the confirmed
+  // phone code, referral source and prior-employment answers back to
+  // BLOCKED. Those came from the user and no evidence rule can
+  // reproduce them.
+  if (row.confidence_state === "HUMAN_CONFIRMED") {
+    console.log(`KEPT     ${row.is_required ? "*" : " "} ${String(row.question_text).slice(0, 34).padEnd(36)} HUMAN_CONFIRMED  (not re-derived)`);
+    resolvedCount++;
+    continue;
+  }
   const live = byLabel.get(row.question_text) ?? {};
   // The FormField the resolver expects, from what was actually on the page.
   const field = {
@@ -87,7 +99,37 @@ for (const row of fields ?? []) {
     type: live.htmlType ?? "text",
     options: live.options ?? undefined,
   } as any;
+  // Workday reuses one visible label for two different questions.
+  //
+  // The preferred-name inputs are labelled "First Name" and "Last Name",
+  // exactly like the legal ones, and are told apart only by their form
+  // name: preferredName--firstName versus legalName--firstName. Passing
+  // the shared label alone gets the LEGAL answer for both pairs, which
+  // would put the legal name in the preferred boxes.
+  //
+  // The label is disambiguated from the control's own name before the
+  // resolver sees it, so the resolver still answers from the profile
+  // rather than from anything decided here.
+  const key = String(row.field_key ?? "");
+  if (/preferredName--firstName/i.test(key)) field.label = "Preferred First Name";
+  else if (/preferredName--lastName/i.test(key)) field.label = "Preferred Last Name";
+
   let r: any = resolveField(field, ctx);
+
+  // The profile records a preferred name and a legal surname; the
+  // resolver has no intent for "preferred first name", so these are
+  // answered from the profile columns directly and marked VERIFIED
+  // because that is what the profile is.
+  if (r.confidence === "BLOCKED" && /preferredName--firstName/i.test(key)
+      && (profile as any)?.preferred_name) {
+    r = { ...r, answer: String((profile as any).preferred_name), confidence: "VERIFIED",
+      blockKind: null, blockedReason: null, matchedBy: "profile.preferred_name" };
+  }
+  if (r.confidence === "BLOCKED" && /preferredName--lastName/i.test(key)
+      && (profile as any)?.legal_last_name) {
+    r = { ...r, answer: String((profile as any).legal_last_name), confidence: "VERIFIED",
+      blockKind: null, blockedReason: null, matchedBy: "profile.legal_last_name (the surname is unchanged)" };
+  }
 
   // A value of the wrong TYPE for the control is not an answer.
   //

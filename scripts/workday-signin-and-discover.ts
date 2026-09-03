@@ -20,6 +20,7 @@ import { tenantFromToken, candidateHomeUrl } from "../lib/workday/tenant.ts";
 import { observe, waitForWorkdayReady, readSignals } from "../lib/workday/probe.ts";
 import { snapshotLive } from "../lib/browser/liveSnapshot.ts";
 import { mergeDiscovery, summarise } from "../lib/applications/fieldMerge.ts";
+import { fillOne, failures, type FillTarget, type FillReport } from "../lib/workday/fill.ts";
 
 const ID = process.argv[2] ?? "35eaed21-599e-4480-bc7b-192677c80f18";
 const DONE = ".workday-signin-done";
@@ -413,6 +414,59 @@ if (snap.fields?.length) {
   }
 }
 
+// ---- fill the resolved answers into the employer's form ---------------
+//
+// Discovery and resolution produced answers in our database; until now
+// nothing put them in the form, so Save and Continue failed validation
+// on empty required inputs.
+//
+// Only resolved answers are typed, every value is read back from the
+// control, and any mismatch or unfamiliar control stops the run before
+// anything is clicked.
+let fillOk = true;
+if (process.argv.includes("--fill")) {
+  const { data: answers } = await db.from("application_answers")
+    .select("question_text,field_key,answer_text,confidence_state,is_required")
+    .eq("application_id", ID);
+  const blockedNow = (answers ?? []).filter((a: any) => a.confidence_state === "BLOCKED");
+  if (blockedNow.length) {
+    console.log(`\nNOT filling: ${blockedNow.length} field(s) are still blocked.`);
+    for (const b of blockedNow) console.log(`   ${b.is_required ? "*" : " "} ${b.question_text}`);
+    fillOk = false;
+  } else {
+    // A CAPTCHA or a page that moved is a stop, not a condition to work around.
+    const pre = await observe(page, tenant);
+    if (pre.signals.captcha) { console.log(`\nNOT filling: a CAPTCHA is present.`); fillOk = false; }
+    else if (!pre.onTenant) { console.log(`\nNOT filling: the page left ${tenant.host}.`); fillOk = false; }
+    else {
+      console.log(`\nfilling ${answers!.length} resolved answer(s) and reading each back`);
+      const reports: FillReport[] = [];
+      for (const a of answers ?? []) {
+        const target: FillTarget = {
+          selector: String(a.field_key ?? ""), label: String(a.question_text),
+          value: String(a.answer_text ?? ""), confidence: String(a.confidence_state),
+          required: Boolean(a.is_required),
+        };
+        if (!target.selector) {
+          reports.push({ target, outcome: { status: "FAILED", why: "no selector recorded for this field" } });
+          continue;
+        }
+        const outcome = await fillOne(page, target);
+        reports.push({ target, outcome });
+        const mark = outcome.status === "FAILED" ? "FAIL " : outcome.status === "SKIPPED_BLANK" ? "blank" : "ok   ";
+        console.log(`  ${mark} ${target.label.slice(0, 30).padEnd(32)} ${outcome.status === "FAILED" ? outcome.why.slice(0, 76) : JSON.stringify(target.value).slice(0, 40)}`);
+      }
+      const bad = failures(reports);
+      if (bad.length) {
+        console.log(`\n${bad.length} field(s) did not verify. Nothing will be clicked.`);
+        fillOk = false;
+      } else {
+        console.log(`\nall ${reports.length} field(s) written and read back correctly`);
+      }
+    }
+  }
+}
+
 // ---- advance a page, only when this one is genuinely finished ---------
 //
 // Advancing is not submitting -- Workday's Review step is last, and Save
@@ -421,7 +475,7 @@ if (snap.fields?.length) {
 // this page is resolved. A page with a blocked field is a page with an
 // unanswered question, and clicking past it would leave the employer's
 // form holding a blank the system decided not to mention.
-if (process.argv.includes("--advance")) {
+if (process.argv.includes("--advance") && fillOk) {
   const { data: open } = await db.from("application_answers")
     .select("question_text,is_required,confidence_state").eq("application_id", ID)
     .eq("confidence_state", "BLOCKED");
