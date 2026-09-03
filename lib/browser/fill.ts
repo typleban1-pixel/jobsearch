@@ -23,7 +23,7 @@ import { Stop, HANDOFF, type FillOutcomeName } from "./stopReasons.ts";
 import { SubmitGuard } from "./submitGuard.ts";
 import { snapshotLive, type LiveField } from "./liveSnapshot.ts";
 import { resolveFormContext, assertContextIntact, type FormContext } from "./formContext.ts";
-import { exactlyOne, fillText, readBack, selectOption, setChecked, setFiles, clickOptionWithin } from "./actions.ts";
+import { exactlyOne, fillText, readBack, selectOption, setChecked, setFiles, clickOptionWithin, shouldReattempt } from "./actions.ts";
 import { readLazyOptions, readFilteredOptions, exactOptions } from "./inspectCombobox.ts";
 import { geoSearchTerm, exactGeoMatches, qualifiedGeoMatches, sameGeography } from "./geography.ts";
 import { matchCountryOption } from "../applications/workCountry.ts";
@@ -1043,13 +1043,27 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       await assertContextIntact(ctx);
       const now = await snapshotLive(ctx.frame);
 
+      // What the main pass already filled and verified is done, full
+      // stop, and the rescan must not touch it.
+      //
+      // A react-select control -- Greenhouse's Location (City) is one --
+      // commits its value into a rendered chip and CLEARS its search
+      // input. On a re-snapshot the field is rediscovered with a selector
+      // that reads empty, so the filled-check below concludes it is
+      // unfilled and re-queues it; the re-write then resolves the
+      // rerendered control to zero matches and the whole submission stops
+      // one field short of the handoff, after the resume was already
+      // uploaded. The main pass verified read-back for everything in
+      // `filled`, so its identity, by label, is authoritative. Matching
+      // by label rather than the volatile selector or key is the point:
+      // those change across the rerender; the question text does not.
+      const filledLabels = new Set(filled.map((x) => x.field));
       const fresh: LiveField[] = [];
       for (const f of now.fields) {
         if (f.type === "file" || attempted.has(f.key) || !f.selector) continue;
         const held = await committedValue(ctx.frame, f.selector).catch(() => null);
         const typed = await ctx.frame.locator(f.selector).inputValue().catch(() => "");
-        if ((held ?? "").trim() || (typed ?? "").trim()) continue;
-        fresh.push(f);
+        if (shouldReattempt(f.label || f.key, filledLabels, held, typed)) fresh.push(f);
       }
       if (!fresh.length) break;
 

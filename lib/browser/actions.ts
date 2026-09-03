@@ -74,3 +74,23 @@ export async function clickOptionWithin(control: Locator, optionText: string): P
   }
   await option.first().click();
 }
+
+/**
+ * Should the rescan re-attempt this field?
+ *
+ * No, when the main pass already filled it (its label is in the filled
+ * set) or when its committed value or typed value is non-empty. A
+ * react-select control that has committed clears its search input and
+ * moves the value into a chip, so the input alone reads empty and would
+ * wrongly re-queue a field that is done -- which is what stopped a real
+ * Samsara submission one field short, after the resume was uploaded.
+ * The main pass verified read-back for what it filled, so its identity
+ * by label is authoritative across the react-select rerender.
+ */
+export function shouldReattempt(
+  label: string, filledLabels: Set<string>, held: string | null, typed: string | null,
+): boolean {
+  if (filledLabels.has(label)) return false;
+  if ((held ?? "").trim() || (typed ?? "").trim()) return false;
+  return true;
+}
