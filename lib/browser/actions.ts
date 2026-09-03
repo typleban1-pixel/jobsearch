@@ -89,8 +89,18 @@ export async function clickOptionWithin(control: Locator, optionText: string): P
  */
 export function shouldReattempt(
   label: string, filledLabels: Set<string>, held: string | null, typed: string | null,
+  labelUniqueInSnapshot: boolean = true,
 ): boolean {
-  if (filledLabels.has(label)) return false;
+  // A committed value, wherever it lives, means the field is done.
   if ((held ?? "").trim() || (typed ?? "").trim()) return false;
+  // The label match only settles it when this label is the SOLE bearer
+  // in the current snapshot -- the rerendered react-select. If two
+  // fields now carry the same label, one is genuinely new, and skipping
+  // by label would suppress a field that still needs filling. In that
+  // case each is judged on its own committed state above, and a field
+  // that reads empty is attempted. Greenhouse questions are distinct in
+  // practice, so this only ever fires for the react-select rerender, but
+  // it keeps dynamic field discovery intact by construction.
+  if (filledLabels.has(label) && labelUniqueInSnapshot) return false;
   return true;
 }

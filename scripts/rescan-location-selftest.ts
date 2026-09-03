@@ -26,6 +26,20 @@ ok(shouldReattempt("Cover Letter", FILLED, "", ""), "empty strings do not count 
 ok(!shouldReattempt("State", FILLED, "Ohio", ""), "a committed value (held) counts as filled even if not in the set");
 ok(!shouldReattempt("State", FILLED, "", "Ohio"), "a typed value counts as filled even if not in the set");
 
+// ---- 1b. a duplicate label does NOT suppress a genuinely new field ---
+// The main pass filled "Location (City)". If a NEW, different field
+// later appears also labelled "Location (City)" (pathological, but the
+// guard must hold), it must still be attempted while empty. Skip by
+// label only when the label is unique in the current snapshot.
+ok(!shouldReattempt("Location (City)", FILLED, null, "", true),
+   "a UNIQUE filled label is skipped (the rerendered react-select)");
+ok(shouldReattempt("Location (City)", FILLED, null, "", false),
+   "a DUPLICATE filled label is still attempted, preserving new-field discovery");
+ok(!shouldReattempt("Location (City)", FILLED, "Cleveland, OH", "", false),
+   "even a duplicate label is skipped when THIS field holds a committed value");
+ok(shouldReattempt("New Question", FILLED, null, "", true),
+   "a brand-new label, empty, is always attempted");
+
 // ---- 2. committedValue reads a real react-select chip ----------------
 // The main pass relies on this to verify the location; the rescan skip
 // is the backstop for when the re-snapshot selector cannot.

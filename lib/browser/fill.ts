@@ -1058,12 +1058,18 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       // by label rather than the volatile selector or key is the point:
       // those change across the rerender; the question text does not.
       const filledLabels = new Set(filled.map((x) => x.field));
+      // How many current fields carry each label. A label the main pass
+      // filled is only skipped when it is unique here; a duplicate means
+      // a distinct new field that must still be discovered.
+      const labelCount = new Map<string, number>();
+      for (const f of now.fields) labelCount.set(f.label || f.key, (labelCount.get(f.label || f.key) ?? 0) + 1);
       const fresh: LiveField[] = [];
       for (const f of now.fields) {
         if (f.type === "file" || attempted.has(f.key) || !f.selector) continue;
         const held = await committedValue(ctx.frame, f.selector).catch(() => null);
         const typed = await ctx.frame.locator(f.selector).inputValue().catch(() => "");
-        if (shouldReattempt(f.label || f.key, filledLabels, held, typed)) fresh.push(f);
+        const unique = (labelCount.get(f.label || f.key) ?? 0) <= 1;
+        if (shouldReattempt(f.label || f.key, filledLabels, held, typed, unique)) fresh.push(f);
       }
       if (!fresh.length) break;
 
