@@ -137,12 +137,21 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
     return {
       state: "NEEDS_YOU",
       summary: `${f.blockedAnswers} question${f.blockedAnswers === 1 ? " needs" : "s need"} your answer`,
-      // /applications/{id}/questions has never existed. The routes that
-      // do are {id}/review and {id}/events, plus the cross-application
-      // /applications/queue. This link 404'd for every application that
-      // had a blocked question -- which is exactly the state in which a
-      // person most needs it to work.
-      action: { label: "Answer questions", href: `${href}/review` },
+      /**
+       * The page that actually answers questions.
+       *
+       * /applications/{id}/questions has never existed, so this link
+       * 404'd for every application with a blocked question -- exactly
+       * the state in which a person most needs it to work.
+       *
+       * The first repair pointed it at {id}/review, which exists but is
+       * the wrong page: review shows "the answers the employer will
+       * receive" and offers approval. It cannot answer anything. The
+       * question flow is the wizard, which groups identical questions
+       * across applications so the same one is not answered twice, and
+       * posts to /api/applications/answer.
+       */
+      action: { label: "Answer questions", href: "/apply/questions" },
     };
   }
 

@@ -59,7 +59,13 @@ console.log("\n1. the link that 404'd:");
   const p = present(F({ blockedAnswers: 3 }), ID);
   check("a blocked application offers an action", Boolean(p.action), JSON.stringify(p));
   check(`its href exists: ${p.action!.href}`, routeExists(p.action!.href), p.action!.href);
-  check("it is not the route that never existed", !/\/questions$/.test(p.action!.href), p.action!.href);
+  // The ban is on the route that never existed, not on the word.
+  // Written as a suffix test, it also rejected /apply/questions -- the
+  // page that actually answers questions.
+  check("it is not /applications/{id}/questions",
+    !new RegExp(`^/applications/[^/]+/questions$`).test(p.action!.href), p.action!.href);
+  check("it is the question wizard, not the review page",
+    p.action!.href === "/apply/questions", p.action!.href);
 }
 
 console.log("\n2. every state's action resolves:");
