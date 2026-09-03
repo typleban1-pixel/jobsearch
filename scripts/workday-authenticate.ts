@@ -54,6 +54,20 @@ page.setDefaultTimeout(30_000);
 await page.goto(candidateHomeUrl(tenant), { waitUntil: "domcontentloaded" });
 await waitForWorkdayReady(page);
 
+// Before/after auth state, so the question "is the automated login
+// reliable now" is answerable from the log rather than by running it
+// again. Workday resolves auth a few seconds AFTER the spinner clears,
+// so this is read once the page reports ready and not before.
+const describe = async (when: string) => {
+  const o = await observe(page, tenant).catch((e: any) => ({ state: `unreadable: ${String(e).slice(0, 80)}`, signals: {} } as any));
+  const title = await page.title().catch(() => "(unavailable)");
+  console.log(`  [${when}] auth=${o.state}`);
+  console.log(`  [${when}] url=${page.url()}`);
+  console.log(`  [${when}] title=${title}`);
+  return o.state as string;
+};
+const authBefore = await describe("before");
+
 const result = await authenticateTenant(tenant, {
   observe: async () => {
     await waitForWorkdayReady(page, 15_000);
@@ -82,6 +96,9 @@ const result = await authenticateTenant(tenant, {
   everAuthenticated: Boolean(prior?.last_authenticated_at),
   priorAccountState: (prior?.account_state ?? "UNKNOWN") as any,
 });
+
+const authAfter = await describe("after");
+console.log(`  auth transition: ${authBefore} -> ${authAfter} (outcome ${result.outcome})`);
 
 // On anything other than success, capture what the page actually is
 // BEFORE closing the browser. One live attempt is the budget; a failure
