@@ -46,9 +46,16 @@ export default function Home() {
           <p className={s.lead}>
             I&rsquo;m currently in the process of relocating to Chicago.
           </p>
-          <a className={s.bigLink} href={LINKEDIN} target="_blank" rel="noopener noreferrer">
-            See me on LinkedIn <ArrowNE size={22} />
-          </a>
+          <div className={s.oneScreenCta}>
+            <h2 className={`${s.display} ${s.ctaHead}`}>Have something worth figuring out?</h2>
+            <p className={s.note}>
+              I&rsquo;m looking for my next opportunity in Chicago. If you think I could be
+              useful on your team, I&rsquo;d love to hear from you.
+            </p>
+            <a className={s.bigLink} href={LINKEDIN} target="_blank" rel="noopener noreferrer">
+              Get in touch <ArrowNE size={22} />
+            </a>
+          </div>
         </div>
 
         <div className={s.headshotHolder}>

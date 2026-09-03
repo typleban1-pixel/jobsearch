@@ -559,3 +559,10 @@
   .oneScreen .headshotHolder { display: none; }
   .oneScreenText h1 { font-size: clamp(1.7rem, 5vw, 3rem); }
 }
+
+/* The invitation block on the one-screen page. Sized to keep the whole
+   page inside the viewport it promised to fit. */
+.oneScreenCta { margin-top: clamp(1.2rem, 3.5vh, 2.2rem); }
+.ctaHead { font-size: clamp(1.15rem, 2.1vw, 1.6rem); margin: 0 0 0.4rem; }
+.oneScreenCta .note { max-width: 44ch; margin: 0; }
+.oneScreenCta .bigLink { margin-top: clamp(0.8rem, 2vh, 1.3rem); display: inline-flex; }
