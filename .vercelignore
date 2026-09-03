@@ -1,27 +1,8 @@
-# What the deployed portal does not need.
-#
-# The upload was 106MB and failed the file-size limit, almost all of it
-# .corpus/corpus.json, the local file-backed validation store. It is
-# gitignored, but this deploy does not go through git, so the ignore has
-# to be stated here too.
-
-# Local validation corpora
-.corpus/
-.corpus-verify/
-
-# Build output and dependencies: Vercel builds these itself
-.next/
-node_modules/
-.git/
-
-# Worker-only code. Not imported by anything under app/, and it is the
-# code that USES the service-role key. There is no reason for it to exist
-# on a server that must never hold that key.
-scripts/
-supabase/
-
-# Local notes and diagnostics
-*.log
-docs/
-OPEN_SCORING_ISSUES.md
-DEPLOYMENT.md
+# Runtime state that lives beside the code on the worker machine and
+# must never ride along to a deploy. The browser profile in particular
+# contains Chrome's SingletonLock, a symlink broken anywhere but here,
+# which fails Vercel's upload tracing with ENOENT.
+.browser-profile
+.fill-runs
+.workday-auth
+.claude
