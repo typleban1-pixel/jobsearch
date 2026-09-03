@@ -12,9 +12,16 @@ import { answerSetHash } from "../../../../lib/applications/approvalBinding.ts";
  * any of them moves afterwards the submission guard refuses rather than
  * treating the old approval as though it described the new content.
  *
- * It does not submit. Nothing here touches an employer, and the
- * application stops at READY_TO_SUBMIT for the existing live submission
- * path to pick up separately.
+ * It then REQUESTS submission. Approval is the decision to send, and
+ * making a person click twice for one decision meant approved
+ * applications sat unsent indefinitely.
+ *
+ * Requesting is not sending. Nothing here touches an employer: the
+ * worker picks the request up and runs every gate again -- revalidation,
+ * duplicates, candidacy, the exact artifact and answer hashes, field
+ * completeness, the live read-back -- and refuses any provider whose
+ * adapter is not PRODUCTION. Workday stays unsubmittable through this
+ * route as through every other.
  *
  * The same guard the submit path runs decides whether approval is
  * allowed at all, so this cannot become a weaker parallel route to
@@ -91,6 +98,20 @@ export async function POST(request: Request): Promise<Response> {
     approved_content_sha256: resume?.content_sha256 ?? null,
     approved_answers_sha256: currentAnswers,
     status: "READY_TO_SUBMIT",
+    // Approval IS the authorization to send.
+    //
+    // This used to stop at READY_TO_SUBMIT and wait for a second,
+    // separate action, so an approved application sat indefinitely: the
+    // Stripe AutoFile Specialist passed every gate at 01:37 and was
+    // never submitted, because nothing had set this column.
+    //
+    // Requesting is not sending. The worker still runs revalidation,
+    // the duplicate and candidacy checks, the exact-artifact and
+    // answer-hash bindings, field completeness and the live read-back
+    // before anything reaches an employer, and it refuses providers
+    // whose adapter is not PRODUCTION -- which is why this cannot
+    // submit Workday.
+    submit_requested_at: now,
   }).eq("id", applicationId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

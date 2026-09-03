@@ -137,7 +137,12 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
     return {
       state: "NEEDS_YOU",
       summary: `${f.blockedAnswers} question${f.blockedAnswers === 1 ? " needs" : "s need"} your answer`,
-      action: { label: "Answer questions", href: `${href}/questions` },
+      // /applications/{id}/questions has never existed. The routes that
+      // do are {id}/review and {id}/events, plus the cross-application
+      // /applications/queue. This link 404'd for every application that
+      // had a blocked question -- which is exactly the state in which a
+      // person most needs it to work.
+      action: { label: "Answer questions", href: `${href}/review` },
     };
   }
 

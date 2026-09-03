@@ -787,3 +787,59 @@ function resolvePhoneCountry(field: FormField, ctx: ResolveContext, matchedBy: s
 export function shouldSkip(field: FormField): boolean {
   return !field.required && matchIntent(field.label).intent?.key === "cover_letter";
 }
+
+/**
+ * Stops one field inheriting another field's answer.
+ *
+ * The resolver matches on intent, and several form fields legitimately
+ * share one. "Address Line 2" and "Phone Extension" both matched the
+ * same intents as "Address Line 1" and "Phone Number", so a Northern
+ * Trust form came back with the street address on both address lines and
+ * the phone number in the extension box. Submitted, that is wrong twice
+ * over and looks like carelessness to the employer.
+ *
+ * These are secondary fields: they exist to hold a part of the value
+ * that the primary field does not, so repeating the primary's value is
+ * never right. When the profile has nothing for them, the truthful
+ * answer is a deliberate blank, and that is different from "unanswered".
+ *
+ * Not Workday-specific. Every two-line address form has this shape.
+ */
+// Each pattern matches ONLY the secondary field, so no exclusion is
+// needed. An earlier version paired each with an "of" pattern naming the
+// primary and skipped a field matching both -- which excluded "Phone
+// Extension" for containing the word "phone", the very case it was
+// written for.
+const SECONDARY_FIELD: Array<{ test: RegExp; why: string }> = [
+  { test: /line\s*2|address\s*(?:line\s*)?2|^\s*apt\b|^\s*unit\b|^\s*suite\b/i,
+    why: "the profile's single address line is complete" },
+  { test: /extension|\bext\.?\s*$/i,
+    why: "the profile records no phone extension" },
+];
+
+/**
+ * Blanks a secondary field that merely echoed its primary.
+ *
+ * Returns the resolution unchanged when it is not an echo, so a genuine
+ * answer for a second line is never discarded.
+ */
+export function guardInheritedAnswer(
+  resolved: ResolvedField,
+  primaryValues: string[],
+): ResolvedField {
+  if (resolved.confidence === "BLOCKED") return resolved;
+  const answer = String(resolved.answer ?? "");
+  if (!answer) return resolved;
+  const label = String(resolved.field.label ?? "");
+  const rule = SECONDARY_FIELD.find((r) => r.test.test(label));
+  if (!rule) return resolved;
+  if (!primaryValues.some((v) => v && v === answer)) return resolved;
+  return {
+    ...resolved,
+    answer: "",
+    confidence: "DERIVED",
+    blockKind: null,
+    blockedReason: null,
+    matchedBy: `deliberate blank: ${rule.why}`,
+  };
+}
