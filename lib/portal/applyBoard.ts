@@ -91,29 +91,38 @@ const page = async (db: SupabaseClient, t: string, cols: string, f: (q: any) => 
 };
 
 export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
-  const [apps, jobs, companies, answers, candidacy, versions, profileRow] = await Promise.all([
-    // is_test is filtered in the query, not after it.
-    //
-    // loadApplications has always excluded test applications and this
-    // did not, so a rehearsal against a real posting produced a real
-    // card on the Apply page: eleven of them, several sitting in
-    // AWAITING_REVIEW next to genuine work. Filtering here rather than
-    // in the loop means the paging count is right too.
-    page(db, "applications",
-      "id,job_id,job_version_id,status,human_approved,human_approved_at,all_fields_confident," +
-      "submitted_at,confirmation_email_received,confirmation_reference,blocked_reason," +
-      "approved_artifact_sha256,approved_answers_sha256,resume_id,is_test," +
-      "submit_requested_at,submit_started_at,submit_outcome",
-      (q) => q.or("is_test.is.null,is_test.eq.false")),
-    page(db, "jobs", "id,title,company_id,source,status,eligibility,canonical_opening_id,application_form_url,url"),
-    page(db, "companies", "id,name"),
-    page(db, "application_answers", "application_id,confidence_state,is_required,answer_text,field_key"),
+  // Applications first, because everything else is scoped to them.
+  //
+  // This used to fetch the ENTIRE jobs table and the entire candidacy
+  // table and filter in memory: 19,000 jobs paged in twenty round trips,
+  // six seconds, to render sixty applications. The board only ever needs
+  // the jobs those applications reference, so the rest is scoped to that
+  // set and the page loads in milliseconds. is_test is filtered in the
+  // query so a rehearsal never becomes a card.
+  const apps = await page(db, "applications",
+    "id,job_id,job_version_id,status,human_approved,human_approved_at,all_fields_confident," +
+    "submitted_at,confirmation_email_received,confirmation_reference,blocked_reason," +
+    "approved_artifact_sha256,approved_answers_sha256,resume_id,is_test," +
+    "submit_requested_at,submit_started_at,submit_outcome",
+    (q) => q.or("is_test.is.null,is_test.eq.false"));
+  const jobIds = [...new Set(apps.map((a) => a.job_id).filter(Boolean))];
+  const versionIds = [...new Set(apps.map((a) => a.job_version_id).filter(Boolean))];
+  const appIds = apps.map((a) => a.id);
+  const scopedIn = (col: string, ids: string[]) => (q: any) => q.in(col, ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+
+  const [jobs, answers, candidacy, versions, profileRow] = await Promise.all([
+    page(db, "jobs", "id,title,company_id,source,status,eligibility,canonical_opening_id,application_form_url,url",
+      scopedIn("id", jobIds)),
+    page(db, "application_answers", "application_id,confidence_state,is_required,answer_text,field_key",
+      scopedIn("application_id", appIds)),
     page(db, "job_candidacy",
       "job_id,verdict,created_at,profile_version,formula_version,taxonomy_version,model_version",
-      (q) => q, "job_id"),
-    page(db, "job_versions", "id,is_current"),
+      scopedIn("job_id", jobIds), "job_id"),
+    versionIds.length ? page(db, "job_versions", "id,is_current", scopedIn("id", versionIds)) : Promise.resolve([]),
     db.from("profile").select("profile_version").single(),
   ]);
+  const companyIds = [...new Set(jobs.map((j) => j.company_id).filter(Boolean))];
+  const companies = await page(db, "companies", "id,name", scopedIn("id", companyIds));
   const liveProfile = (profileRow as any)?.data ?? null;
 
   const jobById = new Map(jobs.map((j: any) => [j.id, j]));
@@ -284,17 +293,21 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
  * is judged on those same options rather than on a label.
  */
 export async function loadBlockedGroups(db: SupabaseClient): Promise<QuestionGroup[]> {
-  const [apps, jobs, companies, blocked] = await Promise.all([
-    // Same exclusion as the board above: no test application should ever
-    // put a question in front of a person.
-    page(db, "applications", "id,job_id,status,form_snapshot",
-      (q) => q.eq("status", "BLOCKED_NEEDS_INPUT").or("is_test.is.null,is_test.eq.false")),
-    page(db, "jobs", "id,title,company_id"),
-    page(db, "companies", "id,name"),
+  // The blocked applications first; jobs and companies are scoped to
+  // them rather than scanned whole, the same fix as the board above.
+  const scopedIn = (col: string, ids: string[]) => (q: any) => q.in(col, ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+  const apps = await page(db, "applications", "id,job_id,status,form_snapshot",
+    (q) => q.eq("status", "BLOCKED_NEEDS_INPUT").or("is_test.is.null,is_test.eq.false"));
+  const jobIds = [...new Set(apps.map((a) => a.job_id).filter(Boolean))];
+  const appIds = apps.map((a) => a.id);
+  const [jobs, blocked] = await Promise.all([
+    page(db, "jobs", "id,title,company_id", scopedIn("id", jobIds)),
     page(db, "application_answers",
       "id,application_id,field_key,field_label,question_text,is_required,category,block_kind,blocked_reason",
-      (q) => q.eq("confidence_state", "BLOCKED")),
+      (q) => scopedIn("application_id", appIds)(q).eq("confidence_state", "BLOCKED")),
   ]);
+  const companyIds = [...new Set(jobs.map((j) => j.company_id).filter(Boolean))];
+  const companies = await page(db, "companies", "id,name", scopedIn("id", companyIds));
   const jobById = new Map(jobs.map((j: any) => [j.id, j]));
   const nameById = new Map(companies.map((c: any) => [c.id, c.name]));
   const appById = new Map(apps.map((a: any) => [a.id, a]));
