@@ -24,6 +24,7 @@ import { observe, waitForWorkdayReady } from "../lib/workday/probe.ts";
 import { snapshotLive } from "../lib/browser/liveSnapshot.ts";
 import { mergeDiscovery, summarise } from "../lib/applications/fieldMerge.ts";
 import { fillOne, selectRadioByLabel, selectListboxOption, selectPromptPath, type FillTarget } from "../lib/workday/fill.ts";
+import { firstCharacterLost } from "../lib/workday/textFill.ts";
 import { collapseRadioGroups } from "../lib/workday/radioGroups.ts";
 import { resolveField, guardInheritedAnswer, type ResolveContext } from "../lib/applications/answer.ts";
 import { loadContext, applicationScope } from "../lib/applications/prepare.ts";
@@ -480,7 +481,18 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
         ? await selectListboxOption(page, a.field_key, a.answer_text)
         : await fillOne(page, target);
     if (out.status === "FAILED") { failed++; console.log(`   FAIL ${a.question_text}: ${out.why}`); }
-    else { filled++; console.log(`   ok   ${String(a.question_text).slice(0, 40).padEnd(42)} ${JSON.stringify((out as any).readBack ?? "")}`); }
+    else {
+      const back = String((out as any).readBack ?? "");
+      // A value that lost its first character reads back as a plausible
+      // string, so it is checked for explicitly rather than trusted.
+      if (firstCharacterLost(String(a.answer_text), back)) {
+        failed++;
+        console.log(`   FAIL ${String(a.question_text).slice(0, 40).padEnd(42)} first character lost: ${JSON.stringify(back)}`);
+      } else {
+        filled++;
+        console.log(`   ok   ${String(a.question_text).slice(0, 40).padEnd(42)} ${JSON.stringify(back)}`);
+      }
+    }
   }
   console.log(`filled ${filled}, failed ${failed}`);
 

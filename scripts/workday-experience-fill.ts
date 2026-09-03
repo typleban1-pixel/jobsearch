@@ -17,6 +17,7 @@ import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { toMMYYYY, dateKeystrokes, dateMatches } from "../lib/workday/dateControl.ts";
+import { fillTextExact, firstCharacterLost } from "../lib/workday/textFill.ts";
 
 const ID = process.argv[2] ?? "35eaed21-599e-4480-bc7b-192677c80f18";
 const COMMIT = process.argv.includes("--commit");
@@ -145,12 +146,9 @@ const addButtonFor = async (section: RegExp) => {
 const writeAndRead = async (auto: string, n: number, value: string, what: string): Promise<boolean> => {
   const box = field(auto, n).locator("input, textarea").first();
   if (!(await box.count().catch(() => 0))) { console.log(`   MISSING ${what}`); return false; }
-  await box.fill(value).catch(() => undefined);
-  await page.waitForTimeout(200);
-  const back = String(await box.inputValue().catch(() => ""));
-  const ok = back.trim() === value.trim();
-  console.log(`   ${ok ? "ok  " : "FAIL"} ${what.padEnd(20)} ${JSON.stringify(back.slice(0, 46))}`);
-  return ok;
+  const r = await fillTextExact(page, box, value);
+  console.log(`   ${r.ok ? "ok  " : "FAIL"} ${what.padEnd(20)} ${JSON.stringify(r.read.slice(0, 46))}${r.ok ? "" : "  " + r.why}`);
+  return r.ok;
 };
 
 /**
@@ -170,9 +168,11 @@ const writeDate = async (auto: string, n: number, iso: string, what: string): Pr
   const keys = dateKeystrokes(iso);
   if (!keys) { console.log(`   FAIL ${what.padEnd(20)} no usable date in ${JSON.stringify(iso)}`); return false; }
 
-  await m.click({ timeout: 8000 }).catch(() => undefined);
-  await page.keyboard.press("Control+A").catch(() => undefined);
-  await page.keyboard.press("Delete").catch(() => undefined);
+  // Cleared through the elements themselves. Control+A moves the caret
+  // on this platform, so Control+A then Delete removed the first
+  // character of whatever input held focus -- which is how six Work
+  // Experience locations reached Review missing their first letter.
+  await m.fill("").catch(() => undefined);
   await y.fill("").catch(() => undefined);
   await m.click({ timeout: 8000 }).catch(() => undefined);
   await page.keyboard.type(keys, { delay: 90 });
@@ -209,9 +209,10 @@ async function selectFromLongPrompt(auto: string, n: number, wanted: string, wha
   await page.waitForTimeout(1000);
   const sb = fld.locator('[data-automation-id="searchBox"]').first();
   if (await sb.count().catch(() => 0)) {
+    // fill(""), not keystrokes: a click that misses would otherwise send
+    // the clear to whichever field was written last.
     await sb.click({ timeout: 5000 }).catch(() => undefined);
-    await page.keyboard.press("Control+A").catch(() => undefined);
-    await page.keyboard.press("Delete").catch(() => undefined);
+    await sb.fill("").catch(() => undefined);
   }
   const want = wanted.trim().toLowerCase();
   let clicked = false;
