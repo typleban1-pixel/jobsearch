@@ -518,32 +518,44 @@
 }
 .offsetBlock img { position: relative; }
 
-/* The one-screen homepage: everything fits the viewport, nothing
-   scrolls. The headshot keeps its offset block; on short screens the
-   image cedes height before the text does. */
+/* The one-screen homepage: everything fits 100% of the page height and
+   nothing scrolls. height is fixed, not a minimum, and the type is
+   sized for this page rather than borrowing the storytelling scale:
+   .huge reaches 9.5rem there, which is what pushed this layout past the
+   fold. The headshot keeps its offset block and cedes height first. */
 .oneScreen {
-  min-height: 100dvh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(1.2rem, 4vw, 3rem);
+  padding: clamp(1rem, 3vw, 2.4rem);
   overflow: hidden;
+  box-sizing: border-box;
 }
 .oneScreenInner {
   display: flex;
   align-items: center;
-  gap: clamp(1.6rem, 5vw, 4.5rem);
-  max-width: 1040px;
+  gap: clamp(1.4rem, 4.5vw, 4rem);
+  max-width: 1000px;
   width: 100%;
 }
 .oneScreenText { flex: 1 1 auto; min-width: 0; }
-.oneScreenText .lead { margin-top: 1.2rem; }
-.oneScreenText .bigLink { margin-top: clamp(1.2rem, 3vh, 2rem); display: inline-flex; }
-.oneScreen .headshotHolder { flex: 0 0 clamp(180px, 30vw, 380px); }
-.oneScreen .headshot { max-height: 58dvh; width: 100%; object-fit: cover; }
+.oneScreenText h1 {
+  font-size: clamp(2.1rem, 5.6vw, 4.6rem);
+  line-height: 0.94;
+  margin: 0;
+}
+.oneScreenText .lead { margin-top: clamp(0.8rem, 2vh, 1.4rem); font-size: clamp(1rem, 1.6vw, 1.25rem); }
+.oneScreenText .bigLink { margin-top: clamp(1rem, 2.5vh, 1.8rem); display: inline-flex; }
+.oneScreen .headshotHolder { flex: 0 0 clamp(160px, 26vw, 340px); }
+.oneScreen .headshot { max-height: min(56dvh, 480px); width: 100%; object-fit: cover; }
 @media (max-width: 719px) {
-  .oneScreenInner { flex-direction: column-reverse; text-align: left; gap: 1.4rem; }
-  .oneScreen .headshotHolder { flex: 0 1 auto; width: min(52vw, 240px); }
-  .oneScreen .headshot { max-height: 32dvh; }
-  .oneScreen h1 { font-size: clamp(1.9rem, 8.5vw, 2.6rem); }
+  .oneScreenInner { flex-direction: column-reverse; text-align: left; gap: clamp(0.9rem, 2.5vh, 1.4rem); }
+  .oneScreen .headshotHolder { flex: 0 1 auto; width: min(44vw, 200px); }
+  .oneScreen .headshot { max-height: 26dvh; }
+  .oneScreenText h1 { font-size: clamp(1.7rem, 7.5vw, 2.4rem); }
+}
+@media (max-height: 640px) {
+  .oneScreen .headshotHolder { display: none; }
+  .oneScreenText h1 { font-size: clamp(1.7rem, 5vw, 3rem); }
 }

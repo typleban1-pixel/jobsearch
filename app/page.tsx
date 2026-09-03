@@ -40,7 +40,7 @@ export default function Home() {
     <main className={`${s.root} ${fontVariables} ${s.oneScreen}`} style={{ ["--accent" as string]: ACCENT }}>
       <div className={s.oneScreenInner}>
         <div className={s.oneScreenText}>
-          <h1 className={`${s.display} ${s.huge}`}>
+          <h1 className={s.display}>
             Hi, I&rsquo;m Ty.<br />I like figuring things out.
           </h1>
           <p className={s.lead}>
