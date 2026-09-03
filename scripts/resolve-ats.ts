@@ -214,9 +214,32 @@ async function resolveOne(company: any): Promise<void> {
     }));
     // One statement, not one per candidate. At 5.9 candidates per
     // company this was 5.9 round trips of pure bookkeeping per company.
-    if (rows.length) {
-      await db.from("company_token_candidates")
-        .upsert(rows, { onConflict: "ats_provider,candidate_token" });
+    //
+    // A company that produced NO candidates still writes one marker row.
+    // The attempt record is what stops a company being re-probed every
+    // run; without it, an employer whose careers page yields nothing --
+    // most nonprofits -- looked never-attempted forever, and each run
+    // spent its budget re-asking the same organisations that had already
+    // answered "no board".
+    if (!rows.length) {
+      rows.push({
+        company_id: company.id, company_name: company.name,
+        ats_provider: "UNKNOWN" as any, candidate_token: `none:${company.id}`,
+        source: "NO_CANDIDATES" as any, source_url: null,
+        tested_at: new Date().toISOString(),
+        test_result: "no candidates could be generated for this company",
+        job_count: 0, confirmed: false,
+      });
+    }
+    const { error: candidateError } = await db.from("company_token_candidates")
+      .upsert(rows, { onConflict: "ats_provider,candidate_token" });
+    if (candidateError) {
+      // A silent failure here re-creates the endless-reprobe bug, so it
+      // is loud and it stops the run: continuing would burn the whole
+      // tranche budget re-testing companies whose results were never
+      // going to persist.
+      console.error(`\nSTOPPING: attempt records are not persisting: ${candidateError.message}`);
+      process.exit(1);
     }
     if (hit) {
       const { error } = await db.from("companies").update({
