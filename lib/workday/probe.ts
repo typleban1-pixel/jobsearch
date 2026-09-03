@@ -265,3 +265,33 @@ export async function createAccount(page: Page, email: string, password: string)
   await clickSubmit(page, "createAccountSubmitButton");
   await settleAfterCredential(page);
 }
+
+/**
+ * Dismisses the tenant's legal notice by accepting it.
+ *
+ * Workday renders this as a banner above the app, and Northern Trust's
+ * sat un-dismissed through an entire failed sign-in: the credential was
+ * submitted, the modal closed with no error of any kind, and the app
+ * returned to the job search still signed out. A consent gate the
+ * session establishment depends on is the leading explanation for a
+ * login that fails silently rather than complaining.
+ *
+ * Accepting is a consent decision, so it is never a default: the caller
+ * has to ask for it, and the return value says what was actually done so
+ * the run can record it.
+ */
+export async function acceptLegalNotice(page: Page): Promise<"ACCEPTED" | "ABSENT" | "FAILED"> {
+  const accept = page.locator('[data-automation-id="legalNoticeAcceptButton"]');
+  if (!(await accept.count().catch(() => 0))) return "ABSENT";
+  if (!(await accept.first().isVisible().catch(() => false))) return "ABSENT";
+  try {
+    await accept.first().click({ timeout: 10_000 });
+    // The banner is removed by the app, not by the click, so wait for the
+    // fact rather than assuming it.
+    await page.waitForFunction(() => {
+      const b = document.querySelector('[data-automation-id="legalNotice"]');
+      return !b || (b as HTMLElement).getClientRects().length === 0;
+    }, null, { timeout: 10_000 }).catch(() => undefined);
+    return "ACCEPTED";
+  } catch { return "FAILED"; }
+}

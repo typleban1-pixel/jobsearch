@@ -20,7 +20,7 @@ import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
 import { tenantFromToken, candidateHomeUrl } from "../lib/workday/tenant.ts";
-import { observe, waitForWorkdayReady, SEL, signIn as doSignIn, clickWorkdayButton } from "../lib/workday/probe.ts";
+import { observe, waitForWorkdayReady, SEL, signIn as doSignIn, clickWorkdayButton, acceptLegalNotice } from "../lib/workday/probe.ts";
 import { authenticateTenant } from "../lib/workday/authenticate.ts";
 import { keychainRef, readPassword } from "../lib/workday/keychain.ts";
 import { ensureTenant, loadTenants, recordObservation } from "../lib/workday/store.ts";
@@ -71,6 +71,21 @@ const describe = async (when: string) => {
   return o.state as string;
 };
 const authBefore = await describe("before");
+
+// Consent, taken only because it was asked for.
+//
+// The previous attempt failed with the legal notice still on screen and
+// produced no error at all: modal closed, no alert, back to the job
+// search signed out. Accepting is a decision about the person's
+// agreement with the employer, so it happens only under --accept-legal
+// and is written into the record either way.
+const ACCEPT_LEGAL = process.argv.includes("--accept-legal");
+let legalNotice: string = "NOT_ATTEMPTED";
+if (ACCEPT_LEGAL) {
+  legalNotice = await acceptLegalNotice(page);
+  console.log(`  legal notice: ${legalNotice} (accepted on explicit authorisation)`);
+  await waitForWorkdayReady(page, 15_000).catch(() => undefined);
+}
 
 const result = await authenticateTenant(tenant, {
   observe: async () => {
@@ -143,6 +158,7 @@ if (result.outcome !== "AUTHENTICATED") {
     writeFileSync(join(dir, "diagnostic.json"), JSON.stringify({
       tenant: tenant.host, site: tenant.site, application: applicationId,
       outcome: result.outcome, path: result.path, reason: result.reason,
+      legalNotice,
       authBefore, authAfter, title: await page.title().catch(() => null),
       priorSessionState: prior?.session_state ?? null,
       priorAccountState: prior?.account_state ?? null,
