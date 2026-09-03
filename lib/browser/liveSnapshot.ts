@@ -404,7 +404,7 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
       formCount: document.querySelectorAll("form").length,
     };
   });
-  return { ...snap, fields: dedupeByStrongestSelector(snap.fields) };
+  return { ...snap, fields: dropContainerBlobs(dedupeByStrongestSelector(snap.fields)) };
 }
 
 /**
@@ -420,6 +420,56 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
  * ones are that same control seen again and are dropped. Two fields that
  * genuinely differ keep their own strong selectors and are untouched.
  */
+/**
+ * Drops a container the walker mistook for one input.
+ *
+ * Greenhouse's international phone widget renders an <input> the label
+ * resolver can only reach by its text, and that text falls through to the
+ * whole personal-information card: "First Name* Last Name* ... Phone
+ * Country* Phone* ... Resume/CV*". It arrives as a single required field
+ * that can never be answered, and worse, because its blob label contains
+ * the word "Country", the real telephone input reads it as its
+ * dial-code dependency and refuses to fill while it stays unresolved.
+ * Both failures vanish once the blob is recognised as a container, not a
+ * question.
+ *
+ * Every drop requires a weak (label-only) selector, so no control
+ * reachable by a real name or id is ever removed. Three signatures:
+ *
+ *   A  container aggregate: a label carrying two or more
+ *      required-asterisks, or one that literally contains the full labels
+ *      of two or more OTHER real controls -- the phone card blob.
+ *   B  value / placeholder echo: a bare, typeless <input> (htmlType
+ *      "input" -- a widget internal, never how Greenhouse renders a real
+ *      field) whose label is a real control's label with the widget's
+ *      rendered value or "Select…" appended -- the School react-select's
+ *      "School* Select…" and "School* option … selected" duplicates.
+ *
+ * The htmlType gate on B matters: real controls report "text" / "tel" /
+ * "select", so a genuine field with a prefix-matching label is safe.
+ */
+export function dropContainerBlobs(fields: LiveField[]): LiveField[] {
+  const norm = (s: string) => (s || "").replace(/\*/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  const strong = fields.filter((f) => f.selectorKind !== "label" && (f.label || "").trim().length >= 4);
+  const strongLabels = strong.map((f) => (f.label || "").trim());
+  const strongNorms = strong.map((f) => norm(f.label || "")).filter((s) => s.length >= 4);
+  const drop = new Set<LiveField>();
+  for (const f of fields) {
+    if (f.selectorKind !== "label") continue;
+    const label = (f.label || "").trim();
+    // A: container aggregate.
+    const stars = (label.match(/\*/g) || []).length;
+    const contains = strongLabels.filter((s) => s !== label && label.includes(s)).length;
+    if (stars >= 2 || contains >= 2) { drop.add(f); continue; }
+    // B: a value/placeholder echo of one real control.
+    if (f.htmlType === "input") {
+      const nlabel = norm(label);
+      if (strongNorms.some((sn) => nlabel !== sn && nlabel.startsWith(sn + " "))) drop.add(f);
+    }
+  }
+  return fields.filter((f) => !drop.has(f));
+}
+
 function dedupeByStrongestSelector(fields: LiveField[]): LiveField[] {
   const byLabel = new Map<string, LiveField[]>();
   for (const f of fields) {

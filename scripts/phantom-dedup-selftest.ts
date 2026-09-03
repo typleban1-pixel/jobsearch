@@ -56,6 +56,36 @@ const snap = async (html: string) => { await page.setContent(`<body>${html}</bod
   ok(df.length === 1, "a lone field is kept, whatever its selector kind (dedup never drops a group of one)");
 }
 
+// ---- the Stripe phone widget: a container mistaken for one input -----
+// A bare input with no label of its own falls through to the whole
+// personal-information card as its "label", arriving as a 2+-asterisk
+// blob that (a) can never be answered and (b) contains "Country", which
+// made the real telephone input read it as a dial-code dependency and
+// refuse to fill. The blob must be dropped; the real controls must stay.
+{
+  const s: any = await snap(`
+    <div>
+      <label for="fn">First Name*</label><input id="fn" name="fn" />
+      <label for="em">Email*</label><input id="em" name="em" />
+      <label for="country">Phone Country*</label><input id="country" name="country" />
+      <label for="phone">Phone*</label><input id="phone" name="phone" type="tel" />
+    </div>
+    <input />`);
+  const blob = s.fields.filter((f: any) => String(f.label || "").length > 40 || (String(f.label||"").match(/\*/g)||[]).length >= 2);
+  ok(blob.length === 0, `the container blob is dropped (got ${blob.length}: ${JSON.stringify(blob.map((b:any)=>String(b.label).slice(0,30)))})`);
+  ok(s.fields.some((f: any) => f.selector === "#phone" && f.htmlType === "tel"), "the real telephone input survives");
+  ok(s.fields.some((f: any) => f.selector === "#country"), "the real dial-code control survives");
+}
+
+// ---- a real, long question with a strong selector is NEVER dropped ---
+// "Please select the country or countries you anticipate working in..."
+// is a legitimate question reached by id; only label-only blobs go.
+{
+  const long = "Please select the country or countries you anticipate working in for the next twelve months.";
+  const s: any = await snap(`<label for="q1">${long}</label><input id="q1" name="q1" />`);
+  ok(s.fields.some((f: any) => f.selector === "#q1"), "a long question with a real selector is kept");
+}
+
 await browser.close();
 console.log(`${n-bad}/${n} assertions passed`);
 process.exit(bad?1:0);
