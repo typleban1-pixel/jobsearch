@@ -543,21 +543,6 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
 
     const write = async (f: LiveField, rawValue: string): Promise<void> => {
       const value = await proveAnswerFits(f, rawValue);
-      const c = await control(ctx, f);
-      const handle = await c.elementHandle();
-      if (handle) {
-        const alias = await identifyAgainstWritten(f, handle, value);
-        if (alias) {
-          aliases.push({ field: f.label || f.key, sameAs: alias.alias });
-          return;
-        }
-        writtenNodes.push({ key: f.key, label: f.label, handle });
-      }
-      const isCombobox = await c.evaluate((el: Element) =>
-        el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list")
-        .catch(() => false);
-
-      const isLocation = locationField(f);
 
       /**
        * A group of checkboxes is one question with many controls.
@@ -607,6 +592,25 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         filled.push({ field: f.label || f.key, value: chosen.option });
         return;
       }
+
+      // Resolved only now. A checkbox group's selector reaches every box
+      // in it by design, so asking for the single control first would
+      // refuse the group before the code that handles it ever ran.
+      const c = await control(ctx, f);
+      const handle = await c.elementHandle();
+      if (handle) {
+        const alias = await identifyAgainstWritten(f, handle, value);
+        if (alias) {
+          aliases.push({ field: f.label || f.key, sameAs: alias.alias });
+          return;
+        }
+        writtenNodes.push({ key: f.key, label: f.label, handle });
+      }
+      const isCombobox = await c.evaluate((el: Element) =>
+        el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") === "list")
+        .catch(() => false);
+
+      const isLocation = locationField(f);
 
       if (isCombobox && isLocation) {
         // A place, not a string.
