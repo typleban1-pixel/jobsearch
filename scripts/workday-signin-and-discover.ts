@@ -21,6 +21,7 @@ import { observe, waitForWorkdayReady, readSignals } from "../lib/workday/probe.
 import { snapshotLive } from "../lib/browser/liveSnapshot.ts";
 import { mergeDiscovery, summarise } from "../lib/applications/fieldMerge.ts";
 import { fillOne, failures, type FillTarget, type FillReport } from "../lib/workday/fill.ts";
+import { radioOptionSelector, radioGroupKey } from "../lib/workday/radioGroups.ts";
 
 const ID = process.argv[2] ?? "35eaed21-599e-4480-bc7b-192677c80f18";
 const DONE = ".workday-signin-done";
@@ -442,12 +443,19 @@ if (process.argv.includes("--fill")) {
       console.log(`\nfilling ${answers!.length} resolved answer(s) and reading each back`);
       const reports: FillReport[] = [];
       for (const a of answers ?? []) {
+        // A radio group's stored key is its identity, not a selector.
+        // The selector needs the group name AND the chosen value, or it
+        // matches every identically-labelled option on the page.
+        const storedKey = String(a.field_key ?? "");
+        const selector = storedKey.startsWith("radio-group:")
+          ? radioOptionSelector(storedKey.slice("radio-group:".length), String(a.answer_text ?? ""))
+          : storedKey;
         const target: FillTarget = {
-          selector: String(a.field_key ?? ""), label: String(a.question_text),
+          selector, label: String(a.question_text),
           value: String(a.answer_text ?? ""), confidence: String(a.confidence_state),
           required: Boolean(a.is_required),
         };
-        if (!target.selector) {
+        if (!target.selector || target.selector === "radio-group:") {
           reports.push({ target, outcome: { status: "FAILED", why: "no selector recorded for this field" } });
           continue;
         }
