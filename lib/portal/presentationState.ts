@@ -58,6 +58,19 @@ export interface ApplicationFacts {
    * actually true for THIS provider.
    */
   handoffReason?: string | null;
+  /**
+   * A worker is preparing this right now: status is PREPARING, or a fresh
+   * prepare_started_at claim is held. Only this reads as "Preparing"; a
+   * DRAFT that came back parked does not.
+   */
+  activelyPreparing?: boolean;
+  /**
+   * The raw parked reason, if any. A DRAFT that carries one is not "being
+   * prepared" -- it came back needing a person (a provider/browser handoff
+   * like Ashby, or something else), and must surface, never read as
+   * Preparing forever.
+   */
+  blockedReason?: string | null;
 }
 
 export interface Presentation {
@@ -234,5 +247,32 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
       action: { label: "Submit application", href: `${href}/review` } };
   }
 
-  return { state: "PREPARING", summary: "Being prepared. Nothing needed from you.", action: null };
+  // A prepared attempt that came back with a reason is NOT "being prepared":
+  // it needs a person. Provider/browser handoffs (Ashby, Workday, Lever)
+  // point at the employer's own form; the recorded reason is preserved as
+  // the summary so the specific blocker is never lost. Guarded by
+  // activelyPreparing so a row a worker is genuinely mid-run on is never
+  // yanked into Needs You.
+  if (f.blockedReason && !f.activelyPreparing) {
+    const ats = ATS_LABEL[f.provider] ?? f.provider;
+    return {
+      state: "NEEDS_YOU",
+      summary: f.handoffReason ?? `This one needs you to continue on ${ats}.`,
+      action: f.applyUrl
+        ? { label: `Continue on ${ats}`, href: f.applyUrl }
+        : { label: "Open application", href: `${href}/review` },
+    };
+  }
+
+  // Genuinely in flight: a worker holds a fresh claim or the row is
+  // PREPARING. This is the ONLY thing that reads as "Preparing"; no
+  // countdown, no fake ETA -- just that it is running and can be left.
+  if (f.activelyPreparing) {
+    return { state: "PREPARING",
+      summary: "Preparing your application… Tailoring your resume and preparing the application. You can leave this page.",
+      action: null };
+  }
+
+  // Freshly queued, not yet claimed. Still preparing, nothing to do.
+  return { state: "PREPARING", summary: "Queued for preparation. Nothing needed from you.", action: null };
 }

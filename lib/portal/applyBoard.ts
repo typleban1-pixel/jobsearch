@@ -106,7 +106,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
     "id,job_id,job_version_id,status,human_approved,human_approved_at,all_fields_confident," +
     "submitted_at,confirmation_email_received,confirmation_reference,blocked_reason," +
     "approved_artifact_sha256,approved_answers_sha256,resume_id,is_test," +
-    "submit_requested_at,submit_started_at,submit_outcome",
+    "submit_requested_at,submit_started_at,submit_outcome,prepare_started_at",
     (q) => q.or("is_test.is.null,is_test.eq.false"));
   const jobIds = [...new Set(apps.map((a) => a.job_id).filter(Boolean))];
   const versionIds = [...new Set(apps.map((a) => a.job_version_id).filter(Boolean))];
@@ -262,6 +262,11 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       submitQueued: Boolean(a.submit_requested_at && !a.submit_started_at),
       submitRunning: Boolean(a.submit_requested_at && a.submit_started_at),
       submitOutcome: a.submit_outcome ?? null,
+      // A worker holds a fresh prepare claim, or the row is mid-transition
+      // in PREPARING: only then does the card read "Preparing". A DRAFT that
+      // came back parked with a reason is surfaced, never left "Preparing".
+      activelyPreparing: Boolean(a.prepare_started_at) || a.status === "PREPARING",
+      blockedReason: a.blocked_reason ?? null,
     };
 
     const row: ApplyRow = {

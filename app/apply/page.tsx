@@ -5,6 +5,7 @@ import { loadReview, type ReviewData } from "../../lib/portal/reviewData.ts";
 import { matchLabel } from "../../lib/portal/matchScore.ts";
 import { PrimaryNav } from "../PrimaryNav.tsx";
 import { InlineReview } from "./InlineReview.tsx";
+import { AutoRefreshApply } from "./AutoRefreshApply.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,8 @@ export default async function ApplyPage() {
 
   return (
     <main className="apply">
+      {/* Poll only while something is actively preparing; a settled board is quiet. */}
+      <AutoRefreshApply active={board.preparing.length > 0} />
       <header className="applyhead">
         <h1>Apply</h1>
         <PrimaryNav current="apply" />
