@@ -22,6 +22,7 @@ import { htmlToText, normalizeWhitespace } from "../ingest/normalize/text.ts";
 import { composeFromRequirements, type RequirementInput } from "./prepare.ts";
 import { renderAndStore } from "../render/artifact.ts";
 import { GROUNDING_VERSION } from "../render/grounding.ts";
+import { scoreRequirements } from "../portal/scoreRequirements.ts";
 
 export { EXTRACTION_VERSION };
 
@@ -140,12 +141,25 @@ export async function generateResume(
     return { ok: false, errorCategory: "RENDER_FAILED", errorDetail: String((e as Error)?.message ?? e).slice(0, 300) };
   }
 
+  // The Match Score for the pasted posting: the SAME calibrated
+  // matchScore() /jobs and /apply use, over the same extracted
+  // requirements. A pasted posting has no gating geography, so eligibility
+  // is treated as eligible and only role-fit + compensation drive it.
+  let scored;
+  try {
+    scored = await scoreRequirements(db, { requirements, title: composeTitle, salary: null, eligibility: "ELIGIBLE" });
+  } catch { scored = null; }
+
   return {
     ok: true,
     resumeId: resume.id,
     artifactSha256: rendered.sha256,
     contentSha256: rendered.contentSha256,
     profileVersion: c.profileVersion,
-    tailoringSummary: tailoringSummary(c),
+    tailoringSummary: {
+      ...tailoringSummary(c),
+      match: scored ? { score: scored.match.score, provisional: scored.match.provisional, confidence: scored.match.confidence, note: scored.match.note } : null,
+      why: scored?.why ?? null,
+    },
   };
 }
