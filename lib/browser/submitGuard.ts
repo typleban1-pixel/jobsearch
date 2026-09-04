@@ -122,6 +122,38 @@ export function mayFetchWhileFilling(url: string): boolean {
   return REQUEST_ALLOW.some((r) => r.test(url));
 }
 
+/**
+ * Ashby operations that are known-benign WHEN BLOCKED.
+ *
+ * These do NOT loosen the allow-list: the guard still aborts them, so
+ * nothing is written to Ashby during filling. They exist only so a blocked
+ * per-field autosave (ApiSetFormValue) or the geo option-fetch is not
+ * mistaken, at the end of a run, for a submission attempt. Every pattern is
+ * pinned to Ashby's own GraphQL endpoint and a specific op, so no other
+ * provider's blocked traffic is affected and the application-submit
+ * mutation -- a different op -- is never among them.
+ */
+const BENIGN_WHEN_BLOCKED = [
+  /\/api\/non-user-graphql\?op=ApiSetFormValue(?:&|$)/i,
+  /\/api\/non-user-graphql\?op=ApiAutocompleteGeoLocation(?:&|$)/i,
+];
+
+/** Whether a blocked request is a known-benign op (never the submit mutation). */
+export function isBenignBlocked(url: string): boolean {
+  return BENIGN_WHEN_BLOCKED.some((r) => r.test(url));
+}
+
+/**
+ * Given the URLs blocked since a mark, whether any indicates a possible
+ * submission: a blocked op that is NOT known-benign. A blocked autosave or
+ * geo fetch does not; a blocked submit mutation, or ANY unrecognized blocked
+ * POST, does -- so an unknown request still fails closed. Pure, for the
+ * regression and for the terminal check below.
+ */
+export function blockedIndicatesSubmission(urls: string[]): boolean {
+  return urls.some((u) => !isBenignBlocked(u));
+}
+
 const INSTALLED = new WeakMap<BrowserContext, SubmitGuard>();
 
 export class SubmitGuard {
@@ -275,8 +307,13 @@ export class SubmitGuard {
   /** Did anything happen on THIS page since the mark? */
   async sawSubmissionAttemptSince(target: Page | Frame, since: number): Promise<boolean> {
     const r = await this.report(target);
-    return r.submitAttempts.length > 0 || r.programmatic.length > 0
-      || r.blockedRequests.length > since;
+    if (r.submitAttempts.length > 0 || r.programmatic.length > 0) return true;
+    // A blocked request since the mark counts as an attempt only when it is
+    // NOT a known-benign Ashby op. The guard still blocked every one of them
+    // (nothing was written); this only stops a blocked per-field autosave or
+    // geo fetch from reading as a submission. A blocked submit mutation, or
+    // any unrecognized same-origin POST, is not benign and still fails closed.
+    return blockedIndicatesSubmission(this.blockedRequests.slice(since).map((b) => b.url));
   }
 
   async sawSubmissionAttempt(target: Page | Frame): Promise<boolean> {

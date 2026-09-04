@@ -8,7 +8,7 @@
  * click + read-back is exercised by the supervised --validate run.
  */
 import { chromium } from "playwright";
-import { mayFetchWhileFilling } from "../lib/browser/submitGuard.ts";
+import { mayFetchWhileFilling, isBenignBlocked, blockedIndicatesSubmission } from "../lib/browser/submitGuard.ts";
 import { markAshbyComboboxes, readAshbyComboboxes } from "../lib/browser/ashbyForm.ts";
 
 let bad = 0;
@@ -22,6 +22,19 @@ ok(mayFetchWhileFilling(`${BASE}?op=SubmitApplicationForm`) === false, "a submit
 ok(mayFetchWhileFilling(`${BASE}?op=CreateApplication`) === false, "any other application mutation is NOT allowed");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocationEvil`) === false, "a look-alike op is not allowed (anchored match)");
 ok(mayFetchWhileFilling(`${BASE}?op=UpdateApplicationForm`) === false, "an autosave-shaped mutation is not allowed");
+
+console.log("\nterminal submission-attempt classification of BLOCKED ops (all stay blocked):");
+ok(isBenignBlocked(`${BASE}?op=ApiSetFormValue`) === true, "a blocked ApiSetFormValue (autosave) is known-benign");
+ok(isBenignBlocked(`${BASE}?op=ApiAutocompleteGeoLocation`) === true, "a blocked geo fetch is known-benign");
+ok(isBenignBlocked(`${BASE}?op=SubmitApplicationForm`) === false, "the submit mutation is NOT benign");
+ok(isBenignBlocked(`${BASE}?op=SomethingUnknown`) === false, "an unknown op is NOT benign");
+ok(blockedIndicatesSubmission([`${BASE}?op=ApiSetFormValue`]) === false, "blocked ApiSetFormValue alone -> does NOT trip submission detection");
+ok(blockedIndicatesSubmission([`${BASE}?op=ApiAutocompleteGeoLocation`]) === false, "blocked geo fetch alone -> does NOT trip");
+ok(blockedIndicatesSubmission([`${BASE}?op=SubmitApplicationForm`]) === true, "blocked submit mutation -> STILL trips (fails closed)");
+ok(blockedIndicatesSubmission([`${BASE}?op=ApiSubmitApplication`]) === true, "an alternate submit op name -> STILL trips");
+ok(blockedIndicatesSubmission([`${BASE}?op=WhoKnows`]) === true, "blocked unknown Ashby POST -> STILL trips (fails closed)");
+ok(blockedIndicatesSubmission([`${BASE}?op=ApiSetFormValue`, `${BASE}?op=SubmitApplicationForm`]) === true, "benign + a submit op together -> trips (any non-benign trips)");
+ok(blockedIndicatesSubmission([]) === false, "nothing blocked -> nothing tripped");
 
 console.log("\nmarkAshbyComboboxes: re-tags only the matching question, preserving everything else:");
 const fields: any[] = [
