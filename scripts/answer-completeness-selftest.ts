@@ -46,16 +46,19 @@ const row = (app: string, state: string, required = true, answer: string | null 
     staleBlockedStatus(staleStatus, blockedCount(after, "a")) === "AWAITING_REVIEW",
     String(staleBlockedStatus(staleStatus, blockedCount(after, "a"))));
 
-  // Once repaired, the application presents as ready for review, not as
-  // work waiting on an answer.
+  // Once repaired, the application no longer has a blocked question, so it
+  // is no longer "answer these questions". It is now waiting on the reader
+  // to review and approve it -- which (since the Jobs->Apply Stage 4 change)
+  // presents under Needs you with "Review & approve", reviewed inline, not
+  // as work running without them.
   const p = present({
     status: "AWAITING_REVIEW", humanApproved: false, allFieldsConfident: true,
     blockedAnswers: blockedCount(after, "a"), submittedAt: null, confirmationReceived: false,
     provider: "GREENHOUSE", refusals: [], handoff: false,
   }, "app-a");
-  check("the repaired application is Ready, not Needs you", p.state === "READY", p.state);
-  check("and its action is to review, not to answer",
-    p.action?.label === "Review application", JSON.stringify(p.action));
+  check("the repaired application awaits review, under Needs you", p.state === "NEEDS_YOU", p.state);
+  check("and its action is to review & approve, not to answer",
+    p.action?.label === "Review & approve", JSON.stringify(p.action));
   check("and it never says questions need answering",
     !/question/i.test(p.summary), p.summary);
 }
