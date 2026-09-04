@@ -20,7 +20,15 @@ function Row({ row }: { row: ApplyRow }) {
   return (
     <li className="approw">
       <div className="approw-main">
-        <p className="approw-title">{row.title}</p>
+        <p className="approw-title">
+          {row.title}
+          {row.match && (
+            <span className={`matchbadge${row.match.provisional ? " provisional" : ""}`}
+              title={row.match.note ? `Match estimate — ${row.match.note}` : "How good this opportunity is for your verified background"}>
+              <b>{row.match.provisional ? "~" : ""}{row.match.score}</b> Match
+            </span>
+          )}
+        </p>
         <p className="approw-company">{row.company}</p>
         <p className="approw-summary">{p.summary}</p>
       </div>

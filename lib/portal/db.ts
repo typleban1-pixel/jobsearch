@@ -12,6 +12,7 @@
 import { CANDIDACY_MODEL_VERSION } from "../scoring/candidacy.ts";
 import { TAXONOMY_VERSION } from "../scoring/requirementClass.ts";
 import { attentionScore, buildAttentionInput, type AttentionResult } from "./attentionRank.ts";
+import { matchScore, type MatchScoreResult } from "./matchScore.ts";
 import { FIT_FORMULA_VERSION } from "../scoring/fit.ts";
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -39,6 +40,61 @@ export async function page<T = any>(
     if (error) throw new Error(`${table}: ${error.message}`);
     out.push(...(data as T[]));
     if (data.length < 1000) break;
+  }
+  return out;
+}
+
+/**
+ * Match scores for an arbitrary set of jobs, keyed by job id.
+ *
+ * The same 0-100 read the Jobs page shows, computed from the same stored
+ * fields through the same matchScore() function -- so a card on /apply
+ * and the same job on /jobs never disagree. Used where the full JobCard
+ * is not loaded (the Apply board, review).
+ */
+export async function loadMatchScores(db: SupabaseClient, jobIds: string[]): Promise<Map<string, MatchScoreResult>> {
+  const out = new Map<string, MatchScoreResult>();
+  if (!jobIds.length) return out;
+  const [allScores, cand, jobRows] = await Promise.all([
+    byIds<any>(db, "job_scores", "id,job_id,uncertainty_score,scorable,fit_breakdown,is_current", "job_id", jobIds),
+    byIds<any>(db, "job_candidacy",
+      "job_id,hard_met,hard_total,core_gaps,gating_gaps,unresolved_core,transferable_matches,created_at", "job_id", jobIds),
+    byIds<any>(db, "jobs", "id,salary_min,salary_max,eligibility", "id", jobIds),
+  ]);
+  const scores = allScores.filter((s) => s.is_current !== false);
+  const scoreByJob = new Map(scores.map((s) => [s.job_id, s]));
+  const jobById = new Map(jobRows.map((j) => [j.id, j]));
+  const candByJob = new Map<string, any>();
+  for (const r of cand.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))) {
+    if (!candByJob.has(r.job_id)) candByJob.set(r.job_id, r);
+  }
+  const seniorityByScore = new Map<string, number>();
+  const reasons = await byIds<any>(db, "score_reasons", "score_id,kind", "score_id", scores.map((s) => s.id));
+  for (const r of reasons) {
+    if (r.kind === "SENIORITY_MATCH") seniorityByScore.set(r.score_id, 1);
+    else if (r.kind === "SENIORITY_MISMATCH") seniorityByScore.set(r.score_id, -1);
+  }
+
+  for (const jobId of jobIds) {
+    const s = scoreByJob.get(jobId); const c = candByJob.get(jobId); const j = jobById.get(jobId);
+    if (!s || !j) continue;
+    const b = s.fit_breakdown ?? {};
+    const ai = buildAttentionInput({
+      candidacy: c ? { hardMet: c.hard_met, hardTotal: c.hard_total, transferableMatches: c.transferable_matches ?? 0, coreGaps: (c.core_gaps ?? []).length } : null,
+      conceptDetail: b.conceptDetail ?? [], salary: j.salary_max ?? j.salary_min ?? null,
+    });
+    const sen = seniorityByScore.get(s.id) ?? 0;
+    out.set(jobId, matchScore({
+      hardMet: c?.hard_met ?? 0, hardTotal: c?.hard_total ?? 0, hardDirect: ai.hardDirect,
+      coverage: typeof b.coverage === "number" ? b.coverage : null,
+      coreGaps: (c?.core_gaps ?? []).length, gatingGaps: (c?.gating_gaps ?? []).length,
+      educationGatesUnmet: b.educationGatesUnmet ?? 0, unresolvedCore: (c?.unresolved_core ?? []).length,
+      excludedUnknown: b.excludedUnknown ?? 0,
+      seniorityAligned: sen > 0 ? true : sen < 0 ? false : null,
+      salary: j.salary_max ?? j.salary_min ?? null, eligibility: j.eligibility,
+      uncertaintyScore: s.uncertainty_score === null ? null : Number(s.uncertainty_score),
+      scorable: s.scorable !== false, assessable: attentionScore(ai).band === "ASSESSABLE",
+    }));
   }
   return out;
 }
@@ -99,6 +155,12 @@ export type CandidacyBadge = {
   reasonCode: string;
   hardMet: number;
   hardTotal: number;
+  /** Role-defining gaps, disqualifying credentials, unresolved core reqs, evidence counts. */
+  coreGaps: number;
+  gatingGaps: number;
+  unresolvedCore: number;
+  directMatches: number;
+  transferableMatches: number;
   stale: boolean;
 };
 
@@ -165,6 +227,11 @@ export interface JobCard {
    */
   hardDirect: number;
   attention: AttentionResult;
+  /**
+   * The human-readable 0-100 Match Score (display/decision-support only).
+   * Derived from stored authoritative fields; never the raw fit_score.
+   */
+  match: MatchScoreResult;
   evaluableCount: number;
   excludedUnknown: number;
   credentialFamiliesUnmet: string[];
@@ -290,7 +357,8 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
   // different state, and the queue must not present it as an answer.
   const { data: liveProfile } = await db.from("profile").select("profile_version").single();
   const candidacyRows = await byIds<any>(db, "job_candidacy",
-    "job_id,verdict,reason,reason_codes,hard_met,hard_total,profile_version,formula_version,taxonomy_version,model_version,created_at",
+    "job_id,verdict,reason,reason_codes,hard_met,hard_total,core_gaps,gating_gaps,unresolved_core,"
+      + "direct_matches,transferable_matches,profile_version,formula_version,taxonomy_version,model_version,created_at",
     "job_id", jobs.map((j: any) => j.id)).catch(() => [] as any[]);
   // "REJECT" is the stored verdict and stays that way everywhere below
   // the presentation layer. The reader sees "NOT A CANDIDATE": no
@@ -304,6 +372,9 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
       verdict: r.verdict, label: BADGE[r.verdict as keyof typeof BADGE] ?? "REVIEW",
       reason: r.reason, reasonCode: (r.reason_codes ?? [])[0] ?? "",
       hardMet: r.hard_met, hardTotal: r.hard_total,
+      coreGaps: (r.core_gaps ?? []).length, gatingGaps: (r.gating_gaps ?? []).length,
+      unresolvedCore: (r.unresolved_core ?? []).length,
+      directMatches: r.direct_matches ?? 0, transferableMatches: r.transferable_matches ?? 0,
       stale: r.profile_version !== liveProfile?.profile_version
         || r.formula_version !== FIT_FORMULA_VERSION || r.taxonomy_version !== TAXONOMY_VERSION
         || r.model_version !== CANDIDACY_MODEL_VERSION,
@@ -390,6 +461,21 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
       creditedCount: b.creditedConcepts ?? directConcepts.length + transferableConcepts.length,
       hardDirect,
       attention,
+      match: matchScore({
+        hardMet: cand?.hardMet ?? 0, hardTotal: cand?.hardTotal ?? 0, hardDirect,
+        coverage: typeof b.coverage === "number" ? b.coverage : null,
+        coreGaps: cand?.coreGaps ?? 0,
+        gatingGaps: cand?.gatingGaps ?? (b.credentialFamiliesUnmet ?? []).length,
+        educationGatesUnmet: b.educationGatesUnmet ?? 0,
+        unresolvedCore: cand?.unresolvedCore ?? 0,
+        excludedUnknown: b.excludedUnknown ?? 0,
+        seniorityAligned: seniorityPoints > 0 ? true : seniorityPoints < 0 ? false : null,
+        salary: j.salary_max ?? j.salary_min ?? null,
+        eligibility: j.eligibility,
+        uncertaintyScore: s.uncertainty_score === null ? null : Number(s.uncertainty_score),
+        scorable: s.scorable !== false,
+        assessable: attention.band === "ASSESSABLE",
+      }),
       evaluableCount: b.evaluableConcepts ?? 0,
       excludedUnknown: b.excludedUnknown ?? 0,
       credentialFamiliesUnmet: b.credentialFamiliesUnmet ?? [],

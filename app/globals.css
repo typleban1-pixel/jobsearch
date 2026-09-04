@@ -524,6 +524,22 @@ a.counter:hover { border-color: currentColor; }
   font-size: 0.78rem; font-weight: 600; white-space: nowrap;
   background: var(--accent-soft); color: var(--accent);
 }
+.jobcard-badges { display: flex; gap: 0.4rem; align-items: center; flex: none; flex-wrap: wrap; justify-content: flex-end; }
+.matchbadge {
+  font-size: 0.78rem; color: var(--ink-soft); background: var(--accent-soft);
+  border-radius: 999px; padding: 0.2rem 0.6rem; white-space: nowrap;
+}
+.matchbadge b { font-size: 0.95rem; color: var(--accent); font-variant-numeric: tabular-nums; }
+.matchbadge.provisional { background: var(--bg); border: 1px solid var(--line); }
+.matchbadge.provisional b { color: var(--ink-soft); }
+.matchgrid { display: grid; grid-template-columns: 1fr; gap: 0.25rem 1rem; margin: 0.2rem 0 0.6rem; }
+.matchgrid > div { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.85rem; padding: 0.15rem 0; border-bottom: 1px dotted var(--line); }
+.matchgrid dt { color: var(--ink-faint); margin: 0; }
+.matchgrid dd { color: var(--ink); margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.tech-raw { margin-top: 0.6rem; }
+.tech-raw summary { font-size: 0.8rem; color: var(--ink-faint); cursor: pointer; }
+.approw-title { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
+.approw-title .matchbadge { font-size: 0.72rem; }
 .verdict.stretch { background: var(--warn-soft); color: var(--warn); }
 .verdict.review { background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); }
 .verdict.not-a-candidate { background: var(--bg); color: var(--ink-faint); border: 1px solid var(--line); }

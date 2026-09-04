@@ -51,11 +51,17 @@ export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; re
             <p className="jobcard-company">{card.company}</p>
           </div>
         </div>
-        {verdict && (
-          <span className={`verdict ${card.candidacy!.label.toLowerCase().replace(/\s+/g, "-")}`}>
-            {verdict}
+        <div className="jobcard-badges">
+          <span className={`matchbadge${card.match.provisional ? " provisional" : ""}`}
+            title={card.match.note ? `Match estimate — ${card.match.note}` : "How good this opportunity is for your verified background"}>
+            <b>{card.match.provisional ? "~" : ""}{card.match.score}</b> Match
           </span>
-        )}
+          {verdict && (
+            <span className={`verdict ${card.candidacy!.label.toLowerCase().replace(/\s+/g, "-")}`}>
+              {verdict}
+            </span>
+          )}
+        </div>
       </div>
 
       {card.attention.band === "GENERIC_REQUIREMENTS" && (
@@ -120,47 +126,52 @@ export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; re
         </form>
       </div>
 
-      {/* Nothing is deleted, only folded. */}
+      {/* Human-readable match breakdown; the raw formula sits inside it. */}
       <details className="tech">
-        <summary>Matching details</summary>
+        <summary>Match details</summary>
         <div className="matchdetail">
-          <p>
-            Evidence <b>{evidenceLabel(card)}</b>
-            {card.excludedUnknown > 0 && ` · ${card.excludedUnknown} undecidable`}
-            {" · uncertainty "}<b>{band.toLowerCase()}</b>
-            {card.uncertainty !== null && ` (${card.uncertainty})`}
-            {" · "}{describeFreshness(card)}
-            {card.seniority && ` · ${card.seniority.toLowerCase()}`}
-          </p>
-          {card.candidacy && (
-            <p>
-              Candidacy <b>{card.candidacy.label}{card.candidacy.stale ? " (stale)" : ""}</b>
-              {card.candidacy.reason ? ` — ${card.candidacy.reason}` : ""}
-            </p>
-          )}
-          {!card.scorable && <p>Too few requirements were extracted to judge this posting.</p>}
-          <dl className="scoregrid">
-            <div><dt>requirements met</dt><dd>{card.candidacy ? `${card.candidacy.hardMet}/${card.candidacy.hardTotal}` : "—"}</dd></div>
-            <div><dt>met by direct evidence</dt><dd>{card.hardDirect}</dd></div>
-            <div><dt>attention score</dt><dd>{card.attention.score.toFixed(1)}</dd></div>
-            <div><dt>Fit</dt><dd>{card.fit}</dd></div>
-            <div><dt>Opportunity</dt><dd>{card.opportunity ?? "—"}</dd></div>
-            <div><dt>Generalist</dt><dd>{card.generalist ?? "—"}</dd></div>
-            <div><dt>Specialist</dt><dd>{card.specialist ?? "—"}</dd></div>
-            <div><dt>from evidence</dt><dd>{signed(card.coveragePoints)}</dd></div>
-            <div><dt>title family</dt><dd>{signed(card.titleMatchPoints)}</dd></div>
-            <div><dt>seniority</dt><dd>{signed(card.seniorityPoints)}</dd></div>
-            <div><dt>gates</dt><dd>{signed(card.gatePenaltyPoints)}</dd></div>
-            {card.otherPoints !== 0 && <div><dt>other</dt><dd>{signed(card.otherPoints)}</dd></div>}
+          <dl className="matchgrid">
+            <div><dt>Match score</dt><dd>{card.match.provisional ? "~" : ""}{card.match.score}/100{card.match.note ? ` · ${card.match.note}` : ""}</dd></div>
+            {card.candidacy && <div><dt>Candidacy</dt><dd>{VERDICT_TEXT[card.candidacy.label] ?? card.candidacy.label}{card.candidacy.stale ? " (stale)" : ""}</dd></div>}
+            <div><dt>Hard requirements supported</dt><dd>{card.candidacy ? `${card.candidacy.hardMet}/${card.candidacy.hardTotal}` : "—"}</dd></div>
+            <div><dt>By direct vs transferable</dt><dd>{card.hardDirect} direct · {card.candidacy?.transferableMatches ?? card.transferableConcepts.length} transferable</dd></div>
+            <div><dt>Genuine gaps</dt><dd>{describeGaps(card)}</dd></div>
+            <div><dt>Seniority</dt><dd>{card.seniorityPoints > 0 ? "aligned" : card.seniorityPoints < 0 ? "mismatch" : "not stated"}</dd></div>
+            <div><dt>Compensation</dt><dd>{salary ?? "not stated"}</dd></div>
+            <div><dt>Uncertainty</dt><dd>{band.toLowerCase()}{card.uncertainty !== null ? ` (${card.uncertainty})` : ""}{card.excludedUnknown > 0 ? ` · ${card.excludedUnknown} unevaluable` : ""}</dd></div>
           </dl>
-          {card.transferableConcepts.length > 0 && (
-            <p>Transferable: {card.transferableConcepts.slice(0, 6).join(" · ")}</p>
-          )}
-          {card.educationGatesUnmet > 0 && (
-            <p>{card.educationGatesUnmet} education gate{card.educationGatesUnmet > 1 ? "s" : ""} unmet</p>
-          )}
+          {card.candidacy?.reason && <p className="muted">{card.candidacy.reason}</p>}
+          {!card.scorable && <p className="muted">Too few requirements were extracted to judge this posting.</p>}
+
+          <details className="tech-raw">
+            <summary>Raw scoring details</summary>
+            <dl className="scoregrid">
+              <div><dt>attention score</dt><dd>{card.attention.score.toFixed(1)}</dd></div>
+              <div><dt>Fit (Formula3, raw)</dt><dd>{card.fit}</dd></div>
+              <div><dt>Opportunity</dt><dd>{card.opportunity ?? "—"}</dd></div>
+              <div><dt>Generalist</dt><dd>{card.generalist ?? "—"}</dd></div>
+              <div><dt>Specialist</dt><dd>{card.specialist ?? "—"}</dd></div>
+              <div><dt>from evidence</dt><dd>{signed(card.coveragePoints)}</dd></div>
+              <div><dt>title family</dt><dd>{signed(card.titleMatchPoints)}</dd></div>
+              <div><dt>seniority</dt><dd>{signed(card.seniorityPoints)}</dd></div>
+              <div><dt>gates</dt><dd>{signed(card.gatePenaltyPoints)}</dd></div>
+              {card.otherPoints !== 0 && <div><dt>other</dt><dd>{signed(card.otherPoints)}</dd></div>}
+            </dl>
+            <p className="muted">Fit is a raw, signed ranking quantity, not a percentage. The Match score above is the calibrated 0–100 read.</p>
+          </details>
         </div>
       </details>
     </article>
   );
+}
+
+/** Genuine gaps, in one line, or "none". */
+function describeGaps(card: JobCard): string {
+  const parts: string[] = [];
+  const core = card.candidacy?.coreGaps ?? 0;
+  const gating = card.candidacy?.gatingGaps ?? card.credentialFamiliesUnmet.length;
+  if (core) parts.push(`${core} role-defining`);
+  if (gating) parts.push(`${gating} credential`);
+  if (card.educationGatesUnmet) parts.push(`${card.educationGatesUnmet} education`);
+  return parts.length ? parts.join(", ") : "none";
 }

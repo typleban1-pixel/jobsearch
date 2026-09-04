@@ -15,6 +15,8 @@ import { authoritativeCandidacy } from "../applications/authoritativeCandidacy.t
 import { FIT_FORMULA_VERSION } from "../scoring/fit.ts";
 import { TAXONOMY_VERSION } from "../scoring/requirementClass.ts";
 import { CANDIDACY_MODEL_VERSION } from "../scoring/candidacy.ts";
+import { loadMatchScores } from "./db.ts";
+import type { MatchScoreResult } from "./matchScore.ts";
 
 export interface ApplyRow {
   applicationId: string;
@@ -23,6 +25,7 @@ export interface ApplyRow {
   title: string;
   provider: string;
   submittedAt: string | null;
+  match: MatchScoreResult | null;
   presentation: Presentation;
 }
 
@@ -110,7 +113,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
   const appIds = apps.map((a) => a.id);
   const scopedIn = (col: string, ids: string[]) => (q: any) => q.in(col, ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
 
-  const [jobs, answers, candidacy, versions, profileRow] = await Promise.all([
+  const [jobs, answers, candidacy, versions, profileRow, matchScores] = await Promise.all([
     page(db, "jobs", "id,title,company_id,source,status,eligibility,canonical_opening_id,application_form_url,url",
       scopedIn("id", jobIds)),
     page(db, "application_answers", "application_id,confidence_state,is_required,answer_text,field_key",
@@ -120,6 +123,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       scopedIn("job_id", jobIds), "job_id"),
     versionIds.length ? page(db, "job_versions", "id,is_current", scopedIn("id", versionIds)) : Promise.resolve([]),
     db.from("profile").select("profile_version").single(),
+    loadMatchScores(db, jobIds),
   ]);
   const companyIds = [...new Set(jobs.map((j) => j.company_id).filter(Boolean))];
   const companies = await page(db, "companies", "id,name", scopedIn("id", companyIds));
@@ -265,6 +269,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       company: nameById.get(j.company_id) ?? "Unknown",
       title: j.title, provider: j.source,
       submittedAt: a.submitted_at ?? null,
+      match: matchScores.get(a.job_id) ?? null,
       presentation: present(facts, a.id),
     };
 
