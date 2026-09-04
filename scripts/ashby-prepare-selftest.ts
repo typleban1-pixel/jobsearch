@@ -96,47 +96,56 @@ const preparing = present(facts({ activelyPreparing: true }), "app-4");
 ok(preparing.state === "PREPARING" && preparing.action === null, "a claimed row reads Preparing with nothing to click");
 
 console.log("\ngroupAshbyChoices -- Aleph-style choice fieldsets collapse to one question each:");
-// UUID_UUID option-control names, the shape Ashby actually renders.
+// UUID_UUID option-control names, the shape Ashby actually renders. Each
+// option carries its own unique name and a derived selector.
 const U = (a: string, b: string) => `${a.padEnd(36, "0")}_${b.padEnd(36, "0")}`;
+const opt = (name: string, label: string, kind: "radio" | "checkbox", required: boolean) =>
+  ({ name, label, kind, required, selector: `input[name="${name}"]` });
 const YESNO: any = { questionText: "If you are based in the United States, will you now or in the future require sponsorship for an employment visa? *", inputs: [
-  { name: U("11111111-1111-4111-8111", "aaaa"), label: "Yes", kind: "radio", required: true },
-  { name: U("11111111-1111-4111-8111", "bbbb"), label: "No", kind: "radio", required: true },
+  opt(U("11111111-1111-4111-8111", "aaaa"), "Yes", "radio", true),
+  opt(U("11111111-1111-4111-8111", "bbbb"), "No", "radio", true),
 ]};
 const SCREEN: any = { questionText: "Which best describes your Excel or Google Sheets work?", inputs: [
-  { name: U("22222222-2222-4222-8222", "aaaa"), label: "Basic formulas and pivot tables", kind: "radio", required: false },
-  { name: U("22222222-2222-4222-8222", "bbbb"), label: "Multi-condition lookups and aggregations; SUMIFS, XLOOKUP, INDEX/MATCH across large datasets", kind: "radio", required: false },
-  { name: U("22222222-2222-4222-8222", "cccc"), label: "Light editing of models others built", kind: "radio", required: false },
-  { name: U("22222222-2222-4222-8222", "dddd"), label: "I do not use spreadsheets much", kind: "radio", required: false },
+  opt(U("22222222-2222-4222-8222", "aaaa"), "Basic formulas and pivot tables", "radio", false),
+  opt(U("22222222-2222-4222-8222", "bbbb"), "Multi-condition lookups and aggregations; SUMIFS, XLOOKUP, INDEX/MATCH across large datasets", "radio", false),
+  opt(U("22222222-2222-4222-8222", "cccc"), "Light editing of models others built", "radio", false),
+  opt(U("22222222-2222-4222-8222", "dddd"), "I do not use spreadsheets much", "radio", false),
 ]};
 
 const g = groupAshbyChoices([YESNO, SCREEN]);
 const yn = g.groups.find((q) => /sponsorship/i.test(q.label));
 ok(!!yn && yn.type === "select" && yn.options?.length === 2 && yn.options[0] === "Yes" && yn.options[1] === "No",
   "a Yes/No question becomes ONE question with exactly two options", yn ? yn.options?.join("/") : "missing");
+ok(!!yn && yn.htmlType === "radio-group", "  ...marked htmlType radio-group so the fill path clicks one option");
+ok(!!yn && yn.optionSelectors?.["Yes"] === `input[name="${U("11111111-1111-4111-8111", "aaaa")}"]`
+  && yn.optionSelectors?.["No"] === `input[name="${U("11111111-1111-4111-8111", "bbbb")}"]`,
+  "  ...each option carries its own deterministic selector, keyed by exact text");
 ok(!!yn && !/[*]\s*$/.test(yn.label) && /require sponsorship/.test(yn.label), "  ...question label preserved (required asterisk trimmed, wording kept)");
 ok(!!yn && yn.required === true, "  ...required carried from the option controls");
 const sc = g.groups.find((q) => /Excel or Google Sheets/i.test(q.label));
 ok(!!sc && sc.options?.length === 4, "a multi-option screening question keeps its full, correct option list", sc ? String(sc.options?.length) : "missing");
 ok(!!sc && sc.options?.includes("Multi-condition lookups and aggregations; SUMIFS, XLOOKUP, INDEX/MATCH across large datasets") === true,
   "  ...each offered option's exact text is preserved verbatim");
+ok(!!sc && Object.keys(sc.optionSelectors ?? {}).length === 4, "  ...with a selector for every option");
 ok(g.groups.length === 2, "two fieldsets -> two questions, never merged across fieldsets", String(g.groups.length));
 
 console.log("\ngroupAshbyChoices -- fail safe, leave the uncertain separate:");
-const lone: any = { questionText: "Do you consent?", inputs: [{ name: U("33333333-3333-4333-8333", "aaaa"), label: "I consent", kind: "checkbox", required: false }] };
+const lone: any = { questionText: "Do you consent?", inputs: [opt(U("33333333-3333-4333-8333", "aaaa"), "I consent", "radio", false)] };
 ok(groupAshbyChoices([lone]).groups.length === 0, "a single-option fieldset is NOT grouped (not a proven choice set)");
 const noLegend: any = { questionText: null, inputs: YESNO.inputs };
 ok(groupAshbyChoices([noLegend]).groups.length === 0, "no recoverable question label -> left separate, not guessed");
 const notAshby: any = { questionText: "Pick any that apply", inputs: [
-  { name: "agree_terms", label: "Terms", kind: "checkbox", required: false },
-  { name: "agree_privacy", label: "Privacy", kind: "checkbox", required: false },
+  opt("agree_terms", "Terms", "radio", false),
+  opt("agree_privacy", "Privacy", "radio", false),
 ]};
 ok(groupAshbyChoices([notAshby]).groups.length === 0, "controls not named the Ashby way are never grouped (no false positive)");
-// Two DIFFERENT single-option fieldsets stay two separate (ungrouped) controls.
-const twoUnrelated = groupAshbyChoices([
-  { questionText: "Newsletter?", inputs: [{ name: U("44444444-4444-4444-8444", "aaaa"), label: "Subscribe", kind: "checkbox", required: false }] },
-  { questionText: "Updates?", inputs: [{ name: U("55555555-5555-4555-8555", "aaaa"), label: "Subscribe", kind: "checkbox", required: false }] },
-] as any);
-ok(twoUnrelated.groups.length === 0, "unrelated single checkboxes remain separate (never merged into one)");
+// A checkbox multi-select is single-select's opposite and must NOT be
+// grouped as if only one option could be chosen.
+const multiCheck: any = { questionText: "Which apply to you? (select all)", inputs: [
+  opt(U("66666666-6666-4666-8666", "aaaa"), "Option A", "checkbox", false),
+  opt(U("66666666-6666-4666-8666", "bbbb"), "Option B", "checkbox", false),
+]};
+ok(groupAshbyChoices([multiCheck]).groups.length === 0, "a checkbox multi-select fieldset is left ungrouped (single-select only)");
 
 console.log("\nmergeChoiceGroups -- per-option fields replaced, everything else kept:");
 const generic: any[] = [

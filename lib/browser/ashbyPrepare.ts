@@ -110,8 +110,13 @@ export async function snapshotAshbyLive(input: {
     // per-option fields the generic read produced. Anything not proven to be
     // a grouped option is left exactly as discovered.
     const grouping = groupAshbyChoices(await readChoiceFieldsets(page));
+    // Merge on LiveField (the grouped questions carry live per-option
+    // selectors the fill path needs), then project to FormField for the
+    // stored snapshot -- which keeps only key/label/type/required/options,
+    // so no volatile selector is ever persisted and this snapshot is
+    // byte-identical to before.
     const cleaned = dropFileHeaderArtifacts(live.fields);
-    const fields = mergeChoiceGroups(cleaned.map(toFormField), grouping);
+    const fields = mergeChoiceGroups(cleaned, grouping).map(toFormField);
     const snapshot: FormSnapshot = {
       provider: "ASHBY",
       fields,

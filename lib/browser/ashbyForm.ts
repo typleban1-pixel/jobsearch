@@ -50,9 +50,17 @@ export function looksLikeForm(snap: Pick<LiveSnapshot, "fields">): boolean {
   return hasFile || labelled.length >= 3;
 }
 
-export interface RawChoiceInput { name: string; label: string; kind: "radio" | "checkbox"; required: boolean }
+export interface RawChoiceInput {
+  name: string; label: string; kind: "radio" | "checkbox"; required: boolean;
+  /**
+   * A selector that reaches THIS option's control, derived live. Ashby
+   * gives each option a unique name (qid_optid) regenerated per page load,
+   * so this is deterministic within one session and never stored.
+   */
+  selector: string;
+}
 export interface RawFieldset { questionText: string | null; inputs: RawChoiceInput[] }
-export interface ChoiceGrouping { groups: FormField[]; memberKeys: Set<string> }
+export interface ChoiceGrouping { groups: LiveField[]; memberKeys: Set<string> }
 
 /** Two UUIDs joined by an underscore: Ashby's option-control name. */
 const ASHBY_OPTION_NAME = /^[0-9a-f-]{36}_[0-9a-f-]{36}$/i;
@@ -73,21 +81,43 @@ const clean = (s: string) => (s || "").replace(/\s+/g, " ").replace(/\s*\*\s*$/,
  *  - nothing is merged across fieldsets: one fieldset is one question.
  */
 export function groupAshbyChoices(fieldsets: RawFieldset[]): ChoiceGrouping {
-  const groups: FormField[] = [];
+  const groups: LiveField[] = [];
   const memberKeys = new Set<string>();
   const usedKeys = new Set<string>();
   for (const fs of fieldsets) {
-    const opts = fs.inputs.filter((i) => ASHBY_OPTION_NAME.test(i.name));
+    // Single-select only. Ashby renders its choice questions as radios with
+    // one unique name per option; a checkbox multi-select is a different
+    // question shape and is deliberately left ungrouped (it surfaces as
+    // individual controls and blocks for a person) rather than mishandled
+    // here as if only one option could be chosen.
+    const opts = fs.inputs.filter((i) => ASHBY_OPTION_NAME.test(i.name) && i.kind === "radio");
     if (opts.length < 2) continue;                 // not a proven choice set
     const label = clean(fs.questionText ?? "");
     if (label.length < 5) continue;                // no legend recovered -> leave separate
+    // Exact offered option text, order preserved, deduped -- and its live
+    // selector, keyed by that text. The text is the stable identity; the
+    // selector is re-derived every session and never stored.
     const options: string[] = [];
-    for (const o of opts) { const t = clean(o.label); if (t && !options.includes(t)) options.push(t); }
+    const optionSelectors: Record<string, string> = {};
+    for (const o of opts) {
+      const t = clean(o.label);
+      if (!t || options.includes(t)) continue;
+      options.push(t);
+      optionSelectors[t] = o.selector;
+    }
     if (options.length < 2) continue;              // options collapsed to <2 -> not a real choice
     let key = label;
     for (let n = 2; usedKeys.has(key); n++) key = `${label} (${n})`;
     usedKeys.add(key);
-    groups.push({ key, label, type: "select", required: opts.some((o) => o.required), options });
+    // A LiveField the fill path can act on directly: type "select" so the
+    // options vocabulary applies, htmlType "radio-group" so write() knows to
+    // click one option by its own selector and read back exactly one.
+    groups.push({
+      key, label, type: "select", required: opts.some((o) => o.required), options,
+      selector: optionSelectors[options[0]!]!, selectorKind: "name",
+      unlabelled: false, groupKey: key, htmlType: "radio-group",
+      associated: [], name: null, optionSelectors,
+    });
     for (const o of opts) memberKeys.add(o.name);  // drop the per-option fields the generic read made
     memberKeys.add(label);                         // and any phantom text field carrying the question
   }
@@ -100,7 +130,7 @@ export function groupAshbyChoices(fieldsets: RawFieldset[]): ChoiceGrouping {
  * control names, or its key/label is a grouped question's text; every other
  * field is kept exactly as discovered.
  */
-export function mergeChoiceGroups(generic: FormField[], grouping: ChoiceGrouping): FormField[] {
+export function mergeChoiceGroups(generic: LiveField[], grouping: ChoiceGrouping): LiveField[] {
   const kept = generic.filter((f) => !grouping.memberKeys.has(f.key) && !grouping.memberKeys.has(f.label));
   return [...kept, ...grouping.groups];
 }
@@ -208,12 +238,20 @@ export async function readChoiceFieldsets(page: any): Promise<RawFieldset[]> {
       }
       out.push({
         questionText,
-        inputs: inputs.map((el) => ({
-          name: (el as HTMLInputElement).name,
-          label: labelForInput(el),
-          kind: (el.getAttribute("type") || "").toLowerCase() === "checkbox" ? "checkbox" : "radio",
-          required: el.hasAttribute("required") || el.getAttribute("aria-required") === "true",
-        })),
+        inputs: inputs.map((el) => {
+          const name = (el as HTMLInputElement).name;
+          const id = (el as HTMLInputElement).id;
+          // Each Ashby option has a UNIQUE name (qid_optid), so the name
+          // alone reaches exactly one control; an id, when present, is used
+          // in preference. Never the shared group name -- there isn't one.
+          const selector = id ? `#${CSS.escape(id)}` : `input[name="${CSS.escape(name)}"]`;
+          return {
+            name, selector,
+            label: labelForInput(el),
+            kind: (el.getAttribute("type") || "").toLowerCase() === "checkbox" ? "checkbox" : "radio",
+            required: el.hasAttribute("required") || el.getAttribute("aria-required") === "true",
+          };
+        }),
       });
     }
     return out;
