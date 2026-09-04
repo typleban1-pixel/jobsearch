@@ -3,25 +3,24 @@ import { currentSession } from "../../../lib/portal/session.ts";
 import { loadBlockedGroups, answerIdsFor } from "../../../lib/portal/applyBoard.ts";
 import { summarize } from "../../../lib/portal/questionGroups.ts";
 import { PrimaryNav } from "../../PrimaryNav.tsx";
+import { QuestionsForm, type FormData, type FormItem } from "./QuestionsForm.tsx";
 
 export const dynamic = "force-dynamic";
 
 /**
- * One question at a time.
+ * Every unresolved question on one screen.
  *
- * The old queue put every blocked field on one page, which meant the
- * same question appeared once per application and the reader did the
- * same work twice. Questions are grouped by what they actually ask, and
- * a group is offered for reuse only when reusing it is safe. Consent is
- * never in that set: two identical consent controls are still two
- * separate agreements.
+ * The old flow paged through one question at a time. This shows all of
+ * them at once, grouped by application, with the duplicate questions that
+ * are SAFE to reuse pulled into a single shared control -- reusing the
+ * same question grouping the queue uses, and the same readiness logic on
+ * save. Consent and anything not marked reusable stays one control per
+ * application, so an agreement is never inferred across employers.
  */
-export default async function QuestionWizard(props: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+export default async function ConsolidatedQuestions() {
   const session = await currentSession();
   if (!session) redirect("/login");
-  const sp = await props.searchParams;
+
   const groups = await loadBlockedGroups(session.client);
   const s = summarize(groups);
 
@@ -38,18 +37,56 @@ export default async function QuestionWizard(props: {
     );
   }
 
-  const raw = Number((Array.isArray(sp.q) ? sp.q[0] : sp.q) ?? 1);
-  const index = Math.min(Math.max(1, Number.isFinite(raw) ? raw : 1), groups.length);
-  const group = groups[index - 1]!;
-  const ids = await answerIdsFor(session.client, group);
+  // Build the view model. A group with one member, or a multi-member group
+  // that is not reusable, becomes one control PER application; a reusable
+  // multi-member group becomes a single shared control that writes to every
+  // member (the resolver still checks each application's own form).
+  const byApplication = new Map<string, FormItem[]>();
+  const shared: FormItem[] = [];
+  let total = 0;
 
-  const primary = group.fields[0]!;
-  const primaryId = ids.get(`${primary.applicationId}:${primary.fieldKey}`) ?? "";
-  const others = group.fields.slice(1);
-  const otherIds = others.map((f) => ids.get(`${f.applicationId}:${f.fieldKey}`) ?? "").filter(Boolean);
+  for (const g of groups) {
+    const ids = await answerIdsFor(session.client, g);
+    const idOf = (appId: string, fieldKey: string) => ids.get(`${appId}:${fieldKey}`) ?? "";
+    const question = g.questionText || g.label;
 
-  const apps = [...new Set(group.fields.map((f) => f.applicationLabel))];
-  const next = index < groups.length ? `/apply/questions?q=${index + 1}` : "/apply/questions/done";
+    if (g.fields.length > 1 && g.reusable) {
+      const primary = g.fields[0]!;
+      const controlId = idOf(primary.applicationId, primary.fieldKey);
+      if (!controlId) continue;
+      const reuseAnswerIds = g.fields.slice(1)
+        .map((f) => idOf(f.applicationId, f.fieldKey)).filter(Boolean);
+      shared.push({
+        controlId, reuseAnswerIds, question, blockedReason: g.blockedReason,
+        required: g.required, options: g.universalOptions, type: primary.type,
+        applications: [...new Set(g.fields.map((f) => f.applicationLabel))], applicationId: null,
+      });
+      total += 1;
+      continue;
+    }
+
+    // One control per member: single-member groups, and non-reusable groups
+    // where each application must be answered on its own.
+    for (const f of g.fields) {
+      const controlId = idOf(f.applicationId, f.fieldKey);
+      if (!controlId) continue;
+      const item: FormItem = {
+        controlId, reuseAnswerIds: [], question: f.questionText || f.label || question,
+        blockedReason: f.blockedReason ?? g.blockedReason, required: f.required,
+        options: f.options, type: f.type, applications: [f.applicationLabel], applicationId: f.applicationId,
+      };
+      const list = byApplication.get(f.applicationLabel) ?? [];
+      list.push(item); byApplication.set(f.applicationLabel, list);
+      total += 1;
+    }
+  }
+
+  const data: FormData = {
+    perApplication: [...byApplication.entries()]
+      .map(([application, items]) => ({ application, items }))
+      .sort((a, b) => a.application.localeCompare(b.application)),
+    shared, total,
+  };
 
   return (
     <main className="wizard">
@@ -57,73 +94,14 @@ export default async function QuestionWizard(props: {
         <h1>Questions</h1>
         <PrimaryNav current="apply" />
       </header>
-
       <div className="wizardhead">
-        <p className="needcount">
-          <strong>{s.answersNeeded} answer{s.answersNeeded === 1 ? "" : "s"} needed</strong>
-        </p>
+        <p className="needcount"><strong>{s.answersNeeded} answer{s.answersNeeded === 1 ? "" : "s"} needed</strong></p>
         <p className="muted">
-          These answers apply to {s.blockedFields} fields across {s.applications} application{s.applications === 1 ? "" : "s"}.
+          Across {s.applications} application{s.applications === 1 ? "" : "s"}. Answer what you can and save once;
+          nothing is submitted here.
         </p>
       </div>
-
-      <article className="qcard">
-        <p className="qprogress">Question {index} of {groups.length}</p>
-        <h2 className="qtext">{group.questionText || group.label}</h2>
-        <p className="qasked">
-          Asked by {group.fields.length} application{group.fields.length === 1 ? "" : "s"}
-        </p>
-        <ul className="qapps">{apps.map((a) => <li key={a}>{a}</li>)}</ul>
-
-        {group.blockedReason && (
-          <div className="qwhy">
-            <p className="qwhyhead">Why we need you</p>
-            <p>{group.blockedReason}</p>
-          </div>
-        )}
-
-        <form method="post" action="/api/applications/answer">
-          <input type="hidden" name="answerId" value={primaryId} />
-          <input type="hidden" name="returnTo" value={next} />
-
-          {group.options.length > 0 ? (
-            <div className="qoptions">
-              {group.options.map((o) => (
-                <label key={o} className="qoption">
-                  <input type="radio" name="answer" value={o} required />
-                  <span>{o}</span>
-                </label>
-              ))}
-            </div>
-          ) : (
-            <input className="qinput" type="text" name="answer" required
-              aria-label={group.questionText || group.label} />
-          )}
-
-          {others.length > 0 && (
-            group.reusable ? (
-              <label className="qreuse">
-                <input type="checkbox" name="reuseAnswerIds" value={otherIds.join(",")} />
-                <span>Use this answer for {others.length === 1 ? "both applications" : `all ${group.fields.length} applications`}</span>
-              </label>
-            ) : (
-              <p className="qnoreuse">{group.reuseNote}</p>
-            )
-          )}
-
-          {!group.required && (
-            <label className="qblank">
-              <input type="checkbox" name="leaveBlank" value="1" />
-              <span>Leave this blank</span>
-            </label>
-          )}
-
-          <div className="qactions">
-            {index > 1 && <a className="btn-quiet" href={`/apply/questions?q=${index - 1}`}>Back</a>}
-            <button className="btn-primary" type="submit">Save &amp; next</button>
-          </div>
-        </form>
-      </article>
+      <QuestionsForm data={data} />
     </main>
   );
 }

@@ -671,3 +671,27 @@ a.counter:hover { border-color: currentColor; }
 .approw-review-body .pane h4 .muted { text-transform: none; letter-spacing: 0; }
 .approw-review-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
 .approw-review-actions form { margin: 0; }
+
+/* Consolidated questions: every unresolved question on one screen. */
+.qform { display: flex; flex-direction: column; gap: 1.5rem; padding-bottom: 5rem; }
+.qapp h2 { font-size: 1.05rem; margin: 0 0 0.7rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--line); }
+.qapp h2 .muted { font-size: 0.85rem; font-weight: 400; }
+.qitems { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.9rem; }
+.qitem { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem 1rem; }
+.qitem.done { opacity: 0.7; border-color: var(--good, #2e7d32); }
+.qitem.failed { border-color: var(--bad); }
+.qitem-q { margin: 0 0 0.15rem; font-weight: 600; font-size: 0.95rem; }
+.qitem-apps { color: var(--ink-faint); font-weight: 400; font-size: 0.85rem; }
+.qitem-why { margin: 0 0 0.5rem; color: var(--ink-soft); font-size: 0.85rem; }
+.qitem-saved { margin: 0.3rem 0 0; color: var(--good, #2e7d32); font-size: 0.9rem; }
+.qitem-err { margin: 0.4rem 0 0; color: var(--bad); font-size: 0.85rem; }
+.qitem-note { margin: 0.3rem 0 0; color: var(--ink-soft); font-size: 0.82rem; }
+.qitem-options { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.4rem; }
+.qitem .qinput { margin-top: 0.4rem; width: 100%; }
+.qitem .qblank { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
+.qsavebar {
+  position: sticky; bottom: 0; margin-top: 0.5rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  background: var(--bg); border-top: 1px solid var(--line); padding: 0.9rem 0.2rem;
+}
+.qsavebar .qprogress { font-variant-numeric: tabular-nums; color: var(--ink-soft); font-size: 0.9rem; }
