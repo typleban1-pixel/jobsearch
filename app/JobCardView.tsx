@@ -6,6 +6,7 @@ import {
   describeArrangement, describeFreshness, describeLocations, describeSalary,
   evidenceLabel, uncertaintyBand,
 } from "../lib/portal/present.ts";
+import { matchLabel } from "../lib/portal/matchScore.ts";
 
 const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
@@ -30,7 +31,11 @@ const VERDICT_TEXT: Record<string, string> = {
 export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; returnTo: string; rank?: number | null }) {
   const salary = describeSalary(card);
   const band = uncertaintyBand(card.uncertainty);
-  const verdict = card.candidacy ? VERDICT_TEXT[card.candidacy.label] ?? card.candidacy.label : null;
+  // The user-facing fit label comes from the Match Score alone, so the
+  // number and the words never contradict. The candidacy verdict is kept
+  // for automation/submission safety and still shown under "Matching
+  // details" -- it no longer sets the headline fit claim.
+  const fit = matchLabel(card.match.score, card.match.provisional);
 
   // The strongest thing we can say for the job, and the most important
   // thing against it. Both come from evidence already computed.
@@ -58,11 +63,10 @@ export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; re
             title={card.match.note ? `Match estimate — ${card.match.note}` : "How good this opportunity is for your verified background"}>
             <b>{card.match.provisional ? "~" : ""}{card.match.score}</b> Match
           </span>
-          {verdict && (
-            <span className={`verdict ${card.candidacy!.label.toLowerCase().replace(/\s+/g, "-")}`}>
-              {verdict}
-            </span>
-          )}
+          <span className={`matchfit${card.match.provisional ? " provisional" : ""}`}
+            title="Your fit for this role, derived from the Match Score">
+            {fit}
+          </span>
         </div>
       </div>
 

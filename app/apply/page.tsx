@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { currentSession } from "../../lib/portal/session.ts";
 import { loadApplyBoard, type ApplyRow } from "../../lib/portal/applyBoard.ts";
 import { loadReview, type ReviewData } from "../../lib/portal/reviewData.ts";
+import { matchLabel } from "../../lib/portal/matchScore.ts";
 import { PrimaryNav } from "../PrimaryNav.tsx";
 import { InlineReview } from "./InlineReview.tsx";
 
@@ -30,10 +31,15 @@ function Row({ row, review }: { row: ApplyRow; review?: ReviewData | null }) {
         <p className="approw-title">
           {row.title}
           {row.match && (
-            <span className={`matchbadge${row.match.provisional ? " provisional" : ""}`}
-              title={row.match.note ? `Match estimate — ${row.match.note}` : "How good this opportunity is for your verified background"}>
-              <b>{row.match.provisional ? "~" : ""}{row.match.score}</b> Match
-            </span>
+            <>
+              <span className={`matchbadge${row.match.provisional ? " provisional" : ""}`}
+                title={row.match.note ? `Match estimate — ${row.match.note}` : "How good this opportunity is for your verified background"}>
+                <b>{row.match.provisional ? "~" : ""}{row.match.score}</b> Match
+              </span>
+              <span className={`matchfit${row.match.provisional ? " provisional" : ""}`}>
+                {matchLabel(row.match.score, row.match.provisional)}
+              </span>
+            </>
           )}
         </p>
         <p className="approw-company">{row.company}</p>

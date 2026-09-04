@@ -43,10 +43,12 @@ export default async function Page(props: { searchParams: Promise<Record<string,
 
   const all = await loadJobCards(session.client);
   const universe = await loadUniverseCounts(session.client, all.length);
-  // One authoritative ordering: attention (evidence-first), never the raw
-  // candidacy enum -- a strong Stretch can and should outrank a weak
-  // Candidate when the evidence says so.
-  const matching = sortCards(applyFilters(all, filters), "attention");
+  // One authoritative ordering: the calibrated 0-100 Match Score, highest
+  // first, so #1 is the best viable match currently evaluated. Eligibility
+  // gating still happens upstream (an ineligible job is not made viable by
+  // a high score); the evidence-first Formula 3 ranking now only breaks
+  // ties beneath Match Score and remains available as a diagnostic sort.
+  const matching = sortCards(applyFilters(all, filters), "match");
 
   // Paginated because rendering hundreds of cards produced a multi-megabyte
   // document. The whole set is still ranked; only the slice on screen is

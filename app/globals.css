@@ -695,3 +695,12 @@ a.counter:hover { border-color: currentColor; }
   background: var(--bg); border-top: 1px solid var(--line); padding: 0.9rem 0.2rem;
 }
 .qsavebar .qprogress { font-variant-numeric: tabular-nums; color: var(--ink-soft); font-size: 0.9rem; }
+
+/* The Match-Score-derived fit label. One neutral badge that always agrees
+   with the number beside it; provisional reads muted, never confident. */
+.matchfit {
+  font-size: 0.78rem; padding: 0.15rem 0.5rem; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); white-space: nowrap;
+}
+.matchfit.provisional { background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); }
+.approw-title .matchfit { font-size: 0.72rem; }

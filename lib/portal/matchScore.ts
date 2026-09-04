@@ -188,3 +188,25 @@ export function matchScore(input: MatchScoreInput): MatchScoreResult {
 
   return { score, provisional, confidence, note };
 }
+
+/**
+ * The single human-readable fit label, derived from the Match Score alone
+ * so the number and the words always tell one coherent story. Bands are
+ * ABSOLUTE descriptions of fit, matched to the calibration (which is
+ * deliberately harsh: role-fit dominates and 100 means a perfect fit), not
+ * relative to the current corpus -- so most jobs honestly read as weak.
+ *
+ * A provisional score is one the system is not confident enough to stand
+ * behind (thin/unassessable/high-uncertainty). It never gets a confident
+ * fit label; it reads "Needs more evaluation" while the numeric ~score is
+ * still shown beside it. This does not change the Match Score itself.
+ */
+export function matchLabel(score: number, provisional: boolean): string {
+  if (provisional) return "Needs more evaluation";
+  if (score >= 90) return "Exceptional match";
+  if (score >= 80) return "Very strong match";
+  if (score >= 70) return "Strong match";
+  if (score >= 60) return "Good match";
+  if (score >= 50) return "Worth considering";
+  return "Weak match";
+}

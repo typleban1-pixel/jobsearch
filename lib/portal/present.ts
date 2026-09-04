@@ -79,12 +79,14 @@ export function evidenceLabel(c: JobCard): string {
 }
 
 export type SortKey =
+  | "match"
   | "attention"
   | "candidacy"
   | "evidence" | "fit" | "opportunity" | "uncertainty" | "freshness" | "salary" | "coverage";
 
 export const SORTS: Array<{ key: SortKey; label: string; note: string }> = [
-  { key: "attention", label: "Best matches first", note: "requirements met, then the evidence behind them" },
+  { key: "match", label: "Best matches first", note: "the 0-100 Match Score, highest first" },
+  { key: "attention", label: "Evidence-first (diagnostic)", note: "requirements met, then the evidence behind them" },
   { key: "candidacy", label: "Candidacy, then evidence", note: "candidates first, then stretches; never hides a stretch" },
   { key: "evidence", label: "Evidence, then Fit", note: "credited concepts first, Fit breaks ties" },
   { key: "fit", label: "Fit", note: "the stored Fit score alone" },
@@ -111,6 +113,24 @@ const candidacyRank = (c: JobCard) =>
 export function sortCards(cards: JobCard[], key: SortKey): JobCard[] {
   const out = [...cards];
   switch (key) {
+    // The authoritative user-facing order: the calibrated 0-100 Match
+    // Score, highest first, so #1 is the best viable match currently
+    // evaluated. A materially higher score always ranks above a lower one
+    // -- the evidence-first ranking never puts a 54 above a 71. Confidence
+    // is a secondary consideration only among equal scores (a confident
+    // score sorts above a provisional one of the same value); the
+    // evidence-first Formula 3 ordering (compareAttention) and stored Fit
+    // break ties after that; and the opening/job id is a final stable
+    // deterministic tie-breaker so the order never jumps between loads.
+    // Match Score, candidacy, Formula 3 and eligibility are all unchanged;
+    // this only decides which of them the reader-facing order leads with.
+    case "match":
+      return out.sort((a, b) =>
+        b.match.score - a.match.score
+        || (a.match.provisional ? 1 : 0) - (b.match.provisional ? 1 : 0)
+        || compareAttention(a.attention, b.attention)
+        || b.fit - a.fit
+        || String(a.id).localeCompare(String(b.id)));
     // The default. Ordered by what the employer asked for and what is
     // actually evidenced, with jobs whose requirements cannot be
     // assessed kept in their own band below rather than buried by a
