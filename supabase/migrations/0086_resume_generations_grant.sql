@@ -1,0 +1,15 @@
+-- Resume Builder generate returned 500 for every real posting: the portal
+-- (authenticated role) could not INSERT a resume_generations row.
+--
+-- 0084 enabled RLS and created the owner policy (for all ... with check
+-- (is_app_owner())) but never GRANTED the table privilege. RLS gates which
+-- ROWS a role may touch; it does not grant the privilege to touch the table
+-- at all. 0007 grants only SELECT to authenticated by default, so INSERT was
+-- denied with SQLSTATE 42501 (permission denied for table). Service-role
+-- (the Mac worker, and every smoke test that used it) bypasses grants, which
+-- is why this stayed hidden until a real portal request hit it.
+--
+-- This matches exactly how applications and application_answers are granted
+-- in 0042: the owner policy already exists from 0084, so only the grant is
+-- added here. The write stays gated to the app owner by that policy.
+grant insert, update on public.resume_generations to authenticated;

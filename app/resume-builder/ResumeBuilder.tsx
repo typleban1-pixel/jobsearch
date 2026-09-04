@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { detectTitleCompany } from "../../lib/resume/detectPosting.ts";
+import { readablePaste } from "../../lib/resume/readablePaste.ts";
 
 export interface RecentResume {
   id: string; resumeId: string | null; title: string; company: string | null; finishedAt: string | null;
@@ -46,11 +47,24 @@ export function ResumeBuilder({ recent }: { recent: RecentResume[] }) {
   const [waited, setWaited] = useState(0);
   const [viewing, setViewing] = useState<RecentResume | null>(null);
 
-  // Best-effort HTML capture ONLY. The textarea's native paste + onChange
-  // is the source of truth for the text, so ingestion can never be lost to
-  // a clipboard quirk. No preventDefault, no setText here.
+  // Capture the clipboard HTML (also sent to the server, which sanitises
+  // it) and, when it is present, use it to keep the posting's structure:
+  // many boards emit text/plain with every block run together, so we paste
+  // a block-aware, readable rendering instead. When there is no usable HTML
+  // we do nothing and let the native text/plain paste through, so text can
+  // never be lost to a clipboard quirk.
   function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    try { htmlRef.current = e.clipboardData.getData("text/html") || null; } catch { htmlRef.current = null; }
+    let html: string | null = null;
+    try { html = e.clipboardData.getData("text/html") || null; } catch { html = null; }
+    htmlRef.current = html;
+    if (!html) return;
+    const readable = readablePaste(html);
+    if (readable.trim().length < 20) return; // weak conversion -> native paste
+    e.preventDefault();
+    const ta = e.currentTarget;
+    const start = ta.selectionStart ?? text.length;
+    const end = ta.selectionEnd ?? text.length;
+    setText(text.slice(0, start) + readable + text.slice(end));
   }
 
   async function generate(from?: string) {
