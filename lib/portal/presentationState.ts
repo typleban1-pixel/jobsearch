@@ -85,6 +85,19 @@ export interface Presentation {
    * same review beside the card so approval does not require a page change.
    */
   inlineReview?: boolean;
+  /**
+   * The primary action re-prepares this application through the worker (a
+   * POST to the re-prepare route) rather than navigating away. Set only for
+   * a live-form provider parked because its form has not been snapshotted
+   * yet -- the worker can open that form and prepare it. The action's href
+   * remains a safe no-JS fallback.
+   */
+  reprepare?: boolean;
+  /**
+   * A secondary action shown beside the primary one: the employer's own
+   * form, as a manual escape hatch when the assisted path is offered.
+   */
+  secondaryAction?: { label: string; href: string } | null;
 }
 
 const ATS_LABEL: Record<string, string> = {
@@ -255,6 +268,23 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
   // yanked into Needs You.
   if (f.blockedReason && !f.activelyPreparing) {
     const ats = ATS_LABEL[f.provider] ?? f.provider;
+    // A live-form provider parked ONLY because its form has not been
+    // snapshotted yet is not a manual handoff: the worker can open the
+    // form in a browser and prepare it. Offer that as the primary action
+    // -- a re-prepare the always-on worker drains -- and keep the
+    // employer's own form as a secondary escape hatch. A row parked for a
+    // reason a re-prepare cannot fix (a sign-in wall, an SSO prompt, a
+    // CAPTCHA, a multi-step form: all recorded as "finished by hand")
+    // stays a plain external handoff. Nothing here submits.
+    if (f.provider === "ASHBY" && /snapshotted locally in the browser/i.test(f.blockedReason)) {
+      return {
+        state: "NEEDS_YOU",
+        summary: `Ready to continue on ${ats}. This opens the live form, fills what your verified background answers, and surfaces anything left for you. Nothing is submitted.`,
+        action: { label: `Continue on ${ats}`, href: f.applyUrl ?? `${href}/review` },
+        reprepare: true,
+        secondaryAction: f.applyUrl ? { label: `Open on ${ats}`, href: f.applyUrl } : null,
+      };
+    }
     return {
       state: "NEEDS_YOU",
       summary: f.handoffReason ?? `This one needs you to continue on ${ats}.`,

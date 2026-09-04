@@ -6,6 +6,7 @@ import { matchLabel } from "../../lib/portal/matchScore.ts";
 import { PrimaryNav } from "../PrimaryNav.tsx";
 import { InlineReview } from "./InlineReview.tsx";
 import { AutoRefreshApply } from "./AutoRefreshApply.tsx";
+import { ReprepareButton } from "./ReprepareButton.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,11 @@ function Row({ row, review }: { row: ApplyRow; review?: ReviewData | null }) {
       </div>
       {inline
         ? <InlineReview r={review!} />
+        : p.reprepare
+        // "Continue on Ashby" re-prepares through the worker rather than
+        // navigating; the employer's form stays as a secondary escape hatch.
+        ? <ReprepareButton applicationId={row.applicationId}
+            label={p.action?.label ?? "Continue"} secondary={p.secondaryAction} />
         : p.action && <a className="btn-primary" href={p.action.href}>{p.action.label}</a>}
     </li>
   );
