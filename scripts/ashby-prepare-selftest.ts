@@ -10,7 +10,8 @@
  *   node scripts/ashby-prepare-selftest.ts
  *   ASHBY_TEST_URL="https://jobs.ashbyhq.com/<org>/<id>" node scripts/ashby-prepare-selftest.ts
  */
-import { decideAshby, looksLikeForm, toFormField, groupAshbyChoices, mergeChoiceGroups, dropFileHeaderArtifacts } from "../lib/browser/ashbyPrepare.ts";
+import { decideAshby } from "../lib/browser/ashbyPrepare.ts";
+import { looksLikeForm, toFormField, groupAshbyChoices, mergeChoiceGroups, dropFileHeaderArtifacts } from "../lib/browser/ashbyForm.ts";
 import { reprepareGuard } from "../lib/applications/reprepareGuard.ts";
 import { present, type ApplicationFacts } from "../lib/portal/presentationState.ts";
 
