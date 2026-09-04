@@ -18,8 +18,8 @@ import { useRouter } from "next/navigation";
  * the manual path is never taken away.
  */
 export function ReprepareButton(
-  { applicationId, label, secondary }:
-  { applicationId: string; label: string; secondary?: { label: string; href: string } | null },
+  { applicationId, title, label, secondary }:
+  { applicationId: string; title: string; label: string; secondary?: { label: string; href: string } | null },
 ) {
   const router = useRouter();
   const [state, setState] = useState<"idle" | "starting" | "started" | "error">("idle");
@@ -40,6 +40,13 @@ export function ReprepareButton(
         setMessage(body?.error ?? "could not start preparation");
         return;
       }
+      // Persistent, page-level feedback that survives the board's soft
+      // refresh and the card moving to the Preparing section, so clicking
+      // never reads as the card vanishing with nothing happening.
+      try {
+        sessionStorage.setItem(`reprepare:${applicationId}`, JSON.stringify({ title, at: Date.now() }));
+        window.dispatchEvent(new Event("reprepare-started"));
+      } catch { /* sessionStorage unavailable: the button state below still shows progress */ }
       setState("started");
       router.refresh();
     } catch (e) {

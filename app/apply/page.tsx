@@ -7,6 +7,7 @@ import { PrimaryNav } from "../PrimaryNav.tsx";
 import { InlineReview } from "./InlineReview.tsx";
 import { AutoRefreshApply } from "./AutoRefreshApply.tsx";
 import { ReprepareButton } from "./ReprepareButton.tsx";
+import { ReprepareBanner } from "./ReprepareBanner.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +53,7 @@ function Row({ row, review }: { row: ApplyRow; review?: ReviewData | null }) {
         : p.reprepare
         // "Continue on Ashby" re-prepares through the worker rather than
         // navigating; the employer's form stays as a secondary escape hatch.
-        ? <ReprepareButton applicationId={row.applicationId}
+        ? <ReprepareButton applicationId={row.applicationId} title={row.title}
             label={p.action?.label ?? "Continue"} secondary={p.secondaryAction} />
         : p.action && <a className="btn-primary" href={p.action.href}>{p.action.label}</a>}
     </li>
@@ -96,6 +97,8 @@ export default async function ApplyPage() {
     <main className="apply">
       {/* Poll only while something is actively preparing; a settled board is quiet. */}
       <AutoRefreshApply active={board.preparing.length > 0} />
+      {/* Persistent "Preparing on Ashby" confirmation after a Continue click. */}
+      <ReprepareBanner />
       <header className="applyhead">
         <h1>Apply</h1>
         <PrimaryNav current="apply" />
