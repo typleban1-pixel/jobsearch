@@ -39,6 +39,7 @@ import { approvedArtifact } from "../lib/render/artifact.ts";
 import { revalidateBeforeSubmit } from "../lib/applications/revalidate.ts";
 import { answerSetHash } from "../lib/applications/approvalBinding.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
+import { pickResultPageIndex } from "../lib/browser/resultPage.ts";
 import { startFillRun, recordFillRun } from "../lib/applications/fillRun.ts";
 import { formatStopDetail, fillStopCode, STOP_EVENT, type StopCode, type StopStage, type StopRecord }
   from "../lib/applications/stopReason.ts";
@@ -367,7 +368,13 @@ if (outcome.reason !== "HANDOFF") {
         expected: "filled", actual: "left blank" })) });
 }
 
-const page: Page = context.pages().find((p) => p.url().includes("greenhouse.io")) ?? context.pages()[context.pages().length - 1]!;
+// The confirmation is read on the form's OWN origin, whatever the provider,
+// falling back to a greenhouse.io page (unchanged for validated Greenhouse
+// runs) and then the last page. This picks WHICH page only; it encodes no
+// success wording for any provider, so an unencoded provider (Ashby today)
+// still fails to a not-confirmed outcome rather than a false SUBMITTED.
+const pages = context.pages();
+const page: Page = pages[pickResultPageIndex(pages.map((p) => p.url()), job!.application_form_url!)] ?? pages[pages.length - 1]!;
 
 // ---- what the page looked like before the click ---------------------
 const before = await page.evaluate(() => ({

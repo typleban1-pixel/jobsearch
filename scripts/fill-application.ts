@@ -27,6 +27,7 @@ import { approvedArtifact, loadArtifact } from "../lib/render/artifact.ts";
 import { createHash } from "node:crypto";
 import { isFailure } from "../lib/browser/stopReasons.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
+import { pickResultPageIndex } from "../lib/browser/resultPage.ts";
 import { startFillRun, recordFillRun, type UploadedArtifact } from "../lib/applications/fillRun.ts";
 
 const applicationId = process.argv[2];
@@ -68,7 +69,7 @@ if (!validate) {
 }
 
 const { data: job } = await db.from("jobs")
-  .select("id,title,source,apply_url,application_form_url,application_form_url_verified_at,company_id")
+  .select("id,title,source,apply_url,url,application_form_url,application_form_url_verified_at,company_id")
   .eq("id", app.job_id).single();
 const { data: company } = await db.from("companies").select("name").eq("id", job!.company_id).single();
 // ---- where the form actually is --------------------------------------
@@ -79,7 +80,10 @@ const { data: company } = await db.from("companies").select("name").eq("id", job
 // application_form_url is the verified board route; when it is missing
 // this refuses, because the alternative is hunting for an Apply link on
 // an employer page and hoping it leads to the right requisition.
-const formUrl: string | null = job!.application_form_url ?? null;
+// Ashby publishes no separate verified form route: the form is revealed on
+// the posting page itself, so its own posting URL is the form URL.
+const formUrl: string | null = job!.application_form_url
+  ?? (job!.source === "ASHBY" ? (job!.apply_url ?? job!.url ?? null) : null);
 if (!formUrl) {
   if (job!.source === "GREENHOUSE") {
     console.error(`no verified application form url for this job.`);
@@ -306,8 +310,8 @@ if (process.argv.includes("--stay-open")) {
   // The page holding the form, not the blank one launchPersistentContext
   // opens first. Watching pages()[0] measured about:blank and reported a
   // form that survived perfectly while telling us nothing.
-  const watched = context.pages().find((p) => p.url().includes("greenhouse.io"))
-    ?? context.pages()[context.pages().length - 1]!;
+  const wpages = context.pages();
+  const watched = wpages[pickResultPageIndex(wpages.map((p) => p.url()), formUrl)] ?? wpages[wpages.length - 1]!;
   let navigations = 0;
   watched.on("framenavigated", (f) => {
     if (f === watched.mainFrame()) { navigations++; console.log(`  [nav] main frame -> ${f.url().slice(0, 80)}`); }
