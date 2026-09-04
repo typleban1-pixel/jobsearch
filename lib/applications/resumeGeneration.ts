@@ -86,10 +86,20 @@ export async function generateResume(
   let requirements: RequirementInput[];
   try {
     const { content } = await extractRequirements(llm, { title, company, descriptionText });
-    const cleaned = (content.requirements ?? [])
-      .map((r) => sanitizeRequirement(r)?.requirement)
-      .filter((r): r is NonNullable<typeof r> => Boolean(r))
-      .map((r) => reconcileHardness(r));
+    // Mirror the ingest path EXACTLY: sanitise each requirement, then use
+    // reconcileHardness only to correct is_hard_requirement ON the object,
+    // and dedupe the requirement objects themselves. (reconcileHardness
+    // returns {hardness, corrected}, NOT a requirement -- mapping to its
+    // return value strips normalized_term/kind, so every row deduped to the
+    // key " undefined" and 24 requirements collapsed to 1.)
+    const cleaned: RequirementInput[] = [];
+    for (const raw of content.requirements ?? []) {
+      const clean = sanitizeRequirement(raw as any);
+      if (!clean) continue;
+      const rec = reconcileHardness(clean.requirement as any);
+      if (rec.corrected) (clean.requirement as any).is_hard_requirement = rec.hardness;
+      cleaned.push(clean.requirement as any);
+    }
     requirements = dedupeRequirements(cleaned as any).kept;
   } catch (e) {
     return { ok: false, errorCategory: "EXTRACTION_FAILED", errorDetail: String((e as Error)?.message ?? e).slice(0, 300) };
