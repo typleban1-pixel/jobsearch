@@ -11,7 +11,7 @@
  *   ASHBY_TEST_URL="https://jobs.ashbyhq.com/<org>/<id>" node scripts/ashby-prepare-selftest.ts
  */
 import { decideAshby } from "../lib/browser/ashbyPrepare.ts";
-import { looksLikeForm, toFormField, groupAshbyChoices, mergeChoiceGroups, dropFileHeaderArtifacts } from "../lib/browser/ashbyForm.ts";
+import { looksLikeForm, toFormField, groupAshbyChoices, mergeChoiceGroups, dropFileHeaderArtifacts, chooseSingleOption, verifySingleSelected } from "../lib/browser/ashbyForm.ts";
 import { reprepareGuard } from "../lib/applications/reprepareGuard.ts";
 import { present, type ApplicationFacts } from "../lib/portal/presentationState.ts";
 
@@ -184,6 +184,20 @@ const twoStrongFiles = [
   { key: "b", label: "Cover letter", type: "file", selectorKind: "name" },
 ];
 ok(dropFileHeaderArtifacts(twoStrongFiles).length === 2, "two strongly-identified file fields are both kept");
+
+console.log("\nchooseSingleOption -- an Ashby single-select requires an exact offered answer:");
+const OPTS = ["Yes", "No", "Not Applicable (I do not reside in the United States)"];
+ok(chooseSingleOption(OPTS, "No").ok === true, "an offered answer is chosen");
+ok((chooseSingleOption(OPTS, "no") as any).option === "No", "  ...case-insensitive, returned in the offered spelling");
+ok(chooseSingleOption(OPTS, "Maybe").ok === false, "an answer that is not offered fails closed");
+ok((chooseSingleOption(OPTS, "Maybe") as any).why.includes("Not Applicable"), "  ...and the failure names the offered options");
+ok(chooseSingleOption(["Yes", "Yes", "No"], "Yes").ok === false, "two identical options are an ambiguity, not a tie to break");
+
+console.log("\nverifySingleSelected -- exactly one option selected, and it is the chosen one:");
+ok(verifySingleSelected({ Yes: true, No: false }, "Yes").ok === true, "exactly the chosen option selected -> ok");
+ok(verifySingleSelected({ Yes: false, No: false }, "Yes").ok === false, "nothing selected -> read-back failure");
+ok(verifySingleSelected({ Yes: true, No: true }, "Yes").ok === false, "a second option also selected -> read-back failure");
+ok(verifySingleSelected({ Yes: true, No: false }, "No").ok === false, "the wrong option selected -> read-back failure");
 
 // Optional live leg: a real public single-page Ashby application.
 const url = process.env.ASHBY_TEST_URL;

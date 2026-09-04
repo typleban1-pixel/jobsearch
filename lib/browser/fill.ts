@@ -32,7 +32,7 @@ import { reconcileAll, answerFitsControl, type Reconciled } from "./reconcile.ts
 import { attachResume, type AttachmentEvidence } from "./upload.ts";
 import {
   revealAshbyForm, ashbyMultiStep, readChoiceFieldsets, groupAshbyChoices,
-  mergeChoiceGroups, dropFileHeaderArtifacts,
+  mergeChoiceGroups, dropFileHeaderArtifacts, chooseSingleOption, verifySingleSelected,
 } from "./ashbyForm.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
 import { hashSnapshot } from "../applications/formSnapshot.ts";
@@ -499,6 +499,10 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       // before the code that knows how to map the two ever runs.
       if (f.htmlType === "checkbox-group") return value;
 
+      // An Ashby single-select group likewise decides its own option in the
+      // write path (exact offered match), so it is not fitted here.
+      if (f.htmlType === "radio-group") return value;
+
       // A place is not a string, and this is the wrong place to decide it.
       //
       // This ran before the write path and compared "Cleveland, OH" to the
@@ -595,6 +599,56 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
 
     const write = async (f: LiveField, rawValue: string): Promise<void> => {
       const value = await proveAnswerFits(f, rawValue);
+
+      /**
+       * An Ashby single-select group is one question with one radio per
+       * option. The answer must be one of the offered options exactly; the
+       * option's OWN selector is clicked (Ashby gives each a unique name),
+       * never the group's; and read-back requires that exactly one option in
+       * the group is selected and it is the chosen one. A styled radio that
+       * hides its native input is checked via its label, but the read-back
+       * is what proves the state either way.
+       */
+      if (f.htmlType === "radio-group") {
+        const offered = f.options ?? [];
+        const chosen = chooseSingleOption(offered, value);
+        inspections.push({ field: f.label || f.key, optionsFound: offered.length,
+          sample: offered.slice(0, 3), allOptions: offered,
+          resolvedAs: chosen.ok ? `matched ${JSON.stringify(chosen.option)}` : chosen.why });
+        if (!chosen.ok) {
+          throw new Stop("READBACK_MISMATCH", `"${f.label || f.key}": ${chosen.why}`);
+        }
+        const sel = f.optionSelectors?.[chosen.option];
+        if (!sel) {
+          throw new Stop("SELECTOR_AMBIGUOUS",
+            `"${f.label || f.key}": ${JSON.stringify(chosen.option)} has no selector of its own`);
+        }
+        const box = ctx.frame.locator(sel);
+        const cnt = await box.count();
+        if (cnt !== 1) {
+          throw new Stop("SELECTOR_AMBIGUOUS", `"${f.label || f.key}": ${JSON.stringify(sel)} matched ${cnt} controls`);
+        }
+        if (!(await box.isChecked().catch(() => false))) {
+          await box.check({ timeout: 8000 }).catch(async () => {
+            const id = await box.getAttribute("id").catch(() => null);
+            if (id) await ctx.frame.locator(`label[for="${id}"]`).click({ timeout: 8000 }).catch(() => {});
+            else await box.click({ force: true, timeout: 8000 }).catch(() => {});
+          });
+        }
+        await page.waitForTimeout(300);
+        const state = await ctx.frame.evaluate((sels: Record<string, string>) =>
+          Object.fromEntries(Object.entries(sels).map(([label, s]) =>
+            [label, Boolean((document.querySelector(s) as HTMLInputElement | null)?.checked)])),
+          f.optionSelectors ?? {});
+        const rb = verifySingleSelected(state, chosen.option);
+        if (!rb.ok) {
+          throw new Stop("READBACK_MISMATCH",
+            `"${f.label || f.key}" reads back as ${rb.ticked.length ? rb.ticked.join(" + ") : "nothing selected"} `
+            + `after selecting ${JSON.stringify(chosen.option)}`);
+        }
+        filled.push({ field: f.label || f.key, value: chosen.option });
+        return;
+      }
 
       /**
        * A group of checkboxes is one question with many controls.

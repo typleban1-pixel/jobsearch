@@ -162,6 +162,37 @@ export function dropFileHeaderArtifacts<T extends { type: string; selectorKind: 
 }
 
 /**
+ * Choose the single offered option an answer names, or fail closed.
+ *
+ * An exact (case-insensitive) match against the offered text, and nothing
+ * looser: an answer that is not one of the options is refused, and two
+ * identical options are an ambiguity rather than a tie to break. The chosen
+ * value is the offered spelling, so the control receives exactly its own
+ * text. Pure, so the rule is tested without a browser.
+ */
+export function chooseSingleOption(
+  options: string[], value: string,
+): { ok: true; option: string } | { ok: false; why: string } {
+  const v = value.trim().toLowerCase();
+  const hits = options.filter((o) => o.trim().toLowerCase() === v);
+  if (hits.length === 1) return { ok: true, option: hits[0]! };
+  if (hits.length > 1) return { ok: false, why: `the answer ${JSON.stringify(value)} matches ${hits.length} identical options` };
+  return { ok: false, why: `${JSON.stringify(value)} is not one of the offered options: ${options.join(" | ")}` };
+}
+
+/**
+ * After a single-select click, exactly one option in the group is selected
+ * and it is the one chosen. Anything else -- nothing selected, or a second
+ * option also on -- is a read-back failure, not a success.
+ */
+export function verifySingleSelected(
+  state: Record<string, boolean>, chosen: string,
+): { ok: boolean; ticked: string[] } {
+  const ticked = Object.entries(state).filter(([, on]) => on).map(([l]) => l);
+  return { ok: ticked.length === 1 && ticked[0] === chosen, ticked };
+}
+
+/**
  * Reveal the application form if the landing page gates it.
  *
  * Ashby renders the posting first and the form only after "Apply for this
