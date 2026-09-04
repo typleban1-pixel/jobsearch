@@ -30,6 +30,10 @@ import { matchCountryOption } from "../applications/workCountry.ts";
 import { isDemographicField, resolveEeoOption } from "./eeo.ts";
 import { reconcileAll, answerFitsControl, type Reconciled } from "./reconcile.ts";
 import { attachResume, type AttachmentEvidence } from "./upload.ts";
+import {
+  revealAshbyForm, ashbyMultiStep, readChoiceFieldsets, groupAshbyChoices,
+  mergeChoiceGroups, dropFileHeaderArtifacts,
+} from "./ashbyForm.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
 import { hashSnapshot } from "../applications/formSnapshot.ts";
 import { resolveField, equivalents, type FormField, type ResolveContext } from "../applications/answer.ts";
@@ -262,6 +266,17 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
     await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined);
     await shot(page, runDir, "01-loaded", screenshots);
 
+    // Ashby renders the form only after "Apply for this Job" is pressed, so
+    // reveal it before the form context is resolved -- otherwise the top
+    // document has no controls and resolves to NO_FORM_FOUND. Pressing that
+    // one control reveals fields; it never submits. Shared with preparation.
+    if (provider === "ASHBY") {
+      await revealAshbyForm(page);
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => undefined);
+      await page.waitForTimeout(800);
+      await page.evaluate(() => window.scrollTo(0, 0)).catch(() => undefined);
+    }
+
     // The form may not be in the top document. SpotHero's careers page
     // carries the description and embeds Greenhouse one frame down.
     const ctx = await resolveFormContext(page, provider);
@@ -282,6 +297,22 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
     if (live.loginWall) throw new Stop("LOGIN_WALL", `sign in to ${provider} in the browser profile, then re-run`);
     if (live.ssoPrompt) throw new Stop("SSO_PROMPT", "granting access is your decision, not this system's");
     if (live.fields.length === 0) throw new Stop("NO_FORM_FOUND", "no fillable controls are present on this page");
+
+    // Ashby normalization, IDENTICAL to preparation (one shared definition):
+    // collapse each choice fieldset into one grouped question carrying live
+    // per-option selectors, and drop the resume-dropzone file phantom, so
+    // the live field set matches the reviewed snapshot key-for-key. Without
+    // this the grouped questions in the snapshot would read as FORM_CHANGED
+    // against the ungrouped live controls. A multi-step Ashby form we cannot
+    // safely progress fails closed here rather than filling one page of many.
+    if (provider === "ASHBY") {
+      if (await ashbyMultiStep(page)) {
+        throw new Stop("AMBIGUOUS_NAVIGATION",
+          "this Ashby application is multi-step, which is not supported for assisted submission; finish it by hand");
+      }
+      const grouping = groupAshbyChoices(await readChoiceFieldsets(page));
+      live = { ...live, fields: mergeChoiceGroups(dropFileHeaderArtifacts(live.fields), grouping) };
+    }
 
     // -- IDENTIFY -----------------------------------------------------
     const liveAsFields: FormField[] = live.fields.map((f) => ({
