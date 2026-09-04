@@ -102,6 +102,26 @@ export function normalizeCountryName(s: string): string {
 const clean = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase().replace(/\.$/, "");
 
 /**
+ * A location answer with any trailing prose removed, its geographic
+ * components intact.
+ *
+ * A person's answer to "Location" is not always a bare place: "Cleveland
+ * - relocating to Chicago", "Cleveland, OH (moving soon)", "Cleveland,
+ * Ohio currently". The geographic value is what precedes that clause.
+ * Unlike geoSearchTerm, which reduces to the city alone for a typeahead
+ * box, this keeps every comma component the answer states -- so
+ * "Cleveland, OH - relocating" still carries its state into the match.
+ * The split is on a spaced dash, a parenthesis, or the words
+ * relocating / moving / currently, none of which appears inside a real
+ * place name ("Winston-Salem" has no spaces around its dash).
+ */
+export function stripLocationProse(place: string): string {
+  const s = String(place ?? "");
+  const cut = s.split(/\s+[-–—]\s+|\s*\(|\s+(?:relocating|moving|currently)\b/i)[0] ?? s;
+  return cut.trim() || s.trim();
+}
+
+/**
  * One place as its comparable components.
  *
  * Abbreviations expand only in the position they belong to: "CA" is
@@ -110,7 +130,7 @@ const clean = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase().replace
  * up applying from Canada. The country map deliberately has no "CA".
  */
 export function geoParts(place: string): string[] {
-  const raw = String(place ?? "").split(",").map((p) => clean(p)).filter(Boolean);
+  const raw = stripLocationProse(place).split(",").map((p) => clean(p)).filter(Boolean);
   if (!raw.length) return [];
   return raw.map((part, i) => {
     const upper = part.toUpperCase();
@@ -174,11 +194,9 @@ export function geoSearchTerm(place: string): string {
   // or the words "relocating"/"moving". What survives is searched; if it
   // still does not name an offered place, the fill fails closed exactly
   // as before -- this widens what can be entered, never what is accepted.
-  const firstComponent = String(place ?? "").split(",")[0]?.trim() ?? "";
-  const beforeProse = firstComponent
-    .split(/\s+[-\u2013\u2014]\s+|\s*\(|\s+(?:relocating|moving|currently)\b/i)[0]
-    ?.trim() ?? "";
-  return beforeProse || firstComponent || String(place ?? "").trim();
+  const beforeProse = stripLocationProse(place);
+  const firstComponent = beforeProse.split(",")[0]?.trim() ?? "";
+  return firstComponent || beforeProse || String(place ?? "").trim();
 }
 
 /**

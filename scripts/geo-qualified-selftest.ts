@@ -83,5 +83,31 @@ ok(geoSearchTerm("Cleveland, Ohio, United States") === "Cleveland", "a fuller pl
   ok(!sameGeography("", chosen), "an empty control fails read-back");
 }
 
+// ---- a prose answer matches on its geography, not its whole string ---
+// "Cleveland - relocating to Chicago" is a true answer to "Location".
+// geoSearchTerm searched "Cleveland" correctly, but the option match was
+// run against the entire raw string, so nothing equalled it and the fill
+// stopped at READBACK_MISMATCH. The prose tail must be stripped for the
+// match too, while the city (and any state/country stated) is kept.
+{
+  const PROSE = "Cleveland - relocating to Chicago";
+  ok(geoSearchTerm(PROSE) === "Cleveland", "the prose answer still searches the bare city");
+  const hits = qualifiedGeoMatches(OFFERED, PROSE, PROFILE);
+  ok(hits.length === 1 && hits[0] === "Cleveland, Ohio, United States",
+     `the prose answer resolves to exactly Cleveland OH (got ${JSON.stringify(hits)})`);
+  // and it still refuses the traps
+  ok(!hits.includes("Cleveland, Tennessee, United States") && !hits.includes("East Cleveland, Ohio, United States"),
+     "the prose answer never selects a neighbouring city or wrong state");
+}
+// A prose answer that itself states the state keeps it through the strip.
+{
+  const hits = qualifiedGeoMatches(OFFERED, "Cleveland, OH (moving soon)", PROFILE);
+  ok(hits.length === 1 && hits[0] === "Cleveland, Ohio, United States",
+     `"Cleveland, OH (moving soon)" keeps its state and resolves once (got ${JSON.stringify(hits)})`);
+}
+// A hyphenated real place name is not mistaken for prose.
+ok(geoSearchTerm("Winston-Salem, NC") === "Winston-Salem", "a hyphenated place name is preserved");
+ok(sameGeography("Winston-Salem, North Carolina", "Winston-Salem, NC"), "Winston-Salem matches across region spellings");
+
 console.log(`${n - bad}/${n} assertions passed`);
 process.exit(bad ? 1 : 0);
