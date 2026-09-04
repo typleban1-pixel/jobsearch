@@ -30,7 +30,7 @@ export const EXTRACTION_VERSION = 4;
 export interface ExtractedRequirement {
   raw_text: string;
   normalized_term: string;
-  kind: "SKILL" | "TOOL" | "CREDENTIAL" | "EDUCATION" | "EXPERIENCE_YEARS" | "DOMAIN" | "TRAIT" | "LEGAL" | "LOGISTICAL" | "OTHER";
+  kind: "SKILL" | "TOOL" | "CREDENTIAL" | "EDUCATION" | "EXPERIENCE_YEARS" | "DOMAIN" | "TRAIT" | "LEGAL" | "LOGISTICAL" | "RESPONSIBILITY" | "OTHER";
   is_hard_requirement: "HARD" | "PREFERRED" | "UNCLEAR";
   hard_requirement_reason: string;
   minimum_years: number | null;
@@ -124,9 +124,30 @@ Rules, in order of importance:
      residency or location, travel percentage, shift or schedule, lifting
      or physical requirements. Use these instead of TRAIT for anything
      that is a condition of the job rather than a quality of the person.
+   - RESPONSIBILITY is a duty the person will perform in the role, as
+     opposed to a capability they must already evidence: "prepare
+     executive presentations and status reporting", "track project
+     milestones, risks and dependencies", "conduct market and competitive
+     analysis", "coordinate stakeholders across teams", "support pilot
+     programs and process improvements". These come from what the role
+     DOES, not from a qualifications list, and are captured so a downstream
+     consumer can understand the shape of the job. The normalized term is
+     the short canonical duty ("executive reporting", "milestone tracking",
+     "competitive analysis"). Hardness for a core listed responsibility is
+     HARD; for an incidental or "as needed" one, PREFERRED.
 6. Do not extract company benefits, culture statements, equal-opportunity
    text, or descriptions of what the TEAM or COMPANY does. Only
-   requirements of the candidate.
+   requirements of the candidate OR duties the candidate will perform.
+6d. Capture the role's core duties as RESPONSIBILITY requirements. Sections
+   headed "What you'll do", "Responsibilities", "Key Responsibilities", "In
+   this role you will", "Day to day" describe duties of the candidate (not
+   the team) and ARE in scope under rule 6's "duties the candidate will
+   perform". Extract each distinct core duty once, kind RESPONSIBILITY.
+   Distinguish a core duty (central, repeated, or listed under a
+   responsibilities heading) from an incidental one (a one-off "and other
+   duties as assigned", or a passing mention) via hardness (HARD vs
+   PREFERRED). Do not restate a capability already captured as SKILL/TOOL as
+   a second RESPONSIBILITY row.
 6b. CRITICAL: many postings state requirements as prose describing the
    ideal person rather than as a list of things. These ARE requirements
    and must be extracted. Sections headed "Who you are", "What you'll
@@ -209,7 +230,7 @@ const SCHEMA: Record<string, unknown> = {
         properties: {
           q: { type: "string", description: "Short verbatim quote from the posting" },
           t: { type: "string", description: "normalized term: the short canonical name" },
-          k: { type: "string", enum: ["SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","OTHER"] },
+          k: { type: "string", enum: ["SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","RESPONSIBILITY","OTHER"] },
           h: { type: "string", enum: ["HARD","PREFERRED","UNCLEAR"], description: "is it a hard requirement" },
           y: { type: ["number","null"], description: "minimum years, or null" },
           c: { type: "number", description: "confidence in the classification, 0 to 1" },
@@ -257,7 +278,7 @@ export function fromWire(out: unknown): ExtractionOutput {
 }
 
 const VALID_KINDS = new Set([
-  "SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","OTHER",
+  "SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","RESPONSIBILITY","OTHER",
 ]);
 const VALID_HARDNESS = new Set(["HARD","PREFERRED","UNCLEAR"]);
 
