@@ -1,0 +1,377 @@
+{
+  "capturedAt": "2026-09-04",
+  "priorModel": "candidacy-direct@baseline",
+  "newModel": "match-ontology-ab1@2026-09-04",
+  "note": "Match Score is computed at read time; this is the pre-A+B1 production ranking (candidacy-derived hardDirect). No stored score rows exist to roll back; rollback = revert the wiring commit.",
+  "scoredOpenJobs": 1635,
+  "distribution": {
+    "buckets": [
+      "90+",
+      "80s",
+      "70s",
+      "60s",
+      "50s",
+      "<50"
+    ],
+    "counts": [
+      0,
+      0,
+      1,
+      0,
+      1,
+      1633
+    ]
+  },
+  "top50": [
+    {
+      "rank": 1,
+      "score": 71,
+      "title": "Engagement Associate",
+      "company": "Aleph",
+      "jobId": "d6b39f1f-5079-4216-93f7-d9cbb1816b52"
+    },
+    {
+      "rank": 2,
+      "score": 54,
+      "title": "Manager, Business Development Operations",
+      "company": "The Chartis Group",
+      "jobId": "0c77c55c-2788-440e-bd97-55c05d9a856e"
+    },
+    {
+      "rank": 3,
+      "score": 44,
+      "title": "Process Lead, Little Italy, #112",
+      "company": "Gopuff",
+      "jobId": "751460c5-fc3e-483e-b9b8-4a42743ebe4e"
+    },
+    {
+      "rank": 4,
+      "score": 44,
+      "title": "Research Specialist - TCOM",
+      "company": "University of Chicago",
+      "jobId": "d364e5c1-f26b-4f4c-9f33-65dc5cffb51d"
+    },
+    {
+      "rank": 5,
+      "score": 43,
+      "title": "Engagement Manager, Private Equity",
+      "company": "Aleph",
+      "jobId": "6b230bac-0b4b-46c2-8317-158549b059b6"
+    },
+    {
+      "rank": 6,
+      "score": 37,
+      "title": "Regulatory Affairs Manager, Comprehensive Cancer Center",
+      "company": "University of Chicago",
+      "jobId": "2a7ba408-65a1-4e4b-94e5-c2d5beb74e18"
+    },
+    {
+      "rank": 7,
+      "score": 37,
+      "title": "Post Award Administrator",
+      "company": "University of Chicago",
+      "jobId": "9c92c5ba-498d-43ee-9229-3e8ee8f5359d"
+    },
+    {
+      "rank": 8,
+      "score": 37,
+      "title": "Medical Education Coordinator",
+      "company": "University of Chicago",
+      "jobId": "d2089759-99dd-47a0-9970-5eeec4c61ea6"
+    },
+    {
+      "rank": 9,
+      "score": 35,
+      "title": "Assistant Director, Career Advancement",
+      "company": "University of Chicago",
+      "jobId": "25c16647-0f38-4dac-8d84-f8558b0d2251"
+    },
+    {
+      "rank": 10,
+      "score": 35,
+      "title": "Specialist, Strategic Growth Programs",
+      "company": "Northern Trust",
+      "jobId": "383a5c26-0f99-4a13-8c5d-8c9170504d27"
+    },
+    {
+      "rank": 11,
+      "score": 35,
+      "title": "Legal Operations Specialist/Senior Legal Operations Specialist",
+      "company": "SpotHero",
+      "jobId": "a3529df5-af13-4898-b478-b4d4e6dc1f90"
+    },
+    {
+      "rank": 12,
+      "score": 35,
+      "title": "Senior Associate, Implementation",
+      "company": "Synapticure",
+      "jobId": "a7a3fcba-fd52-4f4f-8a5a-741d071d1423"
+    },
+    {
+      "rank": 13,
+      "score": 34,
+      "title": "Senior Mid-Frequency Quantitative Trader",
+      "company": "TransMarket Group",
+      "jobId": "19643e5d-9a09-4cb4-a8f9-0b4f89e65d29"
+    },
+    {
+      "rank": 14,
+      "score": 34,
+      "title": "Credit Portfolio Manager",
+      "company": "Northern Trust",
+      "jobId": "3030fe47-8e82-4962-89af-90aa64c77326"
+    },
+    {
+      "rank": 15,
+      "score": 33,
+      "title": "Academic Systems Manager",
+      "company": "University of Chicago",
+      "jobId": "6a35e0f1-b715-43d1-9321-a7f0dcf1746e"
+    },
+    {
+      "rank": 16,
+      "score": 33,
+      "title": "Director - Strategic Finance & Analysis (Wealth Management)",
+      "company": "Northern Trust",
+      "jobId": "892659c8-9ff2-4ec1-bf06-2ca84200d12e"
+    },
+    {
+      "rank": 17,
+      "score": 33,
+      "title": "Post Award Administrator",
+      "company": "University of Chicago",
+      "jobId": "f19fdce8-0e5c-4187-bb2f-284b1df7a091"
+    },
+    {
+      "rank": 18,
+      "score": 33,
+      "title": "Experienced Associate, Asset-Backed Finance",
+      "company": "Lincoln International",
+      "jobId": "f212fe2e-a120-4690-a3e4-bb49ca1978dd"
+    },
+    {
+      "rank": 19,
+      "score": 32,
+      "title": "Corporate Capital and NNN Lease Capital Markets Summer 2027 Internship - Chicago, IL",
+      "company": "Jones Lang LaSalle",
+      "jobId": "151b18f0-48d9-4cc9-95e8-ca5dfd847db3"
+    },
+    {
+      "rank": 20,
+      "score": 32,
+      "title": "Senior Technical Program Manager",
+      "company": "Affirm",
+      "jobId": "fc6d8e71-0462-47f9-88b1-e1564c829471"
+    },
+    {
+      "rank": 21,
+      "score": 31,
+      "title": "Category Manager (Tempo)",
+      "company": "Home Chef",
+      "jobId": "305a5276-c13a-4a5e-93b0-bbe2d73dda29"
+    },
+    {
+      "rank": 22,
+      "score": 31,
+      "title": "Enterprise Customer Success Manager",
+      "company": "Built In",
+      "jobId": "611579e8-82f8-4529-bc51-74d3a958fa0e"
+    },
+    {
+      "rank": 23,
+      "score": 31,
+      "title": "Enterprise Client Success Manager – GEO/AEO Platform",
+      "company": "Built In",
+      "jobId": "cb7ea855-94b3-4919-8caf-e4c2579f58b4"
+    },
+    {
+      "rank": 24,
+      "score": 29,
+      "title": "Assistant Director of Academic Affairs",
+      "company": "University of Chicago",
+      "jobId": "52d5268f-96db-4a4d-a9c3-c323333142a1"
+    },
+    {
+      "rank": 25,
+      "score": 29,
+      "title": "Senior Graphic Designer",
+      "company": "Alpaca",
+      "jobId": "6fd56d2b-aa38-4f08-9c39-aaac34e78fca"
+    },
+    {
+      "rank": 26,
+      "score": 29,
+      "title": "Senior Research Consultant – Primary Research",
+      "company": "Mintel",
+      "jobId": "7d431394-3b37-4f48-ba1f-970b3fe575a8"
+    },
+    {
+      "rank": 27,
+      "score": 29,
+      "title": "Lead Brand Designer",
+      "company": "OneSpan",
+      "jobId": "81b31f5d-3e30-4780-83a6-31fafd613046"
+    },
+    {
+      "rank": 28,
+      "score": 29,
+      "title": "Telecom Service Desk Support Specialist",
+      "company": "University of Chicago",
+      "jobId": "ba7c02c3-25cb-4723-a19d-e847cd8baf9e"
+    },
+    {
+      "rank": 29,
+      "score": 28,
+      "title": "Administrative Director",
+      "company": "University of Chicago",
+      "jobId": "1f81cfb7-002e-454d-907f-6165c604b838"
+    },
+    {
+      "rank": 30,
+      "score": 28,
+      "title": "Senior Associate Director, Prospect Management",
+      "company": "University of Chicago",
+      "jobId": "f84d8f5c-1dad-4f3e-90a9-9f570746cb7f"
+    },
+    {
+      "rank": 31,
+      "score": 27,
+      "title": "Senior Data Scientist - Fraud (Hybrid)",
+      "company": "Enova (United States)",
+      "jobId": "3f0f0adf-0815-463e-ac52-e49dc306eaa1"
+    },
+    {
+      "rank": 32,
+      "score": 27,
+      "title": "AEO and GEO Marketing Manager",
+      "company": "Stripe",
+      "jobId": "4256b1ac-97c0-4e8d-81e1-9b564ec48e3d"
+    },
+    {
+      "rank": 33,
+      "score": 27,
+      "title": "Associate Product Manager, Enrollments",
+      "company": "Northern Trust",
+      "jobId": "460707ce-fb7a-4f96-91fc-03b5980889cd"
+    },
+    {
+      "rank": 34,
+      "score": 27,
+      "title": "Senior Product Manager, 1: Many Merchant Growth",
+      "company": "Affirm",
+      "jobId": "74361199-3045-4dfa-941c-60eb42184b27"
+    },
+    {
+      "rank": 35,
+      "score": 27,
+      "title": "Associate Product Manager",
+      "company": "Northern Trust",
+      "jobId": "8240182f-50d0-4cee-a84a-6cece58b0ddf"
+    },
+    {
+      "rank": 36,
+      "score": 27,
+      "title": "Sr. Sales Operations Analyst",
+      "company": "Samsara",
+      "jobId": "8ad398ec-467b-4992-b1f5-8030a66dc474"
+    },
+    {
+      "rank": 37,
+      "score": 27,
+      "title": "Sr. Analyst - Liquidity Regulatory Reporting",
+      "company": "Northern Trust",
+      "jobId": "9e72bd4a-76ce-46d8-a9b7-397e46dd4e73"
+    },
+    {
+      "rank": 38,
+      "score": 27,
+      "title": "Senior Digital Marketing Manager",
+      "company": "Popl",
+      "jobId": "bcc73536-8674-4440-a191-5ca82771cb72"
+    },
+    {
+      "rank": 39,
+      "score": 26,
+      "title": "Strategy & Operations Analyst",
+      "company": "Beyond Finance",
+      "jobId": "09422665-a209-437b-9bce-fa22766347e0"
+    },
+    {
+      "rank": 40,
+      "score": 26,
+      "title": "Technical Product Manager",
+      "company": "Ready",
+      "jobId": "1528d840-2680-4ef2-aace-461555562f5c"
+    },
+    {
+      "rank": 41,
+      "score": 26,
+      "title": "Protocol Coordinator",
+      "company": "University of Chicago",
+      "jobId": "40946135-499e-4b1f-952c-d0939cc821d3"
+    },
+    {
+      "rank": 42,
+      "score": 26,
+      "title": "AML/CIP KYC Manager",
+      "company": "Northern Trust",
+      "jobId": "be7c740b-563f-43eb-bdf9-68fccdd904f9"
+    },
+    {
+      "rank": 43,
+      "score": 25,
+      "title": "AutoFile Specialist, Tax",
+      "company": "Stripe",
+      "jobId": "181510e2-ee9d-45eb-b81b-224bd9755105"
+    },
+    {
+      "rank": 44,
+      "score": 24,
+      "title": "Full Stack Developer",
+      "company": "University of Chicago",
+      "jobId": "1c4403ad-53b0-49d7-a6df-9e128054e9bd"
+    },
+    {
+      "rank": 45,
+      "score": 24,
+      "title": "Customs Specialist",
+      "company": "Flexport",
+      "jobId": "9cf9b147-2101-4103-b742-b6db5dc7bb60"
+    },
+    {
+      "rank": 46,
+      "score": 23,
+      "title": "Staff Brand Designer",
+      "company": "TRM Labs",
+      "jobId": "2bf0cde7-74b7-407f-850b-633686254361"
+    },
+    {
+      "rank": 47,
+      "score": 23,
+      "title": "Financial and Operations Analyst",
+      "company": "University of Chicago",
+      "jobId": "2ff936f7-4a7d-4315-996c-5244c5654225"
+    },
+    {
+      "rank": 48,
+      "score": 23,
+      "title": "Pre-Award Administrator",
+      "company": "University of Chicago",
+      "jobId": "4a85d288-4c19-476e-b74a-ff74685f935b"
+    },
+    {
+      "rank": 49,
+      "score": 23,
+      "title": "Operations & IT User Support Manager",
+      "company": "University of Chicago",
+      "jobId": "e91f87be-466b-4860-9262-4e5b7b4a770a"
+    },
+    {
+      "rank": 50,
+      "score": 22,
+      "title": "Marketing & Communications Program Manager",
+      "company": "Included Health",
+      "jobId": "93f249a6-d74a-4069-af4e-8918443df7df"
+    }
+  ]
+}

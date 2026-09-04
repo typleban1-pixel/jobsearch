@@ -13,6 +13,7 @@ import { CANDIDACY_MODEL_VERSION } from "../scoring/candidacy.ts";
 import { TAXONOMY_VERSION } from "../scoring/requirementClass.ts";
 import { attentionScore, buildAttentionInput, type AttentionResult } from "./attentionRank.ts";
 import { matchScore, type MatchScoreResult } from "./matchScore.ts";
+import { ontologyDelta, withOntology, makeProfileHas } from "./matchScoreOntology.ts";
 import { FIT_FORMULA_VERSION } from "../scoring/fit.ts";
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -52,14 +53,30 @@ export async function page<T = any>(
  * and the same job on /jobs never disagree. Used where the full JobCard
  * is not loaded (the Apply board, review).
  */
+/**
+ * The profile predicate the Match Score ontology (A + B1) resolves against.
+ * Built from the live profile version's skill rows -- the same skills the
+ * stored scores were computed against -- so the read-time ontology can never
+ * credit a capability the profile does not actually hold.
+ */
+async function loadProfileHas(db: SupabaseClient): Promise<(n: string) => boolean> {
+  const { data: p } = await db.from("profile").select("profile_version").single();
+  const pv = p?.profile_version;
+  if (pv == null) return () => false;
+  const { data: rows } = await db.from("profile_version_rows")
+    .select("row_data").eq("profile_version", pv).eq("source_table", "skills");
+  return makeProfileHas((rows ?? []).map((r: any) => r.row_data?.name ?? ""));
+}
+
 export async function loadMatchScores(db: SupabaseClient, jobIds: string[]): Promise<Map<string, MatchScoreResult>> {
   const out = new Map<string, MatchScoreResult>();
   if (!jobIds.length) return out;
-  const [allScores, cand, jobRows] = await Promise.all([
+  const [allScores, cand, jobRows, profileHas] = await Promise.all([
     byIds<any>(db, "job_scores", "id,job_id,uncertainty_score,scorable,fit_breakdown,is_current", "job_id", jobIds),
     byIds<any>(db, "job_candidacy",
       "job_id,hard_met,hard_total,core_gaps,gating_gaps,unresolved_core,transferable_matches,created_at", "job_id", jobIds),
     byIds<any>(db, "jobs", "id,salary_min,salary_max,eligibility", "id", jobIds),
+    loadProfileHas(db),
   ]);
   const scores = allScores.filter((s) => s.is_current !== false);
   const scoreByJob = new Map(scores.map((s) => [s.job_id, s]));
@@ -84,8 +101,13 @@ export async function loadMatchScores(db: SupabaseClient, jobIds: string[]): Pro
       conceptDetail: b.conceptDetail ?? [], salary: j.salary_max ?? j.salary_min ?? null,
     });
     const sen = seniorityByScore.get(s.id) ?? 0;
+    // A + B1 applied as a delta on the stored inputs; candidacy is untouched.
+    const fit = withOntology(
+      { hardMet: c?.hard_met ?? 0, hardTotal: c?.hard_total ?? 0, hardDirect: ai.hardDirect },
+      ontologyDelta(b.conceptDetail ?? [], profileHas),
+    );
     out.set(jobId, matchScore({
-      hardMet: c?.hard_met ?? 0, hardTotal: c?.hard_total ?? 0, hardDirect: ai.hardDirect,
+      hardMet: fit.hardMet, hardTotal: fit.hardTotal, hardDirect: fit.hardDirect,
       coverage: typeof b.coverage === "number" ? b.coverage : null,
       coreGaps: (c?.core_gaps ?? []).length, gatingGaps: (c?.gating_gaps ?? []).length,
       educationGatesUnmet: b.educationGatesUnmet ?? 0, unresolvedCore: (c?.unresolved_core ?? []).length,
@@ -381,6 +403,7 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
     });
   }
 
+  const profileHas = await loadProfileHas(db);
   const cards: JobCard[] = [];
   for (const s of scores) {
     const j = jobById.get(s.job_id);
@@ -424,6 +447,11 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
     });
     const hardDirect = attentionInput.hardDirect;
     const attention = attentionScore(attentionInput);
+    // A + B1 applied as a delta on the stored inputs; candidacy is untouched.
+    const fit = withOntology(
+      { hardMet: cand?.hardMet ?? 0, hardTotal: cand?.hardTotal ?? 0, hardDirect },
+      ontologyDelta(b.conceptDetail ?? [], profileHas),
+    );
 
     cards.push({
       id: j.id,
@@ -462,7 +490,7 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
       hardDirect,
       attention,
       match: matchScore({
-        hardMet: cand?.hardMet ?? 0, hardTotal: cand?.hardTotal ?? 0, hardDirect,
+        hardMet: fit.hardMet, hardTotal: fit.hardTotal, hardDirect: fit.hardDirect,
         coverage: typeof b.coverage === "number" ? b.coverage : null,
         coreGaps: cand?.coreGaps ?? 0,
         gatingGaps: cand?.gatingGaps ?? (b.credentialFamiliesUnmet ?? []).length,
