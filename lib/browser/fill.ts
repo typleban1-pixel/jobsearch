@@ -261,7 +261,20 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
 
   try {
     // -- OPEN ---------------------------------------------------------
-    guard.arm(applyUrl);
+    // Ashby loads its form with same-origin GraphQL POSTs
+    // (/api/non-user-graphql). Layer 3 of the guard aborts non-GET requests
+    // to the form origin while armed, so arming BEFORE the load aborts those
+    // and the form never renders. For Ashby the request-blocking layer is
+    // therefore armed AFTER the form has loaded, below. This is a timing
+    // change, not a weakening: layer 2 -- the capture-phase submit-event
+    // cancel and the programmatic form.submit()/requestSubmit() block, which
+    // is the layer that actually carries the no-submission guarantee -- is
+    // installed on the context and active throughout, load included; and
+    // layer 3 then guards the ENTIRE fill phase, Ashby's own submit endpoint
+    // included. The only window it is off is the pristine load, when nothing
+    // is filled and nothing is clicked. Every other provider arms as before.
+    const armLayer3Early = provider !== "ASHBY";
+    if (armLayer3Early) guard.arm(applyUrl);
     await page.goto(applyUrl, { waitUntil: "domcontentloaded", timeout: 45_000 });
     await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined);
     await shot(page, runDir, "01-loaded", screenshots);
@@ -285,6 +298,10 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
     // The form's origin, not the employer page's, is the one a
     // submission would post to.
     guard.protectOrigin(ctx.url);
+    // Ashby: the form has now loaded, so arm the request-blocking layer for
+    // the whole fill phase that follows (snapshot, fill, read-back, up to the
+    // handoff disarm). Layer 2 has been guarding since the context was built.
+    if (!armLayer3Early) guard.arm(ctx.url);
     // Re-baseline. Requests blocked before this point were judged
     // against the employer page's origin, not the form's: an embedded
     // application makes the top page's analytics POSTs same-origin under
@@ -292,26 +309,30 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
     // as submission attempts stopped a run in which nothing had been
     // submitted and nothing had even been filled yet.
     formMark = guard.mark();
-    let live = await snapshotLive(ctx.frame);
+
+    // Every discovery snapshot goes through here so the Ashby normalization
+    // -- the SAME shared grouping preparation used -- is applied not only to
+    // the first read but to every re-read during filling. Filling reveals
+    // controls (a choice appears after an earlier answer), and a raw
+    // re-snapshot would rediscover Ashby's choice options UNGROUPED, drop the
+    // grouped questions the snapshot was reviewed against, and leave them
+    // unfilled. One definition, one code path, every read.
+    const snapForm = async () => {
+      const s = await snapshotLive(ctx.frame);
+      if (provider !== "ASHBY") return s;
+      const grouping = groupAshbyChoices(await readChoiceFieldsets(page));
+      return { ...s, fields: mergeChoiceGroups(dropFileHeaderArtifacts(s.fields), grouping) };
+    };
+    let live = await snapForm();
     if (live.captcha) throw new Stop("CAPTCHA", "a challenge is present; it is never solved or worked around");
     if (live.loginWall) throw new Stop("LOGIN_WALL", `sign in to ${provider} in the browser profile, then re-run`);
     if (live.ssoPrompt) throw new Stop("SSO_PROMPT", "granting access is your decision, not this system's");
     if (live.fields.length === 0) throw new Stop("NO_FORM_FOUND", "no fillable controls are present on this page");
-
-    // Ashby normalization, IDENTICAL to preparation (one shared definition):
-    // collapse each choice fieldset into one grouped question carrying live
-    // per-option selectors, and drop the resume-dropzone file phantom, so
-    // the live field set matches the reviewed snapshot key-for-key. Without
-    // this the grouped questions in the snapshot would read as FORM_CHANGED
-    // against the ungrouped live controls. A multi-step Ashby form we cannot
-    // safely progress fails closed here rather than filling one page of many.
-    if (provider === "ASHBY") {
-      if (await ashbyMultiStep(page)) {
-        throw new Stop("AMBIGUOUS_NAVIGATION",
-          "this Ashby application is multi-step, which is not supported for assisted submission; finish it by hand");
-      }
-      const grouping = groupAshbyChoices(await readChoiceFieldsets(page));
-      live = { ...live, fields: mergeChoiceGroups(dropFileHeaderArtifacts(live.fields), grouping) };
+    // A multi-step Ashby form we cannot safely progress fails closed rather
+    // than filling one page of many.
+    if (provider === "ASHBY" && await ashbyMultiStep(page)) {
+      throw new Stop("AMBIGUOUS_NAVIGATION",
+        "this Ashby application is multi-step, which is not supported for assisted submission; finish it by hand");
     }
 
     // -- IDENTIFY -----------------------------------------------------
@@ -947,7 +968,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         // work from what is on the page now rather than from a stale
         // description of it.
         await assertContextIntact(ctx);
-        const after = await snapshotLive(ctx.frame);
+        const after = await snapForm();
         const beforeKeys = new Set(live.fields.map((x) => x.key));
         const appeared = after.fields.filter((x) => !beforeKeys.has(x.key));
         if (appeared.length > 0) {
@@ -1011,7 +1032,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
 
     if (uploadFirst(behaviour)) {
       await doUpload();
-      live = await snapshotLive(ctx.frame);
+      live = await snapForm();
       const parsed = await readAll();
 
       for (const [key, parsedValue] of parsed) {
@@ -1148,7 +1169,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
     for (const pass of [1, 2, 3, 4]) {
       await page.waitForTimeout(900);
       await assertContextIntact(ctx);
-      const now = await snapshotLive(ctx.frame);
+      const now = await snapForm();
 
       // What the main pass already filled and verified is done, full
       // stop, and the rescan must not touch it.
