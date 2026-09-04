@@ -679,9 +679,37 @@ export interface TailoredComposition {
  * the one that produces real applications, which is exactly the drift
  * that made a stale diagnostic look authoritative.
  */
-export async function composeTailoredResume(
-  db: SupabaseClient, job: any, version: any, llm: LlmProvider | null,
+export interface RequirementInput {
+  normalized_term?: string | null;
+  raw_text?: string | null;
+  is_hard_requirement?: string | null;
+}
+export interface ComposeInput {
+  /** Normalized requirements, from a stored job OR extracted from pasted text. */
+  requirements: RequirementInput[];
+  /** The role title the resume is tailored to. */
+  title: string;
+  /** Posting location, used for the header line only. */
+  location?: { city?: string | null; state?: string | null; metro?: string | null; remote_policy?: string | null };
+}
+
+/**
+ * The one authoritative tailoring path.
+ *
+ * Normalized requirements + the frozen profile evidence -> aggressively
+ * reframed, grounding-checked resume document. Both the application
+ * pipeline and the standalone Resume Builder go through here, so a resume
+ * built from a pasted posting is bounded by exactly the same evidence and
+ * the same guards as one built from an ingested job. The ONLY thing that
+ * differs is where `requirements` came from -- a job_requirements read or
+ * a live extraction of pasted text. Everything below, from the master
+ * claims to the provenance gate, is identical.
+ */
+export async function composeFromRequirements(
+  db: SupabaseClient, input: ComposeInput, llm: LlmProvider | null,
 ): Promise<TailoredComposition> {
+  const title = input.title;
+  const location = input.location ?? {};
   const { data: master } = await db.from("resumes").select("id,label,content").eq("is_master", true).single();
   if (!master) return {};
   const profileVersion = Number(String(master.label).match(/profile version (\d+)/)?.[1] ?? 0);
@@ -727,17 +755,20 @@ export async function composeTailoredResume(
     implementationState: fixedState(c.evidence_ids ?? []),
   })).filter((s) => s.evidence.length > 0);
 
-  const themes = await roleThemes(db, job.id, version.title ?? job.title);
+  const themes = themesFrom(input.requirements, title);
   const context = themes.context;
   if (themes.themeless) {
     // Visible, not silent. A resume selected against a title alone is
     // not tailored to anything, and the run says so rather than
     // producing a document that looks ordinary.
-    console.warn(`[prepare] no themes for ${job.id}: ${themes.requirementCount} requirement(s), `
+    console.warn(`[prepare] no themes for ${JSON.stringify(title)}: ${themes.requirementCount} requirement(s), `
       + `excluded by class ${JSON.stringify(themes.excludedByClass)}. `
       + "Selection will rank claims against the job title alone.");
   }
-  const targetText = await targetVocabulary(db, job.id, version.title ?? job.title);
+  // The posting's own vocabulary for the terminology guard: title plus
+  // every requirement term, exactly as targetVocabulary joined them, but
+  // from the requirements already in hand rather than a DB read by jobId.
+  const targetText = [title, ...input.requirements.flatMap((r) => [r.normalized_term, r.raw_text]).filter(Boolean)].join(". ");
   // The whole frozen profile's text, so the terminology guard can tell
   // a word the candidate uses from a word the posting supplied. It
   // licenses vocabulary only: every other guard still judges a claim
@@ -807,11 +838,11 @@ export async function composeTailoredResume(
   // The scorer gets the themes themselves, not the context sentence cut
   // on punctuation: splitting "Themes: a, b, c." reintroduced the title
   // and the word "Themes" as if they were requirements.
-  const contextTerms = themes.terms.length ? themes.terms : [version.title ?? job.title];
+  const contextTerms = themes.terms.length ? themes.terms : [title];
   const { doc: assembled, dropped, summaryIncomplete } = assembleTailoredDoc(
     masterDoc,
     result.accepted.map((a) => ({ original: a.original, claim: a.text, evidenceIds: a.evidenceIds, generation: a.generation })),
-    contextTerms, undefined, version.title ?? job.title,
+    contextTerms, undefined, title,
   );
 
   // Removing verbatim repetition left nothing usable. Regenerating is the
@@ -831,7 +862,7 @@ export async function composeTailoredResume(
   // because no date is known.
   const summarySelection = selectSummary(
     rows.map((r) => ({ row_id: r.row_id, source_table: r.source_table, row_data: r.row_data })) as any,
-    version.title ?? job.title,
+    title,
     contextTerms,
   );
 
@@ -847,11 +878,11 @@ export async function composeTailoredResume(
         relocationDate: profileRow!.relocation_date,
       },
       {
-        city: version.city, state: version.state, metro: version.metro,
-        isRemote: version.remote_policy === "FULLY_REMOTE" || version.remote_policy === "REMOTE_WITH_TRAVEL",
+        city: location.city, state: location.state, metro: location.metro,
+        isRemote: location.remote_policy === "FULLY_REMOTE" || location.remote_policy === "REMOTE_WITH_TRAVEL",
       },
     ) || assembled.location,
-    skillGroups: selectCapabilities(assembled, contextTerms, version.title ?? job.title),
+    skillGroups: selectCapabilities(assembled, contextTerms, title),
     // The summary is chosen for this posting the same way the capability
     // list is. Structure is fixed; contents are not, so a marketing role
     // is not told about physical product development and a product role
@@ -880,6 +911,25 @@ export async function composeTailoredResume(
   }
 
   return { doc, masterDoc, masterResumeId: master.id, profileVersion, rows, themes, result, dropped, revertedForProvenance };
+}
+
+/**
+ * The application path's adapter: load this job's stored requirements and
+ * compose. Unchanged for every existing caller (buildTailoredResume,
+ * prepare-handoff) -- same signature, same behaviour -- it just now
+ * routes through the shared composeFromRequirements so the Resume Builder
+ * cannot drift from it.
+ */
+export async function composeTailoredResume(
+  db: SupabaseClient, job: any, version: any, llm: LlmProvider | null,
+): Promise<TailoredComposition> {
+  const requirements = await paged<RequirementInput>(db, "job_requirements",
+    "normalized_term,raw_text,is_hard_requirement", (q) => q.eq("job_id", job.id));
+  return composeFromRequirements(db, {
+    requirements,
+    title: version.title ?? job.title,
+    location: { city: version.city, state: version.state, metro: version.metro, remote_policy: version.remote_policy },
+  }, llm);
 }
 
 /**

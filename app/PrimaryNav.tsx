@@ -7,10 +7,11 @@
  * word for an internal state, and reading it was never the point: the
  * work it represents now appears on Apply as the thing to go and do.
  */
-export function PrimaryNav({ current }: { current: "apply" | "jobs" | "submitted" | "settings" }) {
+export function PrimaryNav({ current }: { current: "apply" | "jobs" | "resume-builder" | "submitted" | "settings" }) {
   const items = [
     { key: "apply", href: "/apply", label: "Apply" },
     { key: "jobs", href: "/jobs", label: "Jobs" },
+    { key: "resume-builder", href: "/resume-builder", label: "Resume Builder" },
     { key: "submitted", href: "/submitted", label: "Submitted" },
     { key: "settings", href: "/settings", label: "Settings" },
   ] as const;
