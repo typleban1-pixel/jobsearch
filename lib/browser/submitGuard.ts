@@ -110,14 +110,32 @@ const REQUEST_ALLOW = [
   // is not matched here, so it stays blocked. Pinned to the op name and
   // anchored so no other value can satisfy it.
   /\/api\/non-user-graphql\?op=ApiAutocompleteGeoLocation(?:&|$)/i,
-  // Ashby uploads the resume through ONE handle-creation operation; the
-  // bytes then go to storage cross-origin (already permitted). This allows
-  // ONLY that exact op, so the approved resume genuinely attaches. It is a
-  // file upload -- the category this list already permits for other
-  // providers by path -- never form data and never the submit mutation,
-  // both of which carry a different op and stay blocked.
-  /\/api\/non-user-graphql\?op=ApiCreateFileUploadHandle(?:&|$)/i,
 ];
+
+/**
+ * The two operations of Ashby's resume upload, gated to the moment the fill
+ * is actually uploading the approved artifact -- NOT a blanket allowance.
+ *
+ * A resume-upload window is opened only around the injected resume upload
+ * (the approved, hash-verified artifact going into the recognized resume
+ * file field). Within it, and ONLY within it:
+ *   - ApiCreateFileUploadHandle is permitted (create the upload handle), and
+ *   - ApiSetFormValueToFile is permitted ONLY after a handle has been
+ *     created (the finalize that attaches the uploaded file to the field).
+ * Outside the window, or before the handle, both are refused -- so an
+ * arbitrary file-field write, or a set-to-file with no upload behind it,
+ * fails closed. ApiSetFormValue (ordinary autosave) and the submit mutation
+ * are never matched here and stay blocked. Pure, so the exact rule is
+ * proven without a browser.
+ */
+export function classifyUploadOp(
+  url: string, ctx: { resumeUpload: boolean; handleSeen: boolean },
+): "allow-handle" | "allow-attach" | null {
+  if (!ctx.resumeUpload) return null;                                    // no approved upload in progress
+  if (/\/api\/non-user-graphql\?op=ApiCreateFileUploadHandle(?:&|$)/i.test(url)) return "allow-handle";
+  if (ctx.handleSeen && /\/api\/non-user-graphql\?op=ApiSetFormValueToFile(?:&|$)/i.test(url)) return "allow-attach";
+  return null;
+}
 
 /**
  * Whether a request may proceed while a form is being filled, by the allow
@@ -168,11 +186,27 @@ export class SubmitGuard {
   private armed = false;
   /** The form's own origin. Only requests to it can be a submission. */
   private origin: string | null = null;
+  /** Open only while the fill is uploading the approved resume artifact. */
+  private resumeUpload = false;
+  /** Set within that window once the upload handle has actually been created. */
+  private uploadHandleSeen = false;
   private readonly context: BrowserContext;
 
   private constructor(context: BrowserContext) {
     this.context = context;
   }
+
+  /**
+   * Open the resume-upload window: the fill is about to send the approved,
+   * hash-verified artifact into the recognized resume file field. Only now
+   * are ApiCreateFileUploadHandle and (after it) ApiSetFormValueToFile
+   * permitted, and only for this upload. Reset the handle flag so the
+   * finalize cannot ride on a handle from an earlier window.
+   */
+  beginResumeUpload(): void { this.resumeUpload = true; this.uploadHandleSeen = false; }
+
+  /** Close the window: no further upload op is permitted until the next one. */
+  endResumeUpload(): void { this.resumeUpload = false; this.uploadHandleSeen = false; }
 
   /**
    * Installs layers 2 and 3 on the whole context.
@@ -202,6 +236,13 @@ export class SubmitGuard {
       }
       const url = request.url();
       if (REQUEST_ALLOW.some((r) => r.test(url))) return route.continue();
+      // The two-step resume upload, permitted ONLY inside an open upload
+      // window (the fill sending the approved artifact) and, for the
+      // finalize, only after the handle was created. Everything else on the
+      // endpoint falls through to the block below.
+      const upload = classifyUploadOp(url, { resumeUpload: guard.resumeUpload, handleSeen: guard.uploadHandleSeen });
+      if (upload === "allow-handle") { guard.uploadHandleSeen = true; return route.continue(); }
+      if (upload === "allow-attach") return route.continue();
 
       // Same origin as the form, which is what the architecture says and
       // what the first implementation got wrong by blocking every host.

@@ -1118,12 +1118,23 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       const { createHash } = await import("node:crypto");
       const bytes = await readFile(resumePdfPath);
       const basename = resumePdfPath.split("/").pop()!;
-      attachment = await attachResume({
-        page, frame: ctx.frame, field: resumeField, path: resumePdfPath,
-        expectedName: basename, expectedBytes: bytes.length,
-        expectedSha256: createHash("sha256").update(bytes).digest("hex"),
-      });
-      await page.waitForTimeout(1200);
+      // Open the resume-upload window around THIS upload only, so an Ashby
+      // provider's ApiCreateFileUploadHandle + ApiSetFormValueToFile are
+      // permitted solely as the finalize of this approved-artifact upload.
+      // Closed in finally, after a settle for the finalize op to land, so no
+      // later request can ride on it. Harmless for providers that never
+      // emit those ops.
+      guard.beginResumeUpload();
+      try {
+        attachment = await attachResume({
+          page, frame: ctx.frame, field: resumeField, path: resumePdfPath,
+          expectedName: basename, expectedBytes: bytes.length,
+          expectedSha256: createHash("sha256").update(bytes).digest("hex"),
+        });
+        await page.waitForTimeout(2500);
+      } finally {
+        guard.endResumeUpload();
+      }
       await shot(page, runDir, "02-uploaded", screenshots);
     };
 

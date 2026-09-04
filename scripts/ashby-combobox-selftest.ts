@@ -8,7 +8,7 @@
  * click + read-back is exercised by the supervised --validate run.
  */
 import { chromium } from "playwright";
-import { mayFetchWhileFilling, isBenignBlocked, blockedIndicatesSubmission } from "../lib/browser/submitGuard.ts";
+import { mayFetchWhileFilling, isBenignBlocked, blockedIndicatesSubmission, classifyUploadOp } from "../lib/browser/submitGuard.ts";
 import { markAshbyComboboxes, readAshbyComboboxes } from "../lib/browser/ashbyForm.ts";
 
 let bad = 0;
@@ -18,14 +18,25 @@ const BASE = "https://jobs.ashbyhq.com/api/non-user-graphql";
 console.log("guard: only the geo read and the resume-upload handle are allowed while filling:");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocation`) === true, "the geo autocomplete read is allowed");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocation&x=1`) === true, "  ...with trailing params too");
-ok(mayFetchWhileFilling(`${BASE}?op=ApiCreateFileUploadHandle`) === true, "the resume-upload handle op is allowed");
-ok(mayFetchWhileFilling(`${BASE}?op=ApiCreateFileUploadHandle&x=1`) === true, "  ...with trailing params too");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiCreateFileUploadHandle`) === false, "the upload ops are NOT statically allowed (context-gated, not blanket)");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiSetFormValue`) === false, "per-field autosave is NOT allowed (stays blocked)");
 ok(mayFetchWhileFilling(`${BASE}?op=SubmitApplicationForm`) === false, "a submit-like operation is NOT allowed (stays blocked)");
 ok(mayFetchWhileFilling(`${BASE}?op=CreateApplication`) === false, "any other application mutation is NOT allowed");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocationEvil`) === false, "a look-alike geo op is not allowed (anchored match)");
-ok(mayFetchWhileFilling(`${BASE}?op=ApiCreateFileUploadHandleX`) === false, "a look-alike upload op is not allowed (anchored match)");
 ok(mayFetchWhileFilling(`${BASE}?op=UpdateApplicationForm`) === false, "an autosave-shaped mutation is not allowed");
+
+console.log("\nclassifyUploadOp: the resume upload is gated to an open upload window, in order:");
+const H = `${BASE}?op=ApiCreateFileUploadHandle`, F = `${BASE}?op=ApiSetFormValueToFile`;
+ok(classifyUploadOp(H, { resumeUpload: true, handleSeen: false }) === "allow-handle", "handle op allowed once the upload window is open");
+ok(classifyUploadOp(F, { resumeUpload: true, handleSeen: true }) === "allow-attach", "set-to-file (finalize) allowed AFTER the handle, in the window");
+ok(classifyUploadOp(F, { resumeUpload: true, handleSeen: false }) === null, "set-to-file WITHOUT a preceding handle -> blocked");
+ok(classifyUploadOp(F, { resumeUpload: false, handleSeen: true }) === null, "set-to-file with NO upload window -> blocked (no arbitrary file writes)");
+ok(classifyUploadOp(H, { resumeUpload: false, handleSeen: false }) === null, "handle op with no window -> blocked");
+ok(classifyUploadOp(`${BASE}?op=ApiSetFormValue`, { resumeUpload: true, handleSeen: true }) === null, "ordinary autosave is never an upload op -> blocked");
+ok(classifyUploadOp(`${BASE}?op=SubmitApplicationForm`, { resumeUpload: true, handleSeen: true }) === null, "the submit mutation is never an upload op -> blocked");
+ok(classifyUploadOp(`${BASE}?op=ApiSetFormValueToFileX`, { resumeUpload: true, handleSeen: true }) === null, "a look-alike finalize op -> blocked (anchored match)");
+ok(blockedIndicatesSubmission([F]) === true, "a BLOCKED set-to-file (fired outside the window) -> trips the guard (fails closed)");
+ok(blockedIndicatesSubmission([H]) === true, "a BLOCKED handle op (outside the window) -> trips the guard (fails closed)");
 
 console.log("\nterminal submission-attempt classification of BLOCKED ops (all stay blocked):");
 ok(isBenignBlocked(`${BASE}?op=ApiSetFormValue`) === true, "a blocked ApiSetFormValue (autosave) is known-benign");
