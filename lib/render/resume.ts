@@ -71,6 +71,9 @@ export interface ResumeRole {
  */
 export interface ResumeProject {
   name: string;
+  /** An optional presentation title rendered directly under the name
+   *  heading, the way an experience shows a role under its org line. */
+  title?: string;
   line: ResumeLine;
   /** Candidate claims, before relevance selection has dropped any. */
   optional: ResumeLine[];
@@ -641,12 +644,19 @@ export function composeResume(rows: FrozenRow[], name: NameParts, displayName: s
         : [];
 
       return {
-        name: p.row_data.name as string,
+        // Employer-facing presentation, approved as an intentional title
+        // change: RentPup shown as an independent product-building
+        // experience, explicitly not employment. Hyphens, never em dashes.
+        name: "RENTPUP - rentpup.com - Independent Product",
+        title: "Founder / Product Builder",
         line: {
-          text: projectLine(p.row_data.name, p.row_data.description ?? ""),
-          sources: [p.row_id,
-            ...(rentpupBehaviour ? [rentpupBehaviour.row_id] : []),
-            ...(aiAssisted ? [aiAssisted.row_id] : [])],
+          // A fixed descriptor. Every word rests on the project row: it is
+          // a property-compliance monitoring system (description) built
+          // independently, outside of full-time employment (current_status:
+          // "an independent project built in his own time, never employment
+          // and never a substitute for full-time employment").
+          text: "Property-compliance monitoring system built independently outside of full-time employment.",
+          sources: [p.row_id],
         },
         optional: [...traction, ...showcase.map((c) => c.line)],
         fixedWording: claims.filter((c) => !c.reframable).flatMap((c) => c.line.sources),
@@ -713,7 +723,9 @@ export function renderMarkdown(d: ResumeDoc): string {
   if (d.projects.length) {
     out.push("", "## Projects");
     for (const p of d.projects) {
-      out.push("", `### ${p.name}`, "", p.line.text);
+      out.push("", `### ${p.name}`);
+      if (p.title) out.push(p.title);
+      out.push("", p.line.text);
       if (p.optional.length) { out.push(""); for (const l of p.optional) out.push(`- ${l.text}`); }
     }
   }

@@ -596,7 +596,10 @@ export async function loadContext(db: SupabaseClient): Promise<ResolveContext> {
   const employment = empRows
     .map((r) => ({
       rowId: r.row_id, employer: r.row_data.employer,
-      title: r.row_data.actual_title ?? r.row_data.display_title ?? null,
+      // Employer-facing answers use the employer-facing title, matching
+      // the resume (display_title ?? actual_title), so a form's "current
+      // title" field and the resume never disagree.
+      title: r.row_data.display_title ?? r.row_data.actual_title ?? null,
       isCurrent: Boolean(r.row_data.is_current), start: r.row_data.start_month ?? null,
     }))
     .sort((a, b) => String(b.start ?? "").localeCompare(String(a.start ?? "")));
@@ -707,16 +710,32 @@ export interface ComposeInput {
  */
 export async function composeFromRequirements(
   db: SupabaseClient, input: ComposeInput, llm: LlmProvider | null,
+  // Write-nothing preview seam: when supplied, tailor against these frozen
+  // rows + master claims instead of the live is_master resume and its
+  // profile_version. Used to render a PROPOSED truth without cutting a
+  // version or touching the master. Production callers never pass it.
+  preview?: { rows: any[]; profileVersion: number; claims: Array<{ claim: string; evidence_ids: string[] }> },
 ): Promise<TailoredComposition> {
   const title = input.title;
   const location = input.location ?? {};
-  const { data: master } = await db.from("resumes").select("id,label,content").eq("is_master", true).single();
-  if (!master) return {};
-  const profileVersion = Number(String(master.label).match(/profile version (\d+)/)?.[1] ?? 0);
-
-  const claims = await paged<any>(db, "resume_claims", "claim,evidence_ids", (q) => q.eq("resume_id", master.id));
-  const rows = await paged<any>(db, "profile_version_rows", "row_id,source_table,row_data",
-    (q) => q.eq("profile_version", profileVersion), "row_id");
+  let master: { id: string; label: string };
+  let profileVersion: number;
+  let claims: Array<{ claim: string; evidence_ids: string[] }>;
+  let rows: any[];
+  if (preview) {
+    master = { id: "preview", label: `Master resume, profile version ${preview.profileVersion}` };
+    profileVersion = preview.profileVersion;
+    claims = preview.claims;
+    rows = preview.rows;
+  } else {
+    const { data: m } = await db.from("resumes").select("id,label,content").eq("is_master", true).single();
+    if (!m) return {};
+    master = m;
+    profileVersion = Number(String(m.label).match(/profile version (\d+)/)?.[1] ?? 0);
+    claims = await paged<any>(db, "resume_claims", "claim,evidence_ids", (q) => q.eq("resume_id", m.id));
+    rows = await paged<any>(db, "profile_version_rows", "row_id,source_table,row_data",
+      (q) => q.eq("profile_version", profileVersion), "row_id");
+  }
 
   const text = new Map<string, string>();
   for (const r of rows) {
