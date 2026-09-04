@@ -128,6 +128,32 @@ export function mergeChoiceGroups(generic: FormField[], grouping: ChoiceGrouping
   return [...kept, ...grouping.groups];
 }
 
+/**
+ * Drop the header-artifact file "field" Ashby produces.
+ *
+ * An Ashby posting renders its resume control as a real <input type=file>
+ * with an id and a label ("_systemfield_resume"), AND a second bare
+ * <input type=file> with no id, no name, no label and no aria -- the
+ * drag-drop zone's inner input. The generic discoverer can only reach that
+ * bare input by borrowing nearby text, so it resolves to the page's section
+ * headings ("Overview", "Application") and arrives as a phantom required-
+ * looking file field that can never be answered.
+ *
+ * The structural proof it is an artifact and not a real control: it is
+ * file-typed and reachable ONLY by a label selector (no name/id/testid),
+ * AND a strongly-identified file field exists in the same form. Both halves
+ * are required, so a form whose only resume input is itself label-only is
+ * left untouched (never suppressed), and a real, identified file field is
+ * never dropped. This mirrors dropContainerBlobs' rule for weak-selector
+ * duplicates, scoped to the file case, and keys on DOM identity, not label
+ * text, so it does not broadly suppress Ashby file fields.
+ */
+export function dropFileHeaderArtifacts<T extends { type: string; selectorKind: string }>(fields: T[]): T[] {
+  const hasStrongFile = fields.some((f) => f.type === "file" && f.selectorKind !== "label");
+  if (!hasStrongFile) return fields;
+  return fields.filter((f) => !(f.type === "file" && f.selectorKind === "label"));
+}
+
 export type AshbyDecision = { ok: true } | { ok: false; reason: string };
 
 /**
@@ -285,7 +311,10 @@ export async function snapshotAshbyLive(input: {
     // per-option fields the generic read produced. Anything not proven to be
     // a grouped option is left exactly as discovered.
     const grouping = groupAshbyChoices(await readChoiceFieldsets(page));
-    const fields = mergeChoiceGroups(live.fields.map(toFormField), grouping);
+    // Drop the header-artifact file phantom BEFORE mapping (the check needs
+    // selectorKind, which FormField does not carry), then group and merge.
+    const cleaned = dropFileHeaderArtifacts(live.fields);
+    const fields = mergeChoiceGroups(cleaned.map(toFormField), grouping);
     const snapshot: FormSnapshot = {
       provider: "ASHBY",
       fields,

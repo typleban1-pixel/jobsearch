@@ -10,7 +10,7 @@
  *   node scripts/ashby-prepare-selftest.ts
  *   ASHBY_TEST_URL="https://jobs.ashbyhq.com/<org>/<id>" node scripts/ashby-prepare-selftest.ts
  */
-import { decideAshby, looksLikeForm, toFormField, groupAshbyChoices, mergeChoiceGroups } from "../lib/browser/ashbyPrepare.ts";
+import { decideAshby, looksLikeForm, toFormField, groupAshbyChoices, mergeChoiceGroups, dropFileHeaderArtifacts } from "../lib/browser/ashbyPrepare.ts";
 import { reprepareGuard } from "../lib/applications/reprepareGuard.ts";
 import { present, type ApplicationFacts } from "../lib/portal/presentationState.ts";
 
@@ -150,6 +150,31 @@ ok(!merged.some((f) => f.type === "boolean"), "the per-option boolean fields are
 ok(!merged.some((f) => f.key === "Which best describes your Excel or Google Sheets work?" && f.type === "text"), "the phantom text field carrying the question is removed");
 ok(merged.filter((f) => f.type === "select" && /Excel/.test(f.label)).length === 1, "exactly one grouped select question remains for it");
 
+console.log("\ndropFileHeaderArtifacts -- the real Ashby resume-dropzone phantom:");
+// Exactly the real Aleph/Chartis structure: a bare file input reachable only
+// by a label (the "Overview"/"Application" section headers), alongside the
+// real, id-identified resume input.
+const withPhantom: any[] = [
+  { key: "_systemfield_name", label: "Full Name", type: "text", selectorKind: "name" },
+  { key: "Overview Application", label: "Overview Application", type: "file", selectorKind: "label" },
+  { key: "_systemfield_resume", label: "Resume", type: "file", selectorKind: "id" },
+  { key: "ethnicity", label: "How would you describe your ethnic or cultural background?", type: "text", selectorKind: "label" },
+];
+const kept = dropFileHeaderArtifacts(withPhantom);
+ok(!kept.some((f) => f.key === "Overview Application"), "the label-only file phantom is dropped");
+ok(kept.some((f) => f.key === "_systemfield_resume" && f.type === "file"), "the real resume upload (id selector) is preserved");
+ok(kept.filter((f) => f.type === "file").length === 1, "exactly one file field remains (the real resume)");
+ok(kept.some((f) => f.key === "ethnicity"), "a label-only NON-file field is untouched (only files are considered)");
+// Never suppress when there is no strong file field to prove the phantom is a duplicate.
+const loneLabelFile = [{ key: "resume", label: "Resume", type: "file", selectorKind: "label" }];
+ok(dropFileHeaderArtifacts(loneLabelFile).length === 1, "a lone label-only file field is KEPT (never broadly suppress Ashby files)");
+// Never drop a strongly-identified file field.
+const twoStrongFiles = [
+  { key: "a", label: "Resume", type: "file", selectorKind: "id" },
+  { key: "b", label: "Cover letter", type: "file", selectorKind: "name" },
+];
+ok(dropFileHeaderArtifacts(twoStrongFiles).length === 2, "two strongly-identified file fields are both kept");
+
 // Optional live leg: a real public single-page Ashby application.
 const url = process.env.ASHBY_TEST_URL;
 if (url) {
@@ -164,6 +189,10 @@ if (url) {
     ok(selects.length >= 1, `  ...choice questions grouped as select-with-options (${selects.length} grouped)`);
     ok(!fs.some((f) => f.type === "boolean" && /^(yes|no)$/i.test(f.label)),
       "  ...no leftover lone Yes/No option-fields (grouping applied)");
+    ok(!fs.some((f) => /^overview application$/i.test(f.label)),
+      "  ...the Overview Application header-artifact file phantom is gone");
+    ok(fs.filter((f) => f.type === "file").length === 1,
+      `  ...exactly one file field remains (the real resume) (${fs.filter((f) => f.type === "file").length})`);
     console.log("  fields:");
     for (const f of fs) console.log(`    - ${f.label}  [${f.type}${f.required ? " *" : ""}]${f.options?.length ? "  {" + f.options.join(" | ") + "}" : ""}`);
   } else {
