@@ -110,6 +110,13 @@ const REQUEST_ALLOW = [
   // is not matched here, so it stays blocked. Pinned to the op name and
   // anchored so no other value can satisfy it.
   /\/api\/non-user-graphql\?op=ApiAutocompleteGeoLocation(?:&|$)/i,
+  // Ashby uploads the resume through ONE handle-creation operation; the
+  // bytes then go to storage cross-origin (already permitted). This allows
+  // ONLY that exact op, so the approved resume genuinely attaches. It is a
+  // file upload -- the category this list already permits for other
+  // providers by path -- never form data and never the submit mutation,
+  // both of which carry a different op and stay blocked.
+  /\/api\/non-user-graphql\?op=ApiCreateFileUploadHandle(?:&|$)/i,
 ];
 
 /**

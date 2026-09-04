@@ -15,12 +15,16 @@ let bad = 0;
 const ok = (c: boolean, w: string, x = "") => { console.log(`  ${c ? "PASS" : "FAIL"}  ${w}${x ? " -- " + x : ""}`); if (!c) bad++; };
 const BASE = "https://jobs.ashbyhq.com/api/non-user-graphql";
 
-console.log("guard: only the geo option-fetch op is allowed while filling:");
+console.log("guard: only the geo read and the resume-upload handle are allowed while filling:");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocation`) === true, "the geo autocomplete read is allowed");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocation&x=1`) === true, "  ...with trailing params too");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiCreateFileUploadHandle`) === true, "the resume-upload handle op is allowed");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiCreateFileUploadHandle&x=1`) === true, "  ...with trailing params too");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiSetFormValue`) === false, "per-field autosave is NOT allowed (stays blocked)");
 ok(mayFetchWhileFilling(`${BASE}?op=SubmitApplicationForm`) === false, "a submit-like operation is NOT allowed (stays blocked)");
 ok(mayFetchWhileFilling(`${BASE}?op=CreateApplication`) === false, "any other application mutation is NOT allowed");
-ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocationEvil`) === false, "a look-alike op is not allowed (anchored match)");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocationEvil`) === false, "a look-alike geo op is not allowed (anchored match)");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiCreateFileUploadHandleX`) === false, "a look-alike upload op is not allowed (anchored match)");
 ok(mayFetchWhileFilling(`${BASE}?op=UpdateApplicationForm`) === false, "an autosave-shaped mutation is not allowed");
 
 console.log("\nterminal submission-attempt classification of BLOCKED ops (all stay blocked):");
