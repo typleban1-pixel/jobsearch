@@ -64,7 +64,26 @@ export async function runIngest(
       const i = cursor++;
       if (i >= companies.length) return;
       const company = companies[i]!;
-      const outcome = await ingestCompany(store, runId, company, log);
+      // Isolate the company boundary. A fetch failure is already handled
+      // inside ingestCompany (returns ok:false); this catches anything
+      // that throws AFTER the fetch -- a store write, a malformed posting
+      // -- so one board's exception becomes one failed outcome instead of
+      // rejecting Promise.all and stranding the whole run. The catch is
+      // scoped to exactly one company; nothing wider is swallowed.
+      let outcome: CompanyOutcome;
+      try {
+        outcome = await ingestCompany(store, runId, company, log);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log(`  ${company.name} [${company.ats_provider}/${company.ats_token ?? "?"}]: THREW ${message}`);
+        outcome = {
+          company: company.name, provider: company.ats_provider, token: company.ats_token ?? "",
+          ok: false, httpStatus: null, durationMs: 0, responseBytes: 0,
+          postings: 0, jobsNew: 0, jobsChanged: 0, jobsUnchanged: 0,
+          possiblyClosed: 0, closedOrRemoved: 0, duplicatesFound: 0,
+          warnings: [], error: `threw: ${message}`,
+        };
+      }
       outcomes.push(outcome);
     }
   });
