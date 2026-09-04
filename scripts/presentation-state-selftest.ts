@@ -27,12 +27,21 @@ check("the question count is pluralized honestly",
   && p({ blockedAnswers: 5 }).summary === "5 questions need your answer",
   p({ blockedAnswers: 1 }).summary);
 
-// HANDOFF must never reach the reader as a word.
+// HANDOFF must never reach the reader as a word. When the employer's own
+// apply URL is known, the action is named after the employer; when it is
+// not, it falls back to opening the application. The copy must NOT claim
+// the work was saved -- that reassurance was removed deliberately because
+// it was untrue whenever nothing had been filled.
 {
-  const r = p({ handoff: true, provider: "WORKDAY" });
-  check("handoff becomes a named human action", r.action?.label === "Continue on Workday", JSON.stringify(r));
-  check("and never says HANDOFF", !/handoff/i.test(r.summary + r.action?.label), r.summary);
-  check("and says the work is saved", /saved/i.test(r.summary), r.summary);
+  const withUrl = p({ handoff: true, provider: "WORKDAY", applyUrl: "https://workday.example/apply" });
+  check("handoff with a known apply URL is a named human action",
+    withUrl.action?.label === "Continue on Workday", JSON.stringify(withUrl));
+  check("and never says HANDOFF", !/handoff/i.test(withUrl.summary + (withUrl.action?.label ?? "")), withUrl.summary);
+
+  const noUrl = p({ handoff: true, provider: "WORKDAY" });
+  check("handoff without an apply URL opens the application",
+    noUrl.action?.label === "Open application", JSON.stringify(noUrl));
+  check("and never falsely claims the work was saved", !/\bsaved\b/i.test(noUrl.summary), noUrl.summary);
 }
 
 {
