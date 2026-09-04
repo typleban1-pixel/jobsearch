@@ -162,6 +162,62 @@ export function dropFileHeaderArtifacts<T extends { type: string; selectorKind: 
 }
 
 /**
+ * Ashby renders some free-answer questions -- location and demographic
+ * self-ID among them -- as a react-select combobox: a role="combobox" input
+ * with no id, name or label, whose options render into a detached listbox on
+ * type. The generic discoverer can only key it by the nearby question text,
+ * as a plain text field, and then cannot locate it to fill it.
+ *
+ * This reads which questions ARE such a combobox, anchoring each control to
+ * the field container that holds it and requiring exactly one combobox in
+ * that container. A container with two comboboxes, or none, is not returned,
+ * so it is never marked and the fill path leaves it to fail closed rather
+ * than guess. A choice fieldset (uuid_uuid radios) is not a combobox and is
+ * excluded. The returned value is the question TEXT, the stable identity.
+ */
+export async function readAshbyComboboxes(page: any): Promise<string[]> {
+  return page.mainFrame().evaluate(() => {
+    const pair = /^[0-9a-f-]{36}_[0-9a-f-]{36}$/i;
+    const norm = (s: string) => (s || "").replace(/\s+/g, " ").replace(/\s*\*\s*$/, "").trim();
+    const out: string[] = [];
+    const seen = new Set<Element>();
+    for (const combo of Array.from(document.querySelectorAll("[role=combobox]"))) {
+      const c = combo.closest('[class*="_fieldEntry_"], [class*="ashby-application-form-field"]');
+      if (!c || seen.has(c)) continue;
+      seen.add(c);
+      if (c.querySelectorAll("[role=combobox]").length !== 1) continue;   // ambiguous container
+      const radios = Array.from(c.querySelectorAll("input[type=radio],input[type=checkbox]"))
+        .filter((el) => pair.test((el as HTMLInputElement).name || ""));
+      if (radios.length) continue;                                        // a choice group, not a combobox
+      let q: string | null = null;
+      for (const n of Array.from(c.querySelectorAll("label,legend,h1,h2,h3,h4,p,div,span"))) {
+        if ((n as HTMLElement).querySelector("input,textarea,[role=combobox]")) continue;
+        const t = norm(n.textContent || "");
+        if (t && t.length > 4) { q = t; break; }
+      }
+      if (q) out.push(q);
+    }
+    return [...new Set(out)];
+  });
+}
+
+/**
+ * Re-tag the generic text fields that are actually Ashby comboboxes, keyed
+ * by their question text, so the fill path drives them as comboboxes rather
+ * than typing into a control it cannot find. A field already grouped as a
+ * choice question, or a file, is left alone.
+ */
+export function markAshbyComboboxes(fields: LiveField[], comboQuestions: string[]): LiveField[] {
+  if (!comboQuestions.length) return fields;
+  const set = new Set(comboQuestions.map((q) => q.trim().toLowerCase()));
+  return fields.map((f) => {
+    if ((f.htmlType as string) === "radio-group" || (f.type as string) === "file") return f;
+    if (!set.has((f.label || "").trim().toLowerCase())) return f;
+    return { ...f, type: "select" as FormField["type"], htmlType: "ashby-combobox" };
+  });
+}
+
+/**
  * Choose the single offered option an answer names, or fail closed.
  *
  * An exact (case-insensitive) match against the offered text, and nothing

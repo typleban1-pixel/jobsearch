@@ -34,6 +34,7 @@ import { launchBrowser, newPreparedPage } from "./launch.ts";
 import {
   looksLikeForm, toFormField, groupAshbyChoices, mergeChoiceGroups,
   dropFileHeaderArtifacts, readChoiceFieldsets, revealAshbyForm, ashbyMultiStep,
+  readAshbyComboboxes, markAshbyComboboxes,
 } from "./ashbyForm.ts";
 
 export interface AshbyLiveResult {
@@ -116,7 +117,8 @@ export async function snapshotAshbyLive(input: {
     // so no volatile selector is ever persisted and this snapshot is
     // byte-identical to before.
     const cleaned = dropFileHeaderArtifacts(live.fields);
-    const fields = mergeChoiceGroups(cleaned, grouping).map(toFormField);
+    const merged = markAshbyComboboxes(mergeChoiceGroups(cleaned, grouping), await readAshbyComboboxes(page));
+    const fields = merged.map(toFormField);
     const snapshot: FormSnapshot = {
       provider: "ASHBY",
       fields,

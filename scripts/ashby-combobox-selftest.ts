@@ -1,0 +1,66 @@
+/**
+ * The Ashby anonymous react-select combobox resolver, tested at the seams
+ * that carry the safety: the guard's option-fetch allowance, the marking of
+ * which fields are comboboxes, and the DOM anchor that binds an anonymous
+ * combobox to exactly one question container (fail closed otherwise). The
+ * exact-option / geo / demographic MATCH decisions are covered by
+ * chooseSingleOption, the geography matchers, and resolveEeoOption; the live
+ * click + read-back is exercised by the supervised --validate run.
+ */
+import { chromium } from "playwright";
+import { mayFetchWhileFilling } from "../lib/browser/submitGuard.ts";
+import { markAshbyComboboxes, readAshbyComboboxes } from "../lib/browser/ashbyForm.ts";
+
+let bad = 0;
+const ok = (c: boolean, w: string, x = "") => { console.log(`  ${c ? "PASS" : "FAIL"}  ${w}${x ? " -- " + x : ""}`); if (!c) bad++; };
+const BASE = "https://jobs.ashbyhq.com/api/non-user-graphql";
+
+console.log("guard: only the geo option-fetch op is allowed while filling:");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocation`) === true, "the geo autocomplete read is allowed");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocation&x=1`) === true, "  ...with trailing params too");
+ok(mayFetchWhileFilling(`${BASE}?op=SubmitApplicationForm`) === false, "a submit-like operation is NOT allowed (stays blocked)");
+ok(mayFetchWhileFilling(`${BASE}?op=CreateApplication`) === false, "any other application mutation is NOT allowed");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocationEvil`) === false, "a look-alike op is not allowed (anchored match)");
+ok(mayFetchWhileFilling(`${BASE}?op=UpdateApplicationForm`) === false, "an autosave-shaped mutation is not allowed");
+
+console.log("\nmarkAshbyComboboxes: re-tags only the matching question, preserving everything else:");
+const fields: any[] = [
+  { key: "_systemfield_name", label: "Full Name", type: "text", htmlType: "text", required: true },
+  { key: "How would you describe your ethnic or cultural background?", label: "How would you describe your ethnic or cultural background?", type: "text", htmlType: "input", required: false },
+  { key: "grp", label: "Pick one", type: "select", htmlType: "radio-group", required: true, options: ["A", "B"] },
+  { key: "_systemfield_resume", label: "Resume", type: "file", htmlType: "file", required: true },
+];
+const marked = markAshbyComboboxes(fields, ["How would you describe your ethnic or cultural background?"]);
+const eth = marked.find((f) => /ethnic/.test(f.label));
+ok(!!eth && eth.htmlType === "ashby-combobox" && eth.type === "select", "the matching text field becomes an ashby-combobox select");
+ok(marked.find((f) => f.key === "_systemfield_name")?.htmlType === "text", "a non-matching text field is untouched");
+ok(!!marked.find((f) => f.htmlType === "radio-group"), "a grouped choice question is never re-tagged as a combobox");
+ok(!!marked.find((f) => f.type === "file"), "a file field is never re-tagged");
+ok(markAshbyComboboxes(fields, []).every((f, i) => f.htmlType === fields[i].htmlType), "no combo questions -> nothing changes");
+
+console.log("\nreadAshbyComboboxes (DOM anchor): bound to a unique container, ambiguous ones excluded:");
+const U = "11111111-1111-4111-8111-111111111111_22222222-2222-4222-8222-222222222222";
+const html = `<!doctype html><html><body>
+  <div class="_fieldEntry_ab1"><label>Please list the city of your current residence.</label>
+    <input role="combobox" placeholder="Start typing..."></div>
+  <div class="_fieldEntry_ab2"><label>Two comboboxes in one container?</label>
+    <input role="combobox"><input role="combobox"></div>
+  <fieldset class="_fieldEntry_ab3"><div>A choice question</div>
+    <input type="radio" name="${U}"><input type="radio" name="${U.replace('2222','3333')}"></fieldset>
+  <div class="_fieldEntry_ab4"><div>Combobox beside a choice group</div>
+    <input role="combobox"><input type="radio" name="${U}"><input type="radio" name="${U.replace('2222','4444')}"></div>
+</body></html>`;
+const browser = await chromium.launch({ channel: "chrome", headless: true });
+try {
+  const page = await browser.newPage();
+  await page.setContent(html);
+  const combos = await readAshbyComboboxes(page);
+  ok(combos.includes("Please list the city of your current residence."), "a lone combobox is bound to its question heading", combos.join(" | "));
+  ok(!combos.some((q) => /Two comboboxes/.test(q)), "two comboboxes in one container -> excluded (ambiguous, fail closed)");
+  ok(!combos.some((q) => /A choice question/.test(q)), "a choice fieldset is not a combobox");
+  ok(!combos.some((q) => /beside a choice group/.test(q)), "a combobox mixed with a choice group -> excluded");
+  ok(combos.length === 1, "exactly the one unambiguous combobox question is returned", String(combos.length));
+} finally { await browser.close(); }
+
+console.log(bad ? `\n${bad} FAILED` : `\nashby-combobox-selftest: ALL PASS`);
+process.exit(bad ? 1 : 0);

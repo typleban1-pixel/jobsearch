@@ -33,6 +33,7 @@ import { attachResume, type AttachmentEvidence } from "./upload.ts";
 import {
   revealAshbyForm, ashbyMultiStep, readChoiceFieldsets, groupAshbyChoices,
   mergeChoiceGroups, dropFileHeaderArtifacts, chooseSingleOption, verifySingleSelected,
+  readAshbyComboboxes, markAshbyComboboxes,
 } from "./ashbyForm.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
 import { hashSnapshot } from "../applications/formSnapshot.ts";
@@ -321,7 +322,9 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       const s = await snapshotLive(ctx.frame);
       if (provider !== "ASHBY") return s;
       const grouping = groupAshbyChoices(await readChoiceFieldsets(page));
-      return { ...s, fields: mergeChoiceGroups(dropFileHeaderArtifacts(s.fields), grouping) };
+      let fields = mergeChoiceGroups(dropFileHeaderArtifacts(s.fields), grouping);
+      fields = markAshbyComboboxes(fields, await readAshbyComboboxes(page));
+      return { ...s, fields };
     };
     let live = await snapForm();
     if (live.captcha) throw new Stop("CAPTCHA", "a challenge is present; it is never solved or worked around");
@@ -523,6 +526,8 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       // An Ashby single-select group likewise decides its own option in the
       // write path (exact offered match), so it is not fitted here.
       if (f.htmlType === "radio-group") return value;
+      // An Ashby combobox reads its own live options and matches there.
+      if (f.htmlType === "ashby-combobox") return value;
 
       // A place is not a string, and this is the wrong place to decide it.
       //
@@ -668,6 +673,112 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
             + `after selecting ${JSON.stringify(chosen.option)}`);
         }
         filled.push({ field: f.label || f.key, value: chosen.option });
+        return;
+      }
+
+      /**
+       * An Ashby anonymous react-select combobox (location or demographic
+       * self-ID). It has no id/name/label, so it is reached by anchoring to
+       * the ONE field container holding this question and the ONE combobox
+       * inside it -- both must be unique or the run fails closed. The menu's
+       * options are read from the live rendered listbox and the answer must
+       * be one of them exactly, or an equivalence our existing resolvers
+       * already sanction: geographic equality for a location field, the EEO
+       * option map for a demographic field (which never infers an answer --
+       * only a HUMAN_CONFIRMED value reaches here). Read-back confirms the
+       * control committed the chosen option.
+       */
+      if (f.htmlType === "ashby-combobox") {
+        const container = ctx.frame.locator('[class*="_fieldEntry_"], [class*="ashby-application-form-field"]')
+          .filter({ hasText: f.label });
+        const cc = await container.count();
+        if (cc !== 1) {
+          throw new Stop("SELECTOR_AMBIGUOUS", `"${f.label}": ${cc} Ashby field containers match this question, so the control is not uniquely identified`);
+        }
+        const combo = container.locator("[role=combobox]");
+        const nc = await combo.count();
+        if (nc !== 1) {
+          throw new Stop("SELECTOR_AMBIGUOUS", `"${f.label}": ${nc} comboboxes in its container`);
+        }
+        const isLoc = /\b(city|town|location|residence|reside|current city|metro|country|state|province)\b/i.test(f.label);
+        const term = isLoc ? geoSearchTerm(value) : value;
+        await combo.click({ timeout: 8000 });
+        await combo.fill("").catch(() => undefined);
+        await combo.type(term, { delay: 30 });
+        // The single open listbox is this combobox's (only one is open at a
+        // time). More than one, or none, and the menu cannot be tied back to
+        // the question: fail closed rather than read the wrong list.
+        let offered: string[] = [];
+        for (let attempt = 0; attempt < 20; attempt++) {
+          await page.waitForTimeout(400);
+          offered = await ctx.frame.evaluate(() => {
+            const boxes = Array.from(document.querySelectorAll("[role=listbox]"))
+              .filter((b) => (b as HTMLElement).getClientRects().length > 0);
+            if (boxes.length !== 1) return [];
+            return Array.from(boxes[0]!.querySelectorAll("[role=option]"))
+              .map((o) => (o.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+          });
+          if (offered.length) break;
+        }
+        inspections.push({ field: f.label || f.key, optionsFound: offered.length, sample: offered.slice(0, 3),
+          allOptions: offered, resolvedAs: `ashby combobox (${isLoc ? "location" : isDemographicField(f.label) ? "demographic" : "exact"})` });
+        if (!offered.length) {
+          throw new Stop("READBACK_MISMATCH", `"${f.label}": the Ashby combobox offered no options for ${JSON.stringify(term)}`);
+        }
+        let chosen: string | null = null;
+        let why = "";
+        if (isLoc) {
+          // Location uses only verified/approved location truth, matched
+          // geographically: the exact place, then a place qualified by the
+          // profile's own state/country. Nothing looser.
+          let hits = exactGeoMatches(offered, value);
+          if (hits.length === 0) {
+            const prof = (resolveContext as any)?.profile ?? {};
+            hits = qualifiedGeoMatches(offered, value, { state: prof.state, country: prof.country });
+          }
+          if (hits.length === 1) chosen = hits[0]!;
+          else why = `searching ${JSON.stringify(term)} gave ${hits.length} places equal to ${JSON.stringify(value)} among ${offered.join(" | ")}`;
+        } else if (isDemographicField(f.label)) {
+          // A self-ID field: only the exact option or an approved synonym
+          // our EEO resolver already sanctions. Its decline path is NOT
+          // used here -- declining a HUMAN_CONFIRMED answer would refuse a
+          // question the person actually answered -- so DECLINE/NONE are
+          // treated as unmatched and the field is left for them.
+          const c = resolveEeoOption(value, offered, f.label);
+          if (c.kind === "EXACT" || c.kind === "SYNONYM") chosen = c.option;
+          else why = `the confirmed answer ${JSON.stringify(value)} is not an offered self-ID option (${offered.join(" | ")}); a self-ID answer is never guessed or auto-declined`;
+        } else {
+          const c = chooseSingleOption(offered, value);
+          if (c.ok) chosen = c.option; else why = c.why;
+        }
+
+        if (chosen === null) {
+          // Never write a guess. A required field cannot be left unanswered,
+          // so it fails closed and halts; a non-required one is left for the
+          // person (an unresolved HUMAN_ONLY field stays blocked) and the run
+          // continues to the handoff.
+          await page.keyboard.press("Escape").catch(() => undefined);
+          if (f.required) throw new Stop("READBACK_MISMATCH", `"${f.label}": ${why}`);
+          leftBlank.push({ field: f.label || f.key, why });
+          return;
+        }
+
+        await clickOptionWithin(ctx.frame.locator("body"), chosen);
+        await page.waitForTimeout(500);
+        await page.keyboard.press("Tab").catch(() => undefined);
+        await page.waitForTimeout(400);
+        // Read-back against the value the control actually committed. Its
+        // rendered single-value carries the chosen option; if the node is
+        // absent, the container's text must at least contain it.
+        const sv = container.locator('[class*="singleValue" i], [class*="single-value" i]').first();
+        let held = "";
+        if (await sv.count().catch(() => 0)) held = (await sv.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+        if (!held) held = (await container.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+        const committed = held.toLowerCase().includes(chosen.toLowerCase());
+        if (!committed) {
+          throw new Stop("READBACK_MISMATCH", `"${f.label}" holds ${JSON.stringify(held.slice(0, 80))} after selecting ${JSON.stringify(chosen)}`);
+        }
+        filled.push({ field: f.label || f.key, value: chosen });
         return;
       }
 

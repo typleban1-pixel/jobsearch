@@ -103,7 +103,24 @@ const REQUEST_ALLOW = [
   /\/(?:upload|attachment|file|resume|s3|blob)/i,
   /\bautosave\b/i,
   /\.(?:js|css|png|jpe?g|gif|svg|woff2?|ico|map)(?:\?|$)/i,
+  // Ashby loads a location combobox's suggestions from ONE read operation
+  // on its GraphQL endpoint, named in the query string. This allows ONLY
+  // that exact operation: every other operation on the same endpoint --
+  // the application-submit mutation among them -- carries a different op and
+  // is not matched here, so it stays blocked. Pinned to the op name and
+  // anchored so no other value can satisfy it.
+  /\/api\/non-user-graphql\?op=ApiAutocompleteGeoLocation(?:&|$)/i,
 ];
+
+/**
+ * Whether a request may proceed while a form is being filled, by the allow
+ * rules above. Exported so the narrow Ashby option-fetch allowance can be
+ * proven -- allowed for the geo read, refused for a submit-like operation --
+ * without standing up a browser.
+ */
+export function mayFetchWhileFilling(url: string): boolean {
+  return REQUEST_ALLOW.some((r) => r.test(url));
+}
 
 const INSTALLED = new WeakMap<BrowserContext, SubmitGuard>();
 
