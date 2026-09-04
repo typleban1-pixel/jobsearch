@@ -35,8 +35,15 @@ check("the question count is pluralized honestly",
   check("and says the work is saved", /saved/i.test(r.summary), r.summary);
 }
 
-check("a prepared application awaiting review is Ready",
-  p({ status: "AWAITING_REVIEW", allFieldsConfident: true }).state === "READY", "");
+{
+  // A prepared application awaiting review needs the person to read and
+  // approve it, so it belongs under Needs you and is reviewable inline.
+  const r = p({ status: "AWAITING_REVIEW", allFieldsConfident: true });
+  check("a prepared application awaiting review is Needs you", r.state === "NEEDS_YOU", r.state);
+  check("awaiting review offers Review & approve", r.action?.label === "Review & approve", JSON.stringify(r.action));
+  check("awaiting review is flagged for inline review", r.inlineReview === true, String(r.inlineReview));
+  check("awaiting review keeps the review permalink as its href", /\/review$/.test(r.action?.href ?? ""), r.action?.href ?? "");
+}
 check("an approved application offers Submit",
   p({ status: "READY_TO_SUBMIT", humanApproved: true, allFieldsConfident: true }).action?.label === "Submit application", "");
 

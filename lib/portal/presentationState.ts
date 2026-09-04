@@ -66,6 +66,12 @@ export interface Presentation {
   summary: string;
   /** The one button. */
   action: { label: string; href: string } | null;
+  /**
+   * This row can be reviewed and approved inline on the Apply board. The
+   * action's href stays the full-review permalink; the board expands the
+   * same review beside the card so approval does not require a page change.
+   */
+  inlineReview?: boolean;
 }
 
 const ATS_LABEL: Record<string, string> = {
@@ -204,8 +210,13 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
   const nothingDiscovered = f.discoveredFields === 0;
 
   if (f.status === "AWAITING_REVIEW" || (f.allFieldsConfident && !nothingDiscovered && !f.humanApproved)) {
-    return { state: "READY", summary: "Application prepared and checked.",
-      action: { label: "Review application", href: `${href}/review` } };
+    // Prepared and checked, but a person still has to read it and approve
+    // before anything can be sent. That is an action they must take, so it
+    // belongs under "Needs you", not "Ready" (which is for work running
+    // without them). Reviewed inline on the board; the review route stays
+    // as the permalink. Nothing about the submission gates changes.
+    return { state: "NEEDS_YOU", summary: "Prepared and ready for your review. Nothing has been sent.",
+      action: { label: "Review & approve", href: `${href}/review` }, inlineReview: true };
   }
 
   if (f.status === "READY_TO_SUBMIT" && f.humanApproved && f.allFieldsConfident && !nothingDiscovered) {

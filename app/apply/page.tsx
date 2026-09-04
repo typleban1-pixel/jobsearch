@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { currentSession } from "../../lib/portal/session.ts";
 import { loadApplyBoard, type ApplyRow } from "../../lib/portal/applyBoard.ts";
+import { loadReview, type ReviewData } from "../../lib/portal/reviewData.ts";
 import { PrimaryNav } from "../PrimaryNav.tsx";
+import { InlineReview } from "./InlineReview.tsx";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +17,13 @@ export const dynamic = "force-dynamic";
  * true and occasionally interesting and they are not what this page is
  * for.
  */
-function Row({ row }: { row: ApplyRow }) {
+function Row({ row, review }: { row: ApplyRow; review?: ReviewData | null }) {
   const p = row.presentation;
+  // An inline-reviewable row expands its review beside the card. The
+  // action's href remains the review permalink, offered inside the
+  // expansion as "Open full review"; only when the review could not be
+  // loaded do we fall back to the plain link so the row is never dead.
+  const inline = p.inlineReview && review;
   return (
     <li className="approw">
       <div className="approw-main">
@@ -32,19 +39,22 @@ function Row({ row }: { row: ApplyRow }) {
         <p className="approw-company">{row.company}</p>
         <p className="approw-summary">{p.summary}</p>
       </div>
-      {p.action && (
-        <a className="btn-primary" href={p.action.href}>{p.action.label}</a>
-      )}
+      {inline
+        ? <InlineReview r={review!} />
+        : p.action && <a className="btn-primary" href={p.action.href}>{p.action.label}</a>}
     </li>
   );
 }
 
-function Section({ title, rows, tone }: { title: string; rows: ApplyRow[]; tone?: "urgent" }) {
+function Section({ title, rows, tone, reviews }: {
+  title: string; rows: ApplyRow[]; tone?: "urgent"; reviews?: Map<string, ReviewData | null>;
+}) {
   if (rows.length === 0) return null;
   return (
     <section className={`applysection${tone === "urgent" ? " urgent" : ""}`}>
       <h2>{title}<span className="count">{rows.length}</span></h2>
-      <ul className="approws">{rows.map((r) => <Row key={r.applicationId} row={r} />)}</ul>
+      <ul className="approws">{rows.map((r) =>
+        <Row key={r.applicationId} row={r} review={reviews?.get(r.applicationId)} />)}</ul>
     </section>
   );
 }
@@ -53,6 +63,16 @@ export default async function ApplyPage() {
   const session = await currentSession();
   if (!session) redirect("/login");
   const board = await loadApplyBoard(session.client);
+
+  // Load the review once for each row that can be reviewed inline. The
+  // board is exception-driven and near-empty when healthy, so this is a
+  // handful of loads at most; a load that fails leaves the row on its
+  // permalink fallback rather than breaking the page.
+  const reviewable = board.needsYou.filter((r) => r.presentation.inlineReview);
+  const reviews = new Map<string, ReviewData | null>(
+    await Promise.all(reviewable.map(async (r) =>
+      [r.applicationId, await loadReview(session.client, r.applicationId).catch(() => null)] as const)),
+  );
 
   const needCount = board.needsYou.length;
   const readyCount = board.ready.length;
@@ -100,7 +120,7 @@ export default async function ApplyPage() {
       ) : null}
 
       <div id="needsyou" />
-      <Section title="Needs you" rows={board.needsYou} tone="urgent" />
+      <Section title="Needs you" rows={board.needsYou} tone="urgent" reviews={reviews} />
       <div id="ready" />
       <Section title="Ready" rows={board.ready} />
       <Section title="Preparing" rows={board.preparing} />
