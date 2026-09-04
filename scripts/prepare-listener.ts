@@ -44,6 +44,31 @@ const HEARTBEAT_MS = 2 * 60_000;
 
 const log = (m: string) => console.log(`${new Date().toISOString().slice(11, 19)}  ${m}`);
 
+/**
+ * The live-form snapshot for providers that publish no form.
+ *
+ * Injected into prepareApplication so that module stays free of Playwright.
+ * Dispatched by source: Lever and Ashby forms exist only as rendered HTML,
+ * so preparation opens a browser and snapshots what actually renders; every
+ * other provider either publishes its form (Greenhouse) or has no browser
+ * path yet, and refuses here rather than guessing. Loaded lazily so the pure
+ * claim/release helpers can be imported without pulling in a browser.
+ */
+export async function liveSnapshot(
+  job: { source: string; applyUrl: string | null; reviewedOffice: string | null },
+): Promise<{ ok: boolean; reason?: string; snapshot?: unknown; hash?: string }> {
+  if (!job.applyUrl) return { ok: false, reason: `no apply URL is recorded for this ${job.source} job` };
+  if (job.source === "LEVER") {
+    const { snapshotLeverLive } = await import("../lib/browser/leverPrepare.ts");
+    return snapshotLeverLive({ applyUrl: job.applyUrl, reviewedOffice: job.reviewedOffice });
+  }
+  if (job.source === "ASHBY") {
+    const { snapshotAshbyLive } = await import("../lib/browser/ashbyPrepare.ts");
+    return snapshotAshbyLive({ applyUrl: job.applyUrl, reviewedOffice: job.reviewedOffice });
+  }
+  return { ok: false, reason: `no live snapshot path for ${job.source}` };
+}
+
 export interface DraftClaim { id: string; job_id: string; title: string | null; leaseAt: string }
 
 /**
@@ -155,7 +180,7 @@ async function processOne(db: SupabaseClient, llm: AnthropicProvider | null, cla
 
   let result: PrepareResult;
   try {
-    result = await prepareApplication(db, claim.job_id, llm, { existingApplicationId: claim.id });
+    result = await prepareApplication(db, claim.job_id, llm, { existingApplicationId: claim.id, liveSnapshot });
   } catch (e) {
     stopBeating();
     // A crash mid-prepare may have left the row PREPARING. Return it to

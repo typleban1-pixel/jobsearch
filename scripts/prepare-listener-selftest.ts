@@ -147,8 +147,8 @@ const withJobs = (apps: Row[]) => ({ applications: apps, jobs: apps.map((a) => (
   // readiness state is whatever prepareApplication returns -- identical by
   // construction. Assert the source uses the shared call and no status rewrite.
   const src = readFileSync("scripts/prepare-listener.ts", "utf8");
-  ok(/prepareApplication\(db, claim\.job_id, llm, \{ existingApplicationId: claim\.id \}\)/.test(src),
-    "T7 listener delegates to the shared prepareApplication (same path as the sweep)");
+  ok(/prepareApplication\(db, claim\.job_id, llm, \{ existingApplicationId: claim\.id, liveSnapshot \}\)/.test(src),
+    "T7 listener delegates to the shared prepareApplication (same path as the sweep), injecting liveSnapshot");
   ok(!/update\([^)]*status:\s*["'](AWAITING_REVIEW|READY|PREPARED|BLOCKED_NEEDS_INPUT)/.test(src),
     "T7 listener never sets a readiness status itself (no parallel state machine)");
 }
@@ -203,5 +203,39 @@ const withJobs = (apps: Row[]) => ({ applications: apps, jobs: apps.map((a) => (
   ok(late == null && g2.prepare_started_at == null, "T11 a late beat after finalize cannot resurrect the cleared claim");
 }
 
-console.log(bad ? `\n${bad} FAILED` : `\nprepare-listener-selftest: ALL ${11} scenarios PASS (in-memory + static)`);
+// ---- T12: the injected liveSnapshot dispatches by provider, fails safe ----
+{
+  const { liveSnapshot } = await import("./prepare-listener.ts");
+  // No apply URL: refuse with a reason rather than opening a browser at null.
+  const noUrl = await liveSnapshot({ source: "ASHBY", applyUrl: null, reviewedOffice: null });
+  ok(noUrl.ok === false && /no apply URL/.test(noUrl.reason ?? ""), "T12 no apply URL -> refused, no browser opened");
+  // A provider with no browser path: refuse before importing anything.
+  const gh = await liveSnapshot({ source: "GREENHOUSE", applyUrl: "https://x", reviewedOffice: null });
+  ok(gh.ok === false && /no live snapshot path for GREENHOUSE/.test(gh.reason ?? ""), "T12 a published-form provider has no live path here");
+  const wd = await liveSnapshot({ source: "WORKDAY", applyUrl: "https://x", reviewedOffice: null });
+  ok(wd.ok === false && /no live snapshot path for WORKDAY/.test(wd.reason ?? ""), "T12 an unknown source refuses rather than guessing");
+}
+
+// ---- T13: re-prepare = clear the park; the worker then reclaims the row ---
+{
+  // A parked live-form DRAFT (Ashby, awaiting a browser snapshot). It is NOT
+  // claimable while parked -- exactly what leaves it in "Continue on Ashby".
+  const db: any = makeDb(withJobs([draftRow("30", {
+    blocked_reason: "Ashby does not publish application forms without an employer API key. This form has to be snapshotted locally in the browser before the application can be prepared.",
+  })]));
+  ok((await claimDraft(db)) == null, "T13 a parked Ashby DRAFT is not claimed while blocked_reason is set");
+  // The re-prepare route's single write: clear blocked_reason (guarded to a
+  // parked, non-claimed DRAFT). Re-run the exact conditional update here.
+  const { data: cleared } = await db.from("applications").update({ blocked_reason: null })
+    .eq("id", "30").eq("status", "DRAFT").is("prepare_started_at", null).not("blocked_reason", "is", null)
+    .select("id").maybeSingle();
+  ok(!!cleared, "T13 clearing the park matches exactly the parked DRAFT (conditional update)");
+  const c = await claimDraft(db);
+  ok(!!c && c.id === "30", "T13 the worker now claims the re-prepared DRAFT within a poll");
+  const g = (db.from("applications").eq("id", "30") as any)._match()[0];
+  ok(g.status === "DRAFT" && g.prepare_started_at != null,
+    "T13 the claim stamps the lease and leaves status DRAFT (prepareApplication owns the rest)");
+}
+
+console.log(bad ? `\n${bad} FAILED` : `\nprepare-listener-selftest: ALL ${13} scenarios PASS (in-memory + static)`);
 process.exit(bad ? 1 : 0);
