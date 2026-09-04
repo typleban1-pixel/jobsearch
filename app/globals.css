@@ -524,6 +524,25 @@ a.counter:hover { border-color: currentColor; }
   font-size: 0.78rem; font-weight: 600; white-space: nowrap;
   background: var(--accent-soft); color: var(--accent);
 }
+/* Bulk-queue selection */
+.jobselect { display: flex; align-items: center; flex: none; }
+.jobselect input { width: 1.05rem; height: 1.05rem; cursor: pointer; accent-color: var(--accent); }
+.statepill {
+  flex: none; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+  padding: 0.2rem 0.55rem; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); color: var(--ink-soft); white-space: nowrap;
+}
+.statepill.s-draft { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.statepill.s-blocked_needs_input, .statepill.s-awaiting_review { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.statepill.s-submitted, .statepill.s-acknowledged, .statepill.s-in_process, .statepill.s-interviewing, .statepill.s-offer { color: var(--ink-faint); }
+.queuebar {
+  position: sticky; bottom: 1rem; z-index: 20; margin: 1rem auto 0; max-width: 30rem;
+  display: flex; gap: 0.75rem; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+  padding: 0.6rem 1.1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.12);
+  font-size: 0.9rem; color: var(--ink-soft); font-variant-numeric: tabular-nums;
+}
+.queuebar b { color: var(--ink); }
+.queuenote { text-align: center; font-size: 0.85rem; color: var(--ink-soft); margin: 0.8rem 0 0; }
 .jobcard-badges { display: flex; gap: 0.4rem; align-items: center; flex: none; flex-wrap: wrap; justify-content: flex-end; }
 .matchbadge {
   font-size: 0.78rem; color: var(--ink-soft); background: var(--accent-soft);

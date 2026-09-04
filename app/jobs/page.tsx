@@ -3,6 +3,7 @@ import { loadJobCards, loadUniverseCounts } from "../../lib/portal/db.ts";
 import { currentSession } from "../../lib/portal/session.ts";
 import { applyFilters, sortCards, DEFAULT_FILTERS, type Filters } from "../../lib/portal/present.ts";
 import { JobCardView } from "../JobCardView.tsx";
+import { JobsQueue } from "./JobsQueue.tsx";
 import { PrimaryNav } from "../PrimaryNav.tsx";
 
 export const dynamic = "force-dynamic";
@@ -123,11 +124,15 @@ export default async function Page(props: { searchParams: Promise<Record<string,
             )}
           </div>
         )
-        : shown.map((c, i) => (
-          <JobCardView key={c.id} card={c}
-            rank={interest === "active" ? startIndex + i + 1 : null}
-            returnTo={withParams({ p: current })} />
-        ))}
+        : (
+          <JobsQueue>
+            {shown.map((c, i) => (
+              <JobCardView key={c.id} card={c}
+                rank={interest === "active" ? startIndex + i + 1 : null}
+                returnTo={withParams({ p: current })} />
+            ))}
+          </JobsQueue>
+        )}
 
       {pageCount > 1 && (
         <nav className="pager">

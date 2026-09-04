@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { JobCard } from "../lib/portal/db.ts";
+import { JobSelect } from "./JobSelect.tsx";
 import { BAND_LABEL, BAND_EXPLANATION } from "../lib/portal/attentionRank.ts";
 import {
   describeArrangement, describeFreshness, describeLocations, describeSalary,
@@ -45,6 +46,7 @@ export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; re
     <article className={`jobcard${card.activeInterest ? " dimmed" : ""}`}>
       <div className="jobcard-head">
         <div className="jobcard-title">
+          <JobSelect jobId={card.id} openingId={card.openingId} appStatus={card.applicationStatus} />
           {rank !== null && <span className="jobcard-rank" title="position in your ranked queue">#{rank}</span>}
           <div>
             <h2><Link href={`/job/${card.id}`}>{card.title}</Link></h2>
