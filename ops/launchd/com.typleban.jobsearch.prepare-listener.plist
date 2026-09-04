@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Service definition for the application prepare-listener. NOT installed by
+  this commit. To deploy (only when approved), copy to
+  ~/Library/LaunchAgents/ and: launchctl bootstrap gui/$(id -u) <path>
+  then restart with:
+    launchctl kickstart -k gui/$(id -u)/com.typleban.jobsearch.prepare-listener
+  It runs from the production worktree, exactly like the resume-listener.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.typleban.jobsearch.prepare-listener</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/plebant/Projects/jobsearch-production/scripts/prepare-listener.ts</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/plebant/Projects/jobsearch-production</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key>
+  <dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>15</integer>
+  <key>StandardOutPath</key><string>/Users/plebant/Projects/jobsearch-production/logs/prepare-listener.log</string>
+  <key>StandardErrorPath</key><string>/Users/plebant/Projects/jobsearch-production/logs/prepare-listener.log</string>
+  <key>ProcessType</key><string>Background</string>
+</dict>
+</plist>
