@@ -471,6 +471,11 @@ a.counter:hover { border-color: currentColor; }
   background: var(--surface); color: var(--ink-soft); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 0.5rem 0.9rem; font-size: 0.9rem; cursor: pointer; text-decoration: none; display: inline-block;
 }
+.rb-score { display: flex; gap: 1rem; align-items: center; margin: 0 0 1rem; }
+.rb-score-num { font-size: 2.4rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1; }
+.rb-score-den { font-size: 1.1rem; color: var(--ink-faint); font-weight: 500; }
+.rb-score-label { font-size: 1.05rem; font-weight: 600; color: var(--ink); margin: 0; }
+.rb-failed { padding: 2rem 0; }
 .rb-progress { text-align: center; padding: 3rem 1rem; }
 .rb-progress p { color: var(--ink-soft); margin: 0.6rem auto; max-width: 30rem; }
 .rb-spinner {
