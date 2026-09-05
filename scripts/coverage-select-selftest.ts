@@ -87,5 +87,42 @@ console.log("\n(contrast) independent-greedy 'before' can fragment a project / d
   ok(!after.projectsSelected.includes("p") || after.selected.some((s) => s.role === "traction"), "AFTER: a project is either whole (purpose+traction) or absent");
 }
 
+console.log("\nStep 4C: admission bar, narrative density, unused capacity:");
+{
+  const r = coverageSelect([emp("A", "e1", ["A"]), emp("B", "e2", ["B"])], [], V, B({ totalBullets: 6 }));
+  ok(r.selected.length === 2, "unused budget stays unused; no low-value filler", `used ${r.selected.length}/6`);
+}
+{
+  const r = coverageSelect([emp("A", "e1", ["A"]), emp("Z", "e2", [])], [], V, B({ totalBullets: 6 }));
+  ok(!r.selected.some((s) => s.owner.entryId === "e2"), "a zero-coverage bullet is never selected as filler");
+}
+{
+  // weak transferable-only project: purpose/traction cover nothing, exec is adjacency to an already-covered theme.
+  const Vt: ThemeValues = { COORD: 2, MILE: 1.2 };
+  const proj: ProjectSpec = { id: "p", label: "RentPup", purpose: { text: "pp", themes: [] }, traction: { text: "In use by 21 users and generating approximately $1,200 in monthly revenue.", themes: [], quantitative: true }, execution: [{ id: "e", text: "x", owner: { kind: "project", entryId: "p", label: "RentPup" }, themes: ["MILE"], quantitative: false, spaceCost: 1 }] };
+  const r = coverageSelect([emp("c", "e1", ["COORD"]), emp("m", "e2", ["MILE"])], [proj], Vt, B({ totalBullets: 8 }));
+  ok(!r.projectsSelected.includes("p"), "a weak transferable-only project does NOT justify a full unit");
+}
+{
+  // strong DIRECT project coverage of an uncovered important theme.
+  const Vp: ThemeValues = { PROD: 3 };
+  const proj: ProjectSpec = { id: "p", label: "RentPup", purpose: { text: "pp", themes: ["PROD"] }, traction: { text: "In use by 21 users and generating approximately $1,200 in monthly revenue.", themes: [], quantitative: true }, execution: [{ id: "e", text: "x", owner: { kind: "project", entryId: "p", label: "RentPup" }, themes: ["PROD"], quantitative: false, spaceCost: 1 }] };
+  const r = coverageSelect([], [proj], Vp, B({ totalBullets: 6 }));
+  ok(r.projectsSelected.includes("p"), "strong DIRECT project coverage DOES justify the same full unit");
+}
+{
+  // density: a mixed off-narrative bullet loses to a cleaner bullet on the SAME theme.
+  const clean: Candidate = { id: "clean", text: "clean", owner: { kind: "employment", entryId: "e1", label: "e1" }, themes: ["A"], quantitative: false, spaceCost: 1, density: 1 };
+  const mixed: Candidate = { id: "mixed", text: "mixed", owner: { kind: "employment", entryId: "e2", label: "e2" }, themes: ["A"], quantitative: false, spaceCost: 1, density: 0.25 };
+  const r = coverageSelect([clean, mixed], [], { A: 2 }, B({ totalBullets: 6 }));
+  ok(r.selected.some((s) => s.text === "clean") && !r.selected.some((s) => s.text === "mixed"), "cleaner bullet wins; the mixed off-narrative bullet on an already-covered theme is dropped");
+}
+{
+  // density: a mixed bullet is STILL selectable when it is uniquely strong for an important uncovered theme.
+  const mixed: Candidate = { id: "mixed", text: "mixed", owner: { kind: "employment", entryId: "e1", label: "e1" }, themes: ["U"], quantitative: false, spaceCost: 1, density: 0.25 };
+  const r = coverageSelect([mixed], [], { U: 2 }, B({ totalBullets: 6 }));
+  ok(r.selected.some((s) => s.text === "mixed"), "a low-density bullet uniquely covering an important theme is still selected");
+}
+
 console.log(bad ? `\n${bad} FAILED` : `\ncoverage-select-selftest: ALL PASS`);
 process.exit(bad ? 1 : 0);

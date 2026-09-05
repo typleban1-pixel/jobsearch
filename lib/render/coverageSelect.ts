@@ -29,13 +29,23 @@ export interface Candidate {
   themes: string[];
   quantitative: boolean;
   spaceCost: number;
+  /**
+   * Narrative density in [0,1]: the share of this claim's rendered content that
+   * speaks to the plan's themes rather than off-narrative material. Computed
+   * upstream from the bullet's verified capability tags vs the plan (NOT from
+   * job-description keywords). A claim dominated by unrelated capabilities has
+   * low density and loses to a cleaner claim covering the same theme, but a
+   * low-density claim that uniquely covers an important theme can still win.
+   * Defaults to 1 (fully on-narrative) when omitted.
+   */
+  density?: number;
 }
 
 export interface ProjectSpec {
   id: string;
   label: string;
-  purpose: { text: string; themes: string[] };
-  traction: { text: string; themes: string[]; quantitative: boolean };
+  purpose: { text: string; themes: string[]; density?: number };
+  traction: { text: string; themes: string[]; quantitative: boolean; density?: number };
   execution: Candidate[];
 }
 
@@ -69,9 +79,24 @@ export type ThemeValues = Record<string, number>;
 
 const DR = 0.3;        // diminishing-returns factor: 2nd bullet on a theme is worth 30%, 3rd 9%.
 const QBONUS = 0.2;    // modest quantitative tie-break, only when covering a relevant theme.
-const EPS = 0.05;      // stop adding once the best marginal value is negligible (no bloat, no forced coverage).
+/**
+ * Admission bar on per-space marginal value. Positive coverage is necessary
+ * but NOT sufficient: a claim/unit must clear this to earn its résumé space.
+ * A fresh DIRECT hit on a HARD theme (value ~2) clears it easily; a diminished
+ * transferable adjacency, or an off-narrative-heavy bullet on an already-covered
+ * theme, does not. When nothing clears it, budget is left UNUSED rather than
+ * filled with low-value content.
+ */
+const ADMIT = 0.35;
+/**
+ * A project OPENS only if its whole-unit per-space value clears a HIGHER bar
+ * than a single bullet: a project consumes an entire unit (purpose + traction +
+ * execution), so a lone transferable adjacency must not justify it, while a
+ * DIRECT hit on an important uncovered theme still does.
+ */
+const PROJECT_ADMIT = 0.5;
 
-const marginal = (themes: string[], count: Record<string, number>, values: ThemeValues, quantitative: boolean): number => {
+const marginal = (themes: string[], count: Record<string, number>, values: ThemeValues, quantitative: boolean, density = 1): number => {
   let v = 0;
   let coversRelevant = false;
   for (const t of themes) {
@@ -81,7 +106,7 @@ const marginal = (themes: string[], count: Record<string, number>, values: Theme
     v += base * Math.pow(DR, count[t] ?? 0);
   }
   if (quantitative && coversRelevant) v += QBONUS;
-  return v;
+  return v * (density ?? 1);   // off-narrative content dilutes the claim's value.
 };
 
 const applyCover = (themes: string[], count: Record<string, number>) => {
@@ -107,14 +132,15 @@ export function coverageSelect(
   while (remaining > 0) {
     type Move = { kind: "emp" | "open" | "exec"; per: number; value: number; apply: () => void };
     let best: Move | null = null;
-    const consider = (m: Move) => { if (m.value > (best?.value ?? EPS)) best = m; };
+    const consider = (m: Move) => { if (m.value > (best?.value ?? 0)) best = m; };
 
     // employment bullets (cost 1)
     for (const c of employment) {
       if (takenEmp.has(c.id)) continue;
       if ((ownerUsed[c.owner.entryId] ?? 0) >= budget.perEmployment) continue;
       if (c.spaceCost > remaining) continue;
-      const gain = marginal(c.themes, count, values, c.quantitative);
+      const gain = marginal(c.themes, count, values, c.quantitative, c.density);
+      if (gain / c.spaceCost < ADMIT) continue;              // below the bullet admission bar
       consider({
         kind: "emp", per: gain / c.spaceCost, value: gain / c.spaceCost,
         apply: () => {
@@ -134,13 +160,14 @@ export function coverageSelect(
         const execChoices = p.execution.filter((e) => !takenExec.has(e.id));
         let bestExec: Candidate | null = null; let bestExecGain = -1;
         for (const e of execChoices) {
-          const g = marginal(e.themes, count, values, e.quantitative);
+          const g = marginal(e.themes, count, values, e.quantitative, e.density);
           if (g > bestExecGain) { bestExecGain = g; bestExec = e; }
         }
-        const purposeGain = marginal(p.purpose.themes, count, values, false);
-        const tractionGain = marginal(p.traction.themes, count, values, p.traction.quantitative);
+        const purposeGain = marginal(p.purpose.themes, count, values, false, p.purpose.density);
+        const tractionGain = marginal(p.traction.themes, count, values, p.traction.quantitative, p.traction.density);
         const execGain = bestExec ? bestExecGain : 0;
         const gain = purposeGain + tractionGain + execGain;
+        if (gain / openCost < PROJECT_ADMIT) continue;        // whole-unit bar: a transferable adjacency is not enough
         consider({
           kind: "open", per: gain / openCost, value: gain / openCost,
           apply: () => {
@@ -156,7 +183,8 @@ export function coverageSelect(
         if ((projectUsed[p.id] ?? 0) >= budget.perProject) continue;
         for (const e of p.execution) {
           if (takenExec.has(e.id) || e.spaceCost > remaining) continue;
-          const gain = marginal(e.themes, count, values, e.quantitative);
+          const gain = marginal(e.themes, count, values, e.quantitative, e.density);
+          if (gain / e.spaceCost < ADMIT) continue;           // further exec bullets face the bullet bar
           consider({
             kind: "exec", per: gain / e.spaceCost, value: gain / e.spaceCost,
             apply: () => {
@@ -169,6 +197,9 @@ export function coverageSelect(
       }
     }
 
+    // Moves below their admission bar were never considered, so no admissible
+    // move remaining means we stop -- leaving budget unused rather than filling
+    // it with low-value content.
     if (!best) break;
     (best as Move).apply();
   }
