@@ -75,37 +75,65 @@ export async function fillTextCommitting(control: Locator, value: string): Promi
   }, value);
 }
 
+/** One reading of a controlled input's commit state: DOM value, the
+ * framework's own props.value now and after a render tick, whether React
+ * props exist at all, and the aria-invalid flag. */
+export interface CommitReading {
+  dom: string; react: string | undefined; afterReact: string | undefined;
+  hasReact: boolean; invalid: string | null;
+}
+
+/**
+ * The pure commit-contract verdict, given a reading and the intended value.
+ * Encodes, in order: RERENDER_SURVIVED (framework state must still hold the
+ * value on the next render), DOM_VALUE_PRESENT, hydration (React props must
+ * exist -- no props means the value cannot be confirmed committed),
+ * AUTHORITATIVE_STATE_UPDATED (framework state equals the value), then
+ * validity. DOM_VALUE_PRESENT alone never passes. Kept pure so the ordering
+ * is unit-tested without a browser.
+ */
+export function commitVerdict(r: CommitReading, value: string): { ok: boolean; why?: string } {
+  const v = value.trim();
+  if (r.hasReact && r.react !== undefined && String(r.afterReact).trim() !== v) {
+    return { ok: false, why: `committed to the framework then reverted to ${JSON.stringify(String(r.afterReact).slice(0, 60))} on the next render, so it did not stick` };
+  }
+  if (String(r.dom).trim() !== v) {
+    return { ok: false, why: `holds ${JSON.stringify(String(r.dom).slice(0, 60))} in the DOM after reconcile` };
+  }
+  if (!r.hasReact) {
+    return { ok: false, why: "has no React props (the form is not hydrated), so the value cannot be confirmed as committed to the framework" };
+  }
+  if (r.react !== undefined && String(r.react).trim() !== v) {
+    return { ok: false, why: `the framework's own state holds ${JSON.stringify(String(r.react).slice(0, 60))}, not the value written, so it was not committed` };
+  }
+  if (r.invalid === "true") return { ok: false, why: "is still flagged aria-invalid after filling" };
+  return { ok: true };
+}
+
 /**
  * Proof the FRAMEWORK accepted the value, not just that the DOM shows it.
  *
  * The authoritative signal for a React controlled input is the value on its
  * React props (what the component was last rendered with) -- that is the
  * form's own state, updated only when onChange actually fired. It is read
- * alongside the DOM value and the invalid flag. This is the
- * APPLICATION_STATE_COMMITTED check, stricter than DOM_VALUE_PRESENT.
+ * twice, a render tick apart, so a value that commits and then reverts when
+ * the form finishes mounting (Ashby's false HANDOFF) is caught. This is the
+ * APPLICATION_STATE_COMMITTED + RERENDER_SURVIVED check, stricter than
+ * DOM_VALUE_PRESENT. The verdict itself is delegated to the pure
+ * commitVerdict above.
  */
 export async function verifyCommitted(control: Locator, value: string): Promise<{ ok: boolean; why?: string }> {
   await control.page().waitForTimeout(200);
-  const res = await control.evaluate((el: any) => {
+  const read = () => control.evaluate((el: any) => {
     const rk = Object.keys(el).find((k) => k.startsWith("__reactProps"));
     return { dom: el.value ?? "", react: rk ? el[rk]?.value : undefined, hasReact: !!rk,
              invalid: el.getAttribute("aria-invalid") };
   });
-  if (String(res.dom).trim() !== value.trim()) {
-    return { ok: false, why: `holds ${JSON.stringify(String(res.dom).slice(0, 60))} in the DOM after reconcile` };
-  }
-  // The React props value is the framework's own state and is authoritative.
-  // If the control has no React props at all, the form has not hydrated and
-  // the value cannot be confirmed committed -- which is exactly the
-  // fill-before-hydration failure that shows filled but submits as missing.
-  if (!res.hasReact) {
-    return { ok: false, why: "has no React props (the form is not hydrated), so the value cannot be confirmed as committed to the framework" };
-  }
-  if (res.react !== undefined && String(res.react).trim() !== value.trim()) {
-    return { ok: false, why: `the framework's own state holds ${JSON.stringify(String(res.react).slice(0, 60))}, not the value written, so it was not committed` };
-  }
-  if (res.invalid === "true") return { ok: false, why: "is still flagged aria-invalid after filling" };
-  return { ok: true };
+  const res = await read();
+  await control.page().waitForTimeout(250);
+  const after = await read();
+  return commitVerdict({ dom: res.dom, react: res.react, afterReact: after.react,
+                         hasReact: res.hasReact, invalid: res.invalid }, value);
 }
 
 export async function readBack(control: Locator): Promise<string> {
