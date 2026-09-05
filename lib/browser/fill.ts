@@ -45,7 +45,7 @@ export interface PreparedAnswer {
   fieldKey: string | null;
   fieldLabel: string;
   answer: string | null;
-  confidence: "VERIFIED" | "DERIVED" | "HUMAN_CONFIRMED" | "LOW_STAKES_SURVEY" | "BLOCKED";
+  confidence: "VERIFIED" | "DERIVED" | "HUMAN_CONFIRMED" | "LOW_STAKES_SURVEY" | "AI_DRAFTED_GROUNDED" | "BLOCKED";
   isRequired: boolean;
 }
 
@@ -72,7 +72,7 @@ export interface FillOutcome {
   guard: unknown;
 }
 
-const FILLABLE = new Set(["VERIFIED", "DERIVED", "HUMAN_CONFIRMED", "LOW_STAKES_SURVEY"]);
+const FILLABLE = new Set(["VERIFIED", "DERIVED", "HUMAN_CONFIRMED", "LOW_STAKES_SURVEY", "AI_DRAFTED_GROUNDED"]);
 
 /** Options that are calling codes: "Poland +48", "+1", "United States (+1)". */
 function optionsLookLikeDialCodes(options: string[] | undefined): boolean {

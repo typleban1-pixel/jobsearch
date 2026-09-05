@@ -115,7 +115,7 @@ const stats = {
   legitimateBlocked: [] as string[],
   provenanceFailures: [] as string[],
   fields: 0, required: 0,
-  VERIFIED: 0, DERIVED: 0, HUMAN_CONFIRMED: 0, LOW_STAKES_SURVEY: 0, BLOCKED: 0,
+  VERIFIED: 0, DERIVED: 0, HUMAN_CONFIRMED: 0, LOW_STAKES_SURVEY: 0, AI_DRAFTED_GROUNDED: 0, BLOCKED: 0,
   blockUNKNOWN: 0, blockAMBIGUOUS: 0,
   refusedFields: 0, skipped: 0,
   intentFailures: [] as string[],

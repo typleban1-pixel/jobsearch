@@ -17,6 +17,8 @@ import { resolveField, shouldSkip, type BankedAnswer, type BankProvenance,
 import { loadRecallStore } from "../feedback/store.ts";
 import { reconcileAnswers, type ExistingAnswer } from "./reconcile.ts";
 import { matchIntent, isResumeUploadField, ASHBY_RESUME_KEY } from "./intents.ts";
+import { classifyOpenEnded } from "./openEnded.ts";
+import { composeGroundedAnswer } from "../llm/composeAnswer.ts";
 import { snapshotForm } from "./formSnapshot.ts";
 import { tailorBullets, type BulletSource } from "../render/tailor.ts";
 import { evidenceTextOf, provenanceStatements } from "../render/evidenceText.ts";
@@ -441,6 +443,16 @@ export async function prepareApplication(
     resolved.push(resolveField(field, ctx));
   }
 
+  // 4a-bis. Open-ended questions the deterministic resolver blocked, that
+  // can be answered from evidence: PERSONALITY/interest (from HUMAN_CONFIRMED
+  // personality facts) and GROUNDED_OPEN_ENDED motivation/experience (from
+  // verified evidence). Composed once, grounding-checked, or left blocked. A
+  // question that needs a genuinely new fact stays blocked. Needs the model,
+  // so it only runs when one is available.
+  if (llm) {
+    await composeOpenEndedAnswers(db, llm, resolved, ctx, job, version);
+  }
+
   // 4b. Carry human work across. A person's answer to a question that
   //     has not materially changed is not regenerated, and one to a
   //     question that HAS changed is not silently reused either: it goes
@@ -541,6 +553,8 @@ function categoryOf(r: ResolvedField): string {
   // intent the wording happened to match; it is not the sensitive
   // question the catalog might otherwise classify it as.
   if (r.confidence === "LOW_STAKES_SURVEY") return "F_LOW_STAKES_SURVEY";
+  // A grounded, AI-drafted open-ended answer is category C by definition.
+  if (r.confidence === "AI_DRAFTED_GROUNDED") return "C_AI_DRAFTED_GROUNDED";
   const intent = r.intentKey ? matchIntent(r.field.label).intent : null;
   return intent?.category ?? "E_UNKNOWN";
 }
@@ -554,7 +568,90 @@ function provenanceOf(r: ResolvedField): string {
     // survey question, recorded as such rather than disguised as a
     // profile-, calculation- or user-sourced value.
     case "LOW_STAKES_SURVEY": return "GENERIC_SURVEY";
+    // Composed from verified/human-confirmed evidence and grounding-checked.
+    case "AI_DRAFTED_GROUNDED": return "AI_DRAFT_FROM_VERIFIED_EVIDENCE";
     default: return "USER_RESPONSE";
+  }
+}
+
+/** HUMAN_CONFIRMED personality/interest facts, with their scope limits. */
+async function loadPersonalityFacts(db: SupabaseClient): Promise<string[]> {
+  const { data } = await db.from("evidence").select("summary,detail").contains("tags", ["PERSONALITY"]);
+  return (data ?? []).map((e: any) => e.detail ? `${e.summary} (${e.detail})` : e.summary);
+}
+
+/**
+ * Verified evidence as plain fact strings, from the frozen profile version
+ * the master resume was cut from -- the same rows the resume grounding
+ * trusts. Trimmed and capped so a grounded draft has real material without
+ * an unbounded prompt.
+ */
+async function buildGroundedFacts(
+  db: SupabaseClient, job: any, version: any,
+): Promise<{ facts: string[]; jobContext: { title: string | null; company: string | null; description: string | null } }> {
+  const { data: master } = await db.from("resumes").select("label").eq("is_master", true).maybeSingle();
+  const pv = Number(String(master?.label ?? "").match(/profile version (\d+)/)?.[1] ?? 0);
+  const rows = await paged<any>(db, "profile_version_rows", "source_table,row_data",
+    (q) => q.eq("profile_version", pv), "row_id");
+  const WANT = new Set(["profile", "employment_records", "projects", "education", "skills", "metrics", "evidence"]);
+  const facts: string[] = [];
+  let skills = 0;
+  for (const r of rows) {
+    if (!WANT.has(r.source_table)) continue;
+    // A verified skills list is long; a compact sample is enough context.
+    if (r.source_table === "skills" && skills++ >= 25) continue;
+    const t = evidenceTextOf(r.source_table, r.row_data);
+    if (t) facts.push(t.length > 300 ? t.slice(0, 300) + "…" : t);
+  }
+  const { data: co } = await db.from("companies").select("name").eq("id", job.company_id).maybeSingle();
+  const { data: d } = await db.from("job_descriptions").select("description_text").eq("job_id", job.id).maybeSingle();
+  const description = d?.description_text ? String(d.description_text).slice(0, 1600) : null;
+  return { facts, jobContext: { title: version?.title ?? job.title ?? null, company: co?.name ?? null, description } };
+}
+
+/**
+ * Answer the open-ended questions the deterministic resolver blocked but
+ * evidence can support, in place. PERSONALITY from the personality facts,
+ * GROUNDED_OPEN_ENDED from verified evidence; NEW_FACT_REQUIRED and
+ * everything else stay exactly as the resolver left them. Each composed
+ * answer is grounding-checked inside composeGroundedAnswer and only replaces
+ * a BLOCKED field if it passed.
+ */
+async function composeOpenEndedAnswers(
+  db: SupabaseClient, llm: LlmProvider, resolved: ResolvedField[],
+  ctx: ResolveContext, job: any, version: any,
+): Promise<void> {
+  const candidates = resolved
+    .map((r, i) => ({ r, i, cls: classifyOpenEnded(r.field.label, r.field.type, r.field.key) }))
+    .filter((c) => c.r.confidence === "BLOCKED" && !c.r.refused
+      && (c.cls.kind === "PERSONALITY" || c.cls.kind === "GROUNDED_OPEN_ENDED"));
+  if (!candidates.length) return;
+
+  const personality = candidates.some((c) => c.cls.kind === "PERSONALITY") ? await loadPersonalityFacts(db) : [];
+  const grounded = candidates.some((c) => c.cls.kind === "GROUNDED_OPEN_ENDED")
+    ? await buildGroundedFacts(db, job, version) : { facts: [], jobContext: { title: null, company: null, description: null } };
+  const applicantName = [ctx.profile?.legal_first_name, ctx.profile?.legal_last_name].filter(Boolean).join(" ") || undefined;
+
+  for (const c of candidates) {
+    const isPersonality = c.cls.kind === "PERSONALITY";
+    const res = await composeGroundedAnswer({
+      llm, question: c.r.field.label, kind: c.cls.kind as "PERSONALITY" | "GROUNDED_OPEN_ENDED",
+      facts: isPersonality ? personality : grounded.facts,
+      charLimit: null, applicantName,
+      jobContext: isPersonality ? undefined : grounded.jobContext,
+    });
+    if (res.ok && res.answer) {
+      resolved[c.i] = {
+        ...c.r, answer: res.answer, confidence: "AI_DRAFTED_GROUNDED",
+        intentKey: isPersonality ? "personality_fun_fact" : "grounded_open_ended",
+        matchedBy: `composed (${c.cls.kind}), grounding-checked`,
+        blockKind: null, blockedReason: null, evidenceIds: [],
+        considered: [{ rowId: null, what: `grounded answer composed from ${isPersonality ? "HUMAN_CONFIRMED personality facts" : "verified evidence"}`,
+          whyRejected: "n/a: this is the accepted answer, verified to introduce no unsupported facts" }],
+        refused: false,
+      };
+    }
+    // else: leave the field BLOCKED with the resolver's original reason.
   }
 }
 

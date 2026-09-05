@@ -22,7 +22,7 @@ import { matchesPriorEmployment, PRIOR_EMPLOYMENT_ANSWER } from "./priorEmployme
 import { matchesAnticipatedWorkCountry, ANTICIPATED_WORK_COUNTRY } from "./workCountry.ts";
 import { classifyLowStakesSurvey, pickSurveyOption, GENERIC_SURVEY_FREETEXT } from "./lowStakesSurvey.ts";
 
-export type Confidence = "VERIFIED" | "DERIVED" | "HUMAN_CONFIRMED" | "LOW_STAKES_SURVEY" | "BLOCKED";
+export type Confidence = "VERIFIED" | "DERIVED" | "HUMAN_CONFIRMED" | "LOW_STAKES_SURVEY" | "AI_DRAFTED_GROUNDED" | "BLOCKED";
 export type BlockKind = "UNKNOWN" | "AMBIGUOUS";
 
 /**

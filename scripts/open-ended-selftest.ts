@@ -1,0 +1,17 @@
+import { classifyOpenEnded } from "../lib/applications/openEnded.ts";
+let bad = 0; const ok = (c: boolean, w: string, x = "") => { console.log(`  ${c ? "PASS" : "FAIL"}  ${w}${x ? " -- " + x : ""}`); if (!c) bad++; };
+const k = (l: string, t?: string) => classifyOpenEnded(l, t).kind;
+ok(k("Tell us a fun fact about yourself.") === "PERSONALITY", "fun fact -> PERSONALITY");
+ok(k("What do you enjoy outside of work?") === "PERSONALITY", "outside of work -> PERSONALITY");
+ok(k("Tell us something we wouldn't know from your resume") === "PERSONALITY", "not on resume -> PERSONALITY");
+ok(k("Why are you interested in this position?") === "GROUNDED_OPEN_ENDED", "why interested -> GROUNDED");
+ok(k("What interests you about our company?") === "GROUNDED_OPEN_ENDED", "what interests you about company -> GROUNDED");
+ok(k("Describe a time you solved a difficult problem.") === "GROUNDED_OPEN_ENDED", "describe a time -> GROUNDED");
+ok(k("How do you approach ambiguity?") === "GROUNDED_OPEN_ENDED", "how do you approach -> GROUNDED");
+ok(k("Why do you think you'd be successful here?") === "GROUNDED_OPEN_ENDED", "why successful -> GROUNDED");
+ok(k("How many years have you worked in B2B demand generation?") === "NEW_FACT_REQUIRED", "how many years -> NEW_FACT_REQUIRED");
+ok(k("Rate your proficiency in Python on a scale of 1-10") === "NEW_FACT_REQUIRED", "rate proficiency -> NEW_FACT_REQUIRED");
+ok(k("What is your current salary?") === "NEW_FACT_REQUIRED", "current salary -> NEW_FACT_REQUIRED");
+ok(k("First Name") === "NOT_OPEN_ENDED", "First Name -> NOT_OPEN_ENDED");
+ok(k("Additional information", "textarea") === "GROUNDED_OPEN_ENDED", "generic textarea -> GROUNDED (composer backstops)");
+console.log(bad ? `\n${bad} FAILED` : `\nopen-ended-selftest: ALL PASS`); process.exit(bad ? 1 : 0);
