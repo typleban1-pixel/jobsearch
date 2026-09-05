@@ -972,6 +972,18 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       // is judged against the complete picture rather than in field order.
       for (const f of live.fields) {
         if (f.type === "file") continue;
+        // Ashby EEO self-identification (voluntary, protected-class: gender,
+        // race, veteran, disability -- keyed _systemfield_eeoc_*) is always
+        // left for the person to complete on the form at handoff, never
+        // auto-set by the program. Even with a HUMAN_CONFIRMED answer on file,
+        // the system does not check a protected-class box on someone's behalf;
+        // these fields are voluntary and optional, so leaving them blank never
+        // blocks handoff. Generic to Ashby's EEO key naming, not one form.
+        if (/_systemfield_eeoc_/i.test(f.key)) {
+          leftBlank.push({ field: f.label || f.key, why: "EEO self-identification is voluntary and left for you to complete on the employer's form" });
+          processedLabels.add(f.label || f.key);
+          continue;
+        }
         processedLabels.add(f.label || f.key);
         let a = byKey.get(f.key);
 

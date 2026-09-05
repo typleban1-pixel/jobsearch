@@ -189,13 +189,22 @@ export async function readAshbyComboboxes(page: any): Promise<string[]> {
       const radios = Array.from(c.querySelectorAll("input[type=radio],input[type=checkbox]"))
         .filter((el) => pair.test((el as HTMLInputElement).name || ""));
       if (radios.length) continue;                                        // a choice group, not a combobox
-      let q: string | null = null;
+      // Collect EVERY leaf text label in the container, not just the first.
+      // An Ashby field entry can carry a short heading ("Location") AND the
+      // real question as a separate description ("Please list the city of your
+      // current residence."). Ashby keys the field by the description, so
+      // returning only the first text (the heading) left the field untagged
+      // and, at fill, resolved as a plain text input -> 0 controls ->
+      // SELECTOR_AMBIGUOUS. Leaf-only (skip wrappers that hold another
+      // candidate) avoids concatenated "LocationPlease list..." noise; the
+      // Set() at return dedups. markAshbyComboboxes then matches the field by
+      // whichever of these its snapshot label happens to be.
       for (const n of Array.from(c.querySelectorAll("label,legend,h1,h2,h3,h4,p,div,span"))) {
         if ((n as HTMLElement).querySelector("input,textarea,[role=combobox]")) continue;
+        if ((n as HTMLElement).querySelector("label,legend,h1,h2,h3,h4,p,div,span")) continue;
         const t = norm(n.textContent || "");
-        if (t && t.length > 4) { q = t; break; }
+        if (t && t.length > 4) out.push(t);
       }
-      if (q) out.push(q);
     }
     return [...new Set(out)];
   });

@@ -90,5 +90,32 @@ try {
   ok(combos.length === 1, "exactly the one unambiguous combobox question is returned", String(combos.length));
 } finally { await browser.close(); }
 
+console.log("\nreadAshbyComboboxes: a heading + separate description both surface (real Ashby structure):");
+// The live Chartis 'city of current residence' combobox: a short _heading_
+// ("Location") AND the actual question as a _description_. Ashby keys the field
+// by the description, so returning only the first text (the heading) left it
+// untagged -> resolved as plain text -> 0 controls (SELECTOR_AMBIGUOUS).
+const html2 = `<!doctype html><html><body>
+  <div class="_fieldEntry_x1 ashby-application-form-field-entry">
+    <label class="_heading_x">Location</label>
+    <div class="_description_x"><p>Please list the city of your current residence.</p></div>
+    <input role="combobox" placeholder="Start typing...">
+  </div>
+</body></html>`;
+const browser2 = await chromium.launch({ channel: "chrome", headless: true });
+try {
+  const page2 = await browser2.newPage();
+  await page2.setContent(html2);
+  const c2 = await readAshbyComboboxes(page2);
+  ok(c2.includes("Please list the city of your current residence."),
+    "the field's description (its snapshot label) is returned, not just the heading", c2.join(" | "));
+  ok(c2.includes("Location"), "the heading is also returned (matches whichever label the snapshot used)", c2.join(" | "));
+  ok(!c2.some((q) => /Location.*Please list/.test(q)), "no concatenated wrapper text (leaf-only)", c2.join(" | "));
+  const marked2 = markAshbyComboboxes(
+    ([{ key: "Please list the city of your current residence.", label: "Please list the city of your current residence.", type: "text", htmlType: "text", required: false }] as any[]),
+    c2);
+  ok(marked2[0]!.htmlType === "ashby-combobox", "the city field, keyed by its description, is now tagged as an ashby-combobox");
+} finally { await browser2.close(); }
+
 console.log(bad ? `\n${bad} FAILED` : `\nashby-combobox-selftest: ALL PASS`);
 process.exit(bad ? 1 : 0);
