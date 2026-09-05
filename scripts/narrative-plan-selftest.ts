@@ -26,6 +26,8 @@ for (const r of rows) (bySrc[r.source_table] = bySrc[r.source_table] || []).push
 const items: EvidenceItem[] = [];
 const skillNames: string[] = [];
 for (const s of bySrc.skills ?? []) { items.push({ ref: s.id ?? s.name, source: "skills", text: s.name ?? "" }); skillNames.push(s.name ?? ""); }
+// Simulate the v17 addition: the new verified capability "Managing concurrent priorities".
+items.push({ ref: "sim-mcp", source: "skills", text: "Managing concurrent priorities" }); skillNames.push("Managing concurrent priorities");
 for (const p of bySrc.projects ?? []) items.push({ ref: p.id ?? p.name, source: "projects", text: `${p.name ?? ""} ${p.description ?? ""}` });
 for (const m of bySrc.metrics ?? []) items.push({ ref: m.id, source: "metrics", text: `${m.label ?? ""} ${m.approved_wording ?? ""}` });
 // Include BOTH detail and summary: some verified facts (e.g. Holley's
@@ -97,7 +99,7 @@ const termFlat = Object.values(ntPlan.terminology).flat().join(" | ").toLowerCas
 const covOf = (id: string) => ntIndex.byTheme.get(id)?.coverage;
 // --- regression locks for every corrected classification ---
 ok(covOf("communication skills") === "DIRECT", "communication skills -> DIRECT (teaching 250+, client-facing, phone sales entail it)");
-ok(covOf("multitasking") === "DIRECT", "multitasking -> DIRECT (verified concurrent brands/projects, shifting priorities)");
+ok(covOf("multitasking") === "DIRECT", "multitasking -> DIRECT (via verified skill 'Managing concurrent priorities', not a text signature)");
 ok(covOf("cross-functional project experience") === "DIRECT", "cross-functional project experience -> DIRECT (cross-dept collaboration + project coordination)");
 ok(covOf("problem-solving") === "DIRECT", "problem-solving -> DIRECT (solution development + client needs assessment)");
 ok(covOf("milestone tracking") === "TRANSFERABLE", "milestone tracking -> TRANSFERABLE, not DIRECT (conservative)");
@@ -135,6 +137,12 @@ ok(refsOf("project coordination").length > 0 && new Set(refsOf("project coordina
 // plan is referential only: terminology keys are exactly the covered themes
 const covered = ntPlan.themes.filter((t) => ["DIRECT", "TRANSFERABLE"].includes(t.coverage)).map((t) => t.id).sort();
 ok(JSON.stringify(Object.keys(ntPlan.terminology).sort()) === JSON.stringify(covered), "terminology keys == covered themes exactly");
+
+// specificity direction: a capability may satisfy a broader requirement, but a
+// broader capability must not DIRECTLY satisfy a more-specific requirement.
+const spec = (cap: string, req: string) => mapThemesToEvidence([{ term: req }], { items: [{ ref: "c", source: "skills", text: cap }], skillNames: [cap] }).byTheme.get(req)?.coverage;
+ok(spec("ai workflow automation", "workflow automation") === "DIRECT", "specific capability (ai workflow automation) DIRECTLY satisfies broader requirement (workflow automation)");
+ok(spec("workflow automation", "ai workflow automation") === "TRANSFERABLE", "broader capability (workflow automation) does NOT DIRECTLY satisfy narrower requirement (ai workflow automation) -- TRANSFERABLE only");
 
 console.log(bad ? `\n${bad} FAILED` : `\nnarrative-plan-selftest: ALL PASS`);
 process.exit(bad ? 1 : 0);

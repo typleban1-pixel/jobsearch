@@ -78,10 +78,12 @@ const ENTAILMENT: EntailmentRule[] = [
   {
     id: "communication",
     match: /\bcommunicat|verbal|written communication|presentation communication$/,
-    // Teaching 250+ students, client-facing solutioning, phone sales and
-    // partnership coordination each require and demonstrate professional
-    // verbal/written/presentation communication.
-    direct: [{ anySkill: ["teaching and mentoring", "client needs assessment", "phone sales", "customer support", "external partnership coordination"] }],
+    // Teaching 250+ students, client-facing solutioning and phone sales each
+    // require and demonstrate professional verbal/written/presentation
+    // communication. External partnership coordination is deliberately NOT
+    // here: coordinating a partnership is not, on its own, evidence of
+    // professional communication as a job requirement.
+    direct: [{ anySkill: ["teaching and mentoring", "client needs assessment", "phone sales", "customer support"] }],
   },
   {
     id: "problem-solving",
@@ -96,25 +98,28 @@ const ENTAILMENT: EntailmentRule[] = [
   {
     id: "cross-functional-project",
     match: /cross[- ]functional|cross[- ]department/,
-    // Cross-functional project experience is established by holding a
-    // cross-team collaboration capability AND a project-execution capability.
-    direct: [{ allGroups: [["cross-department collaboration", "external partnership coordination"], ["project coordination"]] }],
+    // Cross-functional project experience is established by holding an
+    // INTERNAL cross-team collaboration capability AND a project-execution
+    // capability. External partnership coordination (an external partnership)
+    // is not internal cross-functional collaboration and is excluded here.
+    direct: [{ allGroups: [["cross-department collaboration"], ["project coordination"]] }],
   },
   {
     id: "multitasking",
-    match: /multitask|multiple priorities|manage multiple|competing priorities|multiple projects/,
-    // The verified concurrent-work evidence (multiple brands/teams/projects
-    // with shifting priorities and deadlines) directly establishes managing
-    // concurrent priorities.
-    direct: [{ evidenceSignature: /concurrent projects|multiple (brands|projects|teams)[^.]{0,80}(priorities|deadlines|concurrent)|shifting priorities/i }],
+    match: /multitask|multiple priorities|manage multiple|competing priorities|concurrent workload|multiple projects/,
+    // Routed through the verified capability "Managing concurrent priorities"
+    // (a real skill, tagged on the bullet that establishes it), NOT a text
+    // signature. This keeps the coverage provenance structural.
+    direct: [{ anySkill: ["managing concurrent priorities"] }],
   },
   {
     id: "milestone-tracking",
     match: /milestone|action items|risks? (and|&) dependenc|dependenc/,
-    // Conservative: running projects planning-through-delivery and automating
-    // project workflows is adjacent, but does NOT establish explicit
-    // milestone / risk / dependency tracking. Transferable only.
-    transferable: [{ anySkill: ["project coordination", "workflow automation", "asana"] }],
+    // Conservative: automating project workflows (state/progression) is
+    // adjacent to milestone/risk/dependency tracking, but generic project
+    // coordination is NOT sufficient adjacency and is excluded. Transferable
+    // only, never DIRECT.
+    transferable: [{ anySkill: ["workflow automation", "asana"] }],
   },
 ];
 
@@ -171,8 +176,10 @@ export function mapThemesToEvidence(themes: { term: string }[], pool: VerifiedPo
       continue;
     }
 
-    // 2. Direct possession: a verified skill IS this theme.
-    const direct = skillItems.filter((i) => { const n = norm(i.text); return n === q || n.includes(q) || q.includes(n); });
+    // 2. Direct possession: a verified skill IS this theme, or is MORE SPECIFIC
+    //    than it (a specific capability entails the broader requirement).
+    //    e.g. requirement "excel" is satisfied by capability "microsoft excel".
+    const direct = skillItems.filter((i) => { const n = norm(i.text); return n === q || n.includes(q); });
     if (direct.length) { set("DIRECT", direct.map((s) => ({ ref: s.ref, source: s.source, strength: 1 }))); continue; }
 
     // 3. Semantic entailment rules (direct, then transferable).
@@ -193,6 +200,13 @@ export function mapThemesToEvidence(themes: { term: string }[], pool: VerifiedPo
       set(rr.resolution, refs);
       continue;
     }
+
+    // 4b. A capability BROADER than the requirement (the requirement text
+    //     contains the capability, e.g. requirement "ai workflow automation"
+    //     vs capability "workflow automation") is a legitimate adjacency, but
+    //     must NOT be promoted to DIRECT -- it is TRANSFERABLE.
+    const broader = skillItems.filter((i) => { const n = norm(i.text); return n.length >= 5 && n !== q && q.includes(n); });
+    if (broader.length) { set("TRANSFERABLE", broader.map((s) => ({ ref: s.ref, source: s.source, strength: 0.6 }))); continue; }
 
     // 5. Loose token overlap -> never above WEAK.
     const tset = toks(term);
