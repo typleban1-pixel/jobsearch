@@ -115,5 +115,19 @@ check("POLICY_AUTHORIZED cannot submit a current REJECT",
 }
 
 console.log(`\n${pass + fails.length} cases, ${pass} passed`);
+// The Stripe "Communities Partner Development Manager" hole: form-ready and
+// human-approved, yet the current candidacy is a STRETCH meeting 0 of 4 hard
+// requirements. Form approval must not carry a material qualification gap.
+check("STRETCH meeting 0 of N hard requirements is refused",
+  codes({ candidacyVerdict: "STRETCH", hardMet: 0, hardTotal: 4, candidacyReasonCode: "OCCUPATIONAL_GAP" }).includes("MATERIAL_QUALIFICATION_GAP"));
+check("OCCUPATIONAL_GAP STRETCH is refused even with hardMet>0",
+  codes({ candidacyVerdict: "STRETCH", hardMet: 2, hardTotal: 6, candidacyReasonCode: "OCCUPATIONAL_GAP" }).includes("MATERIAL_QUALIFICATION_GAP"));
+check("supported LOW_HARD_RATIO STRETCH (foothold, hardMet>=1) is NOT refused for material gap",
+  !codes({ candidacyVerdict: "STRETCH", hardMet: 2, hardTotal: 9, candidacyReasonCode: "LOW_HARD_RATIO" }).includes("MATERIAL_QUALIFICATION_GAP"));
+check("APPLICATION_CANDIDATE with hardMet>0 is NOT a material gap",
+  !codes({ candidacyVerdict: "APPLICATION_CANDIDATE", hardMet: 1, hardTotal: 1, candidacyReasonCode: "MEETS_HARD_REQUIREMENTS" }).includes("MATERIAL_QUALIFICATION_GAP"));
+check("a stale form approval does NOT waive a material gap (both refusals fire)",
+  (() => { const c = codes({ candidacyVerdict: "STRETCH", hardMet: 0, hardTotal: 4, candidacyReasonCode: "OCCUPATIONAL_GAP", humanApproved: true, humanApprovedAt: "2026-09-03T00:00:00Z", candidacyComputedAt: "2026-09-05T00:00:00Z" }); return c.includes("MATERIAL_QUALIFICATION_GAP") && c.includes("APPROVAL_PREDATES_CANDIDACY"); })());
+
 if (fails.length) { console.log(`\n${fails.length} FAILED`); process.exit(1); }
 console.log("all passed");

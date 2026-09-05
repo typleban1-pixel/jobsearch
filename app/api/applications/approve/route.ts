@@ -50,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
       .eq("application_id", applicationId),
     db.from("job_versions").select("is_current").eq("id", app.job_version_id).maybeSingle(),
   ]);
-  const { data: verdicts } = await db.from("job_candidacy").select("verdict,created_at")
+  const { data: verdicts } = await db.from("job_candidacy").select("verdict,created_at,reason_codes,hard_met,hard_total")
     .eq("job_id", app.job_id).order("created_at", { ascending: false }).limit(1);
   const { data: resume } = app.resume_id
     ? await db.from("resumes").select("artifact_sha256,content_sha256").eq("id", app.resume_id).maybeSingle()
@@ -67,6 +67,9 @@ export async function POST(request: Request): Promise<Response> {
     eligibility: job?.eligibility ?? null,
     candidacyVerdict: verdicts?.[0]?.verdict ?? null,
     candidacyComputedAt: verdicts?.[0]?.created_at ?? null,
+    candidacyReasonCode: (verdicts?.[0] as any)?.reason_codes?.[0] ?? null,
+    hardMet: (verdicts?.[0] as any)?.hard_met ?? null,
+    hardTotal: (verdicts?.[0] as any)?.hard_total ?? null,
     // Judged as though already approved with this content, so the guard
     // reports what would stop the submission rather than reporting that
     // it has not been approved yet.

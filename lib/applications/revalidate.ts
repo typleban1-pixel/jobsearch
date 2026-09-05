@@ -26,6 +26,12 @@ export interface SubmitFacts {
   /** The newest verdict for this job, not the one approval was given against. */
   candidacyVerdict: string | null;
   candidacyComputedAt: string | null;
+  /** The newest verdict's first reason code (e.g. OCCUPATIONAL_GAP). Optional:
+   *  a caller that omits it simply does not run the material-gap check. */
+  candidacyReasonCode?: string | null;
+  /** Discriminating HARD requirements met / total, from the newest verdict. */
+  hardMet?: number | null;
+  hardTotal?: number | null;
   humanApproved: boolean;
   humanApprovedAt: string | null;
   authorizationMode: string | null;
@@ -70,6 +76,35 @@ export function requiredBlocked(
  */
 const SUBMITTABLE = new Set(["APPLICATION_CANDIDATE", "STRETCH"]);
 
+/**
+ * A qualification gap so material that no application against it is honest,
+ * whatever an approval said. FORM-READY is not QUALIFIED: a person approving
+ * the resume and answers on the review screen approved the APPLICATION, not
+ * the fit, and a stale form approval must not carry a job the current
+ * evidence says he meets none of.
+ *
+ * Two signals, both read straight off the current candidacy:
+ *   - it meets ZERO of the discriminating HARD requirements (hardTotal > 0,
+ *     hardMet === 0) -- the Stripe "Communities Partner Development Manager"
+ *     case, human-approved yet 0/4;
+ *   - the OCCUPATIONAL substance of the role is absent (OCCUPATIONAL_GAP),
+ *     i.e. the work the job IS is not evidenced.
+ *
+ * A supported stretch (LOW_HARD_RATIO with a foothold, hardMet >= 1, no
+ * occupational gap) is NOT caught: reaching from real evidence is what a
+ * stretch legitimately is. A person may still submit a material-gap job by
+ * recording an explicit QUALIFICATION override; ordinary review-screen
+ * approval is not that.
+ */
+export function hasMaterialQualificationGap(
+  f: { candidacyVerdict: string | null; candidacyReasonCode?: string | null; hardMet?: number | null; hardTotal?: number | null },
+): boolean {
+  if (!SUBMITTABLE.has(f.candidacyVerdict ?? "")) return false; // a non-submittable verdict is caught elsewhere
+  if (f.candidacyReasonCode === "OCCUPATIONAL_GAP") return true;
+  if ((f.hardTotal ?? 0) > 0 && (f.hardMet ?? 0) === 0) return true;
+  return false;
+}
+
 export function revalidateBeforeSubmit(f: SubmitFacts): { ok: boolean; refusals: Refusal[] } {
   const refusals: Refusal[] = [];
   const no = (code: string, detail: string) => refusals.push({ code, detail });
@@ -81,6 +116,13 @@ export function revalidateBeforeSubmit(f: SubmitFacts): { ok: boolean; refusals:
     no("NO_CURRENT_CANDIDACY", "this job has no candidacy verdict to check the approval against");
   } else if (!SUBMITTABLE.has(f.candidacyVerdict)) {
     no("CANDIDACY_REFUSES", `candidacy is now ${f.candidacyVerdict}`);
+  } else if (hasMaterialQualificationGap(f)) {
+    // Form-ready is not qualified. A stale review-screen approval cannot
+    // authorize a job the current evidence says he meets none of.
+    no("MATERIAL_QUALIFICATION_GAP",
+      f.candidacyReasonCode === "OCCUPATIONAL_GAP"
+        ? `the role's occupational substance is unevidenced (${f.candidacyVerdict}/OCCUPATIONAL_GAP, ${f.hardMet ?? 0}/${f.hardTotal ?? 0} hard met); form-readiness does not make it qualified`
+        : `meets 0 of ${f.hardTotal ?? 0} discriminating hard requirements; form-readiness does not make it qualified`);
   }
 
   // An approval given before the current verdict was computed was given

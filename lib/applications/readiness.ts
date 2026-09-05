@@ -70,7 +70,7 @@ export async function evaluateReadiness(db: SupabaseClient, applicationId: strin
 
   // The same revalidation the submitter runs, against facts read now.
   const [{ data: verdictRows }, { data: answerRows }, { data: version }] = await Promise.all([
-    db.from("job_candidacy").select("verdict,created_at").eq("job_id", app.job_id)
+    db.from("job_candidacy").select("verdict,created_at,reason_codes,hard_met,hard_total").eq("job_id", app.job_id)
       .order("created_at", { ascending: false }).limit(1),
     db.from("application_answers").select("confidence_state,is_required,answer_text,field_key")
       .eq("application_id", applicationId),
@@ -82,6 +82,9 @@ export async function evaluateReadiness(db: SupabaseClient, applicationId: strin
     jobStatus: job!.status, eligibility: job!.eligibility ?? null,
     candidacyVerdict: verdictRows?.[0]?.verdict ?? null,
     candidacyComputedAt: verdictRows?.[0]?.created_at ?? null,
+    candidacyReasonCode: (verdictRows?.[0] as any)?.reason_codes?.[0] ?? null,
+    hardMet: (verdictRows?.[0] as any)?.hard_met ?? null,
+    hardTotal: (verdictRows?.[0] as any)?.hard_total ?? null,
     humanApproved: Boolean(app.human_approved),
     humanApprovedAt: (app as any).human_approved_at ?? null,
     authorizationMode: app.authorization_mode ?? null,

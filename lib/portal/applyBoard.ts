@@ -119,7 +119,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
     page(db, "application_answers", "application_id,confidence_state,is_required,answer_text,field_key",
       scopedIn("application_id", appIds)),
     page(db, "job_candidacy",
-      "job_id,verdict,created_at,profile_version,formula_version,taxonomy_version,model_version",
+      "job_id,verdict,created_at,profile_version,formula_version,taxonomy_version,model_version,reason_codes,hard_met,hard_total",
       scopedIn("job_id", jobIds), "job_id"),
     versionIds.length ? page(db, "job_versions", "id,is_current", scopedIn("id", versionIds)) : Promise.resolve([]),
     db.from("profile").select("profile_version").single(),
@@ -155,7 +155,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
   const eligibilityOf = new Map(jobs.map((j: any) => [j.id, j.eligibility]));
   const currentByJob = authoritativeCandidacy(candidacy as any, versionsNow);
 
-  const latestVerdict = new Map<string, { verdict: string; at: string; current: boolean }>();
+  const latestVerdict = new Map<string, { verdict: string; at: string; current: boolean; reasonCode: string | null; hardMet: number | null; hardTotal: number | null }>();
   for (const c of candidacy.sort((a: any, b: any) => String(a.created_at).localeCompare(String(b.created_at)))) {
     const isAuthoritative = currentByJob.get(c.job_id) === c.verdict
       && c.profile_version === versionsNow.profileVersion
@@ -164,6 +164,8 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
     latestVerdict.set(c.job_id, {
       verdict: c.verdict, at: c.created_at,
       current: isAuthoritative && jobStillEligible,
+      reasonCode: (c as any).reason_codes?.[0] ?? null,
+      hardMet: (c as any).hard_met ?? null, hardTotal: (c as any).hard_total ?? null,
     });
   }
 
@@ -219,6 +221,9 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       // able to read as an active candidacy anywhere downstream.
       candidacyVerdict: verdict?.current ? verdict.verdict : null,
       candidacyComputedAt: verdict?.current ? verdict.at : null,
+      candidacyReasonCode: verdict?.current ? verdict.reasonCode : null,
+      hardMet: verdict?.current ? verdict.hardMet : null,
+      hardTotal: verdict?.current ? verdict.hardTotal : null,
       humanApproved: Boolean(a.human_approved),
       humanApprovedAt: a.human_approved_at ?? null,
       authorizationMode: null,
