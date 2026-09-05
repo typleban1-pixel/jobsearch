@@ -60,10 +60,16 @@ export async function approvedArtifact(
   db: SupabaseClient, applicationId: string,
 ): Promise<ArtifactVerdict> {
   const { data: app } = await db.from("applications")
-    .select("resume_id,approved_artifact_sha256,human_approved").eq("id", applicationId).maybeSingle();
+    .select("resume_id,approved_artifact_sha256,human_approved,authorization_mode").eq("id", applicationId).maybeSingle();
   if (!app) return { ok: false, why: "no such application" };
   if (!app.resume_id) return { ok: false, why: "this application has no resume" };
-  if (!app.human_approved || !app.approved_artifact_sha256) {
+  // Authorization is the same union the submit gate and readiness use: a
+  // person approved it, OR policy authorized it in advance. Requiring
+  // human_approved here alone silently broke the autonomous path, which
+  // binds an artifact under POLICY_AUTHORIZED and would then be told "no
+  // approved artifact is recorded" at the resume gate.
+  const authorized = app.human_approved || app.authorization_mode === "POLICY_AUTHORIZED";
+  if (!authorized || !app.approved_artifact_sha256) {
     return { ok: false, why: "no approved artifact is recorded for this application" };
   }
 
