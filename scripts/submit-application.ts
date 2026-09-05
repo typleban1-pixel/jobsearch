@@ -623,6 +623,25 @@ if (!succeeded || problems.length) {
       + `url ${after.url}. Left ${app.status}; nothing recorded as submitted.`,
     actor: "user:plebantyler@gmail.com",
   });
+  // Exactly-once reconciliation. A client-side validation rejection proves
+  // the employer was NOT reached: the form is still present, it is showing
+  // "required"/"missing" complaints, and no submit request left the
+  // browser. That is safe to retry, so the point-of-no-return marker is
+  // cleared. Anything else -- the form gone with no confirmation, a
+  // duplicate notice, a challenge -- leaves the marker set so the preflight
+  // guard refuses a second click until a person establishes what happened.
+  const formStillPresent = after.controls >= before.controls;
+  const validationRejected = formStillPresent && !succeeded && !humanVerification
+    && !after.captchaVisible && !introduced(DUPLICATE)
+    && (after.errors.length > 0 || introduced(VALIDATION));
+  if (validationRejected) {
+    await db.from("applications").update({ submit_click_attempted_at: null }).eq("id", applicationId);
+    console.error("  the form rejected the submit with validation errors and is still present; nothing reached the "
+      + "employer. Cleared the submit-click marker so it can be retried once the cause is fixed.");
+  } else {
+    console.error("  the outcome is NOT provably safe; the submit-click marker is left set so the preflight guard "
+      + "refuses a second click until a person establishes whether the employer received this (SUBMISSION_UNCERTAIN).");
+  }
   await finish(1);
 }
 
