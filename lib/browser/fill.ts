@@ -769,7 +769,32 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
           return;
         }
 
-        await clickOptionWithin(ctx.frame.locator("body"), chosen);
+        // Commit via the keyboard, not a click. react-select selects the
+        // HIGHLIGHTED option on Enter; a synthetic click on the option element
+        // does not reach its selection handler, so the menu closes with the
+        // DOM showing a choice that never enters the field's state (the empty
+        // read-back that dropped Chartis' Location, five retries deep). Drive
+        // the highlight to the chosen option by matching the input's
+        // aria-activedescendant to the option's text, then press Enter.
+        {
+          const activeText = () => combo.evaluate((el: any) => {
+            const id = el.getAttribute("aria-activedescendant");
+            const opt = id ? document.getElementById(id) : null;
+            return opt ? (opt.textContent || "").replace(/\s+/g, " ").trim() : null;
+          }).catch(() => null);
+          let landed = false;
+          for (let step = 0; step < offered.length + 3; step++) {
+            const at = await activeText();
+            if (at && at.toLowerCase() === chosen.toLowerCase()) { landed = true; break; }
+            await combo.press("ArrowDown").catch(() => undefined);
+            await page.waitForTimeout(90);
+          }
+          // Fall back to a click only if the highlight never reached it, so a
+          // menu that ignores arrow keys still has a chance rather than a
+          // silent miss.
+          if (landed) await combo.press("Enter").catch(() => undefined);
+          else await clickOptionWithin(ctx.frame.locator("body"), chosen);
+        }
         await page.waitForTimeout(500);
         await page.keyboard.press("Tab").catch(() => undefined);
         await page.waitForTimeout(400);
@@ -781,7 +806,15 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         // selection as empty and dropped a committed required field. Fall back
         // to the rendered single-value / container text only when the store
         // read is unavailable.
-        const storeHeld = (await readAshbyCommitted(combo).catch(() => null)) ?? "";
+        // Read from the CONTAINER, not the combobox: react-select replaces
+        // its [role=combobox] node on selection/blur, so evaluating the old
+        // combo handle throws and reads empty; the field container is stable.
+        // Retry briefly -- the store update lands a beat after the click.
+        let storeHeld = "";
+        for (let i = 0; i < 5 && !storeHeld; i++) {
+          storeHeld = (await readAshbyCommitted(container).catch(() => null)) ?? "";
+          if (!storeHeld) await page.waitForTimeout(300);
+        }
         const sv = container.locator('[class*="singleValue" i], [class*="single-value" i]').first();
         let held = storeHeld;
         if (!held && await sv.count().catch(() => 0)) held = (await sv.innerText().catch(() => "")).replace(/\s+/g, " ").trim();

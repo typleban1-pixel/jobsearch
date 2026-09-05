@@ -442,49 +442,32 @@ export function mergeAshbyButtonGroups(fields: LiveField[], groups: AshbyButtonG
  */
 export async function waitForAshbyHydration(page: any, timeoutMs = 20000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
+  let stable = 0;
   while (Date.now() < deadline) {
-    // Active commit-probe, not a passive "onChange exists" check. Ashby
-    // server-renders the controls AND attaches an onChange before the form
-    // is actually wired: in that window a text input reports
-    // props.onChange === "function", yet a value written into it does not
-    // reach the form's state and does not survive React's next render (the
-    // control is replaced when the form finishes mounting). A gate on
-    // onChange-present therefore fires too early and every field submits as
-    // missing though the page shows it filled -- the false HANDOFF that made
-    // four Chartis submits validate empty. So this drives the real commit
-    // path (the value-tracker input event, exactly what fillTextCommitting
-    // uses) on a throwaway probe value, confirms React's own props.value
-    // took it AND still holds it after a render tick, then restores the
-    // field. Only a probe that commits and SURVIVES reports ready.
-    const ready = await page.mainFrame().evaluate(async () => {
+    // Non-mutating readiness: onChange-present alone is a FALSE ready (proven
+    // live -- a value written then neither committed nor survived the next
+    // render, because the control is REPLACED when the form finishes
+    // mounting). Rather than write a probe value (which can leave residue in
+    // field state), tag the first text input with a data attribute and watch
+    // whether the SAME node persists across polls: a data-* attribute
+    // survives React re-renders but not a re-mount, so a node that keeps its
+    // tag for two polls in a row has finished mounting and its onChange is
+    // wired. Never touches the input's value or the form's state.
+    const state = await page.mainFrame().evaluate(() => {
       const input = document.querySelector(
         "input[type=text], input[type=email], input:not([type])",
       ) as HTMLInputElement | null;
-      if (!input) return false;
-      const reactVal = () => {
-        const k = Object.keys(input).find((x) => x.startsWith("__reactProps"));
-        return k ? (input as any)[k]?.value : undefined;
-      };
-      const k0 = Object.keys(input).find((x) => x.startsWith("__reactProps"));
-      if (!k0 || typeof (input as any)[k0]?.onChange !== "function") return false;
-      const proto = Object.getPrototypeOf(input);
-      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-      const original = input.value;
-      const probe = "\u200b_ashby_probe_\u200b"; // zero-width guarded, never a real answer
-      const drive = (v: string) => {
-        if ((input as any)._valueTracker) (input as any)._valueTracker.setValue("");
-        if (setter) setter.call(input, v); else input.value = v;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      };
-      drive(probe);
-      await new Promise((r) => setTimeout(r, 60));
-      const took = reactVal() === probe;                 // AUTHORITATIVE_STATE_UPDATED
-      await new Promise((r) => setTimeout(r, 200));
-      const survived = took && reactVal() === probe;     // RERENDER_SURVIVED
-      drive(original);                                   // restore; the real fill overwrites anyway
-      return survived;
-    }).catch(() => false);
-    if (ready) return true;
+      if (!input) return "none";
+      const rk = Object.keys(input).find((k) => k.startsWith("__reactProps"));
+      if (!rk || typeof (input as any)[rk]?.onChange !== "function") return "nohandler";
+      if (input.getAttribute("data-ashby-hydration-seen") !== "1") {
+        input.setAttribute("data-ashby-hydration-seen", "1");
+        return "tagged";                 // first sighting of this node
+      }
+      return "stable";                   // same node still here, re-mount done
+    }).catch(() => "err");
+    if (state === "stable") { stable++; if (stable >= 2) return true; }
+    else stable = 0;
     await page.waitForTimeout(250);
   }
   return false;
