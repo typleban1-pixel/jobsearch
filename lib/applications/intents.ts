@@ -203,7 +203,7 @@ export const INTENTS: Intent[] = [
   // reader can act on, which is the difference between a gap and a
   // mystery.
   { key: "job_specific_experience", description: "A screening question about experience with a specific tool, domain or duration", category: "E_UNKNOWN",
-    patterns: [/\bhow many years of experience\b|\b(?:do|have) you (?:have |had )?(?:any )?experience\b|\bwhat .{0,30}tools are you using\b/i] },
+    patterns: [/\bhow many years\b|\b\d+\s*\+?\s*years?\b|\byears?\s+of\s+experience\b|\bhow many years of experience\b|\b(?:do|have) you (?:have |had )?(?:any )?experience\b|\bwhat .{0,30}tools are you using\b/i] },
   { key: "onsite_commitment", description: "Commitment to a hybrid or in-office schedule", category: "E_UNKNOWN",
     patterns: [/\b(?:hybrid|in[- ]person|in[- ]office|onsite|on[- ]site)\b[^?]{0,80}\b(?:commit|able to|can you|willing)\b|\bcome into (?:the|our) office\b|\bgo into their local office\b/i] },
   { key: "pronouns", description: "Pronouns", category: "D_SENSITIVE",

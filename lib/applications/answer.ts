@@ -11,6 +11,7 @@
  * this file.
  */
 import { matchIntent, INTENTS, type Intent } from "./intents.ts";
+import { resolveYearsQuestion, type EmploymentRecord } from "../scoring/experienceDuration.ts";
 import { normalizeQuestion } from "../feedback/classify.ts";
 import { recallAnswer, recallIntent, type RecallStore } from "../feedback/recall.ts";
 import type { AnswerConditions } from "../feedback/types.ts";
@@ -130,6 +131,12 @@ export interface EmploymentRow {
   title: string | null;
   isCurrent: boolean;
   start: string | null;
+  /** end_month; null when current. Needed to measure durations. */
+  end?: string | null;
+  /** VERIFIED etc.; only VERIFIED spans count toward experience duration. */
+  status?: string | null;
+  /** actual_title, used for capability-in-title duration matching. */
+  actualTitle?: string | null;
 }
 
 /** One frozen education record. Highest/most-recent first in the context. */
@@ -147,6 +154,8 @@ export interface ResolveContext {
   profile: Record<string, any>;
   /** Frozen employment records, newest first. */
   employment?: EmploymentRow[];
+  /** Current month index, for measuring experience durations against "now". */
+  nowMonthIndex?: number;
   /** Frozen education records, highest/most-recent first. */
   education?: EducationRow[];
   /** Approved, reusable answers from the question bank, by intent key. */
@@ -438,6 +447,46 @@ const COUNTRY_NAMES: Record<string, string> = {
   IN: "India", SG: "Singapore", JP: "Japan", BR: "Brazil", MX: "Mexico",
 };
 
+/**
+ * "How many years of X?" / "N+ years of X?" answered from the conservative
+ * experience-duration resolver, which counts only VERIFIED employment whose
+ * ROLE TITLE establishes the capability, merges overlapping spans, and never
+ * rounds up. Returns a DERIVED answer only when the evidence DEFINITELY
+ * supports it (a threshold reached, or an open number); otherwise null, so an
+ * unresolved duration falls through to the ordinary block rather than being
+ * guessed. Only wired for a Yes/No threshold or a free-text number; a select
+ * of year-ranges is left to a person.
+ */
+function resolveExperienceYears(
+  field: FormField, ctx: ResolveContext, matchedBy: string,
+): ResolvedField | null {
+  const records: EmploymentRecord[] = (ctx.employment ?? []).map((e) => {
+    const title = `${e.actualTitle ?? ""} ${e.title ?? ""}`.trim().toLowerCase();
+    return { employer: e.employer, title: e.actualTitle ?? e.title ?? "",
+      startMonth: e.start ?? "", endMonth: e.end ?? null, isCurrent: e.isCurrent,
+      status: e.status ?? "", titleText: title, evidenceText: title };
+  });
+  if (!records.length || typeof ctx.nowMonthIndex !== "number") return null;
+  const ans = resolveYearsQuestion(field.label, records, ctx.nowMonthIndex);
+  if (ans.kind === "UNRESOLVED") return null;
+
+  const matchedRowIds = (ctx.employment ?? [])
+    .filter((e) => ans.result.intervals.some((iv) => iv.employer === e.employer))
+    .map((e) => e.rowId);
+  const calc = `${ans.result.years}y of ${JSON.stringify(ans.result.capability)} from `
+    + ans.result.intervals.map((iv) => `${iv.title}@${iv.employer}`).join(" + ")
+    + " (overlaps merged, floored, VERIFIED only)";
+
+  // A threshold question wants Yes/No; an open number wants the figure.
+  const desired = ans.kind === "THRESHOLD_YES" ? "Yes" : String(ans.result.years);
+  const fit = fitOption(field, desired);
+  if (!fit.ok) return null;                 // e.g. a select of ranges -> leave for a person
+  return { field, intentKey: "job_specific_experience", matchedBy, answer: fit.value,
+    confidence: "DERIVED", blockKind: null, blockedReason: null,
+    evidenceIds: matchedRowIds,
+    considered: [{ rowId: null, what: calc, whyRejected: "" }], refused: false };
+}
+
 export function resolveField(field: FormField, ctx: ResolveContext): ResolvedField {
   const result = resolveFieldFromTruth(field, ctx);
   if (result.confidence !== "BLOCKED" || result.refused || !ctx.learned) return result;
@@ -601,6 +650,15 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
       confidence: "BLOCKED", blockKind: "UNKNOWN",
       blockedReason: `${intent.description} is outside what this system handles. It is never stored and never filled; enter it yourself if the application needs it.`,
       evidenceIds: [], considered: [], refused: true };
+  }
+
+  // A years-of-experience question ("5+ years of X", "how many years of X")
+  // is answered from measured VERIFIED employment, conservatively, or it
+  // blocks. Placed before the answer paths so a definite duration wins; an
+  // unresolved one returns null and falls through to the ordinary block.
+  if (intent.key === "job_specific_experience") {
+    const yrs = resolveExperienceYears(field, ctx, matchedBy);
+    if (yrs) return yrs;
   }
 
   // 1. An approved, reusable question-bank answer.

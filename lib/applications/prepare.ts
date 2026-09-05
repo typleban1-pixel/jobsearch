@@ -12,6 +12,7 @@
  * applying to text nobody read.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { monthIndexOf } from "../scoring/experienceDuration.ts";
 import { resolveField, shouldSkip, type BankedAnswer, type BankProvenance,
          type FormField, type ResolveContext, type ResolvedField } from "./answer.ts";
 import { loadRecallStore } from "../feedback/store.ts";
@@ -709,6 +710,8 @@ export async function loadContext(db: SupabaseClient): Promise<ResolveContext> {
       // title" field and the resume never disagree.
       title: r.row_data.display_title ?? r.row_data.actual_title ?? null,
       isCurrent: Boolean(r.row_data.is_current), start: r.row_data.start_month ?? null,
+      end: r.row_data.end_month ?? null, status: r.row_data.status ?? null,
+      actualTitle: r.row_data.actual_title ?? null,
     }))
     .sort((a, b) => String(b.start ?? "").localeCompare(String(a.start ?? "")));
 
@@ -730,7 +733,8 @@ export async function loadContext(db: SupabaseClient): Promise<ResolveContext> {
   // existed: the resolver simply has less to draw on.
   const learned = await loadRecallStore(db).catch(() => ({ mappings: [], contextual: [] }));
 
-  return { profileRowId: profileRow.row_id, profile: profileRow.row_data, bank, employment, education, learned };
+  const nowMonthIndex = monthIndexOf(new Date().toISOString());
+  return { profileRowId: profileRow.row_id, profile: profileRow.row_data, bank, employment, education, learned, nowMonthIndex };
 }
 
 /**
