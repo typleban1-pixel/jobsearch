@@ -20,8 +20,9 @@ export const ANSWER_RESOLVER_VERSION = 2;
 
 import { matchesPriorEmployment, PRIOR_EMPLOYMENT_ANSWER } from "./priorEmployment.ts";
 import { matchesAnticipatedWorkCountry, ANTICIPATED_WORK_COUNTRY } from "./workCountry.ts";
+import { classifyLowStakesSurvey, pickSurveyOption, GENERIC_SURVEY_FREETEXT } from "./lowStakesSurvey.ts";
 
-export type Confidence = "VERIFIED" | "DERIVED" | "HUMAN_CONFIRMED" | "BLOCKED";
+export type Confidence = "VERIFIED" | "DERIVED" | "HUMAN_CONFIRMED" | "LOW_STAKES_SURVEY" | "BLOCKED";
 export type BlockKind = "UNKNOWN" | "AMBIGUOUS";
 
 /**
@@ -501,6 +502,42 @@ function answerFromHumanFeedback(field: FormField, ctx: ResolveContext, blockedR
     evidenceIds: recalled.fromEventIds, considered: blockedResult.considered, refused: false };
 }
 
+/**
+ * A generic answer to a low-stakes recruiting/attribution survey question.
+ *
+ * Only ever called after classifyLowStakesSurvey has cleared the wording:
+ * it touches nothing about qualifications, eligibility, legal status,
+ * compensation, identity, background, work authorization, conflicts,
+ * demographics or employment history. The answer is not evidence about the
+ * applicant (no evidence ids) and does not modify the truth profile; the
+ * distinct LOW_STAKES_SURVEY confidence records exactly that.
+ */
+function resolveLowStakesSurvey(field: FormField, matchedBy: string, why: string): ResolvedField {
+  const opts = (field.options ?? []) as any[];
+  let value: string;
+  let pickReason: string;
+  if (opts.length) {
+    const pick = pickSurveyOption(opts);
+    if (!pick) {
+      return blocked(field, "low_stakes_survey", matchedBy, "AMBIGUOUS",
+        "this is a low-stakes survey question, but none of its options could be read as a generic sourcing answer.");
+    }
+    value = pick.value;
+    pickReason = pick.reason;
+  } else {
+    value = GENERIC_SURVEY_FREETEXT;
+    pickReason = `neutral free-text answer "${GENERIC_SURVEY_FREETEXT}"`;
+  }
+  return {
+    field, intentKey: "low_stakes_survey", matchedBy: `low-stakes survey: ${why}`,
+    answer: value, confidence: "LOW_STAKES_SURVEY", blockKind: null, blockedReason: null,
+    evidenceIds: [],
+    considered: [{ rowId: null, what: `low-stakes survey fallback: ${pickReason}`,
+      whyRejected: "a generic answer was chosen for a non-substantive mandatory survey field; it is not evidence about the applicant and did not modify the truth profile" }],
+    refused: false,
+  };
+}
+
 function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedField {
   // Decided before the label is consulted. A dial-code control is a
   // phone-country control whatever it calls itself, and reading it as a
@@ -528,6 +565,11 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
     if (confirmed && known) { intent = known; matchedBy = `human confirmed: ${confirmed.because}`; }
   }
   if (!intent) {
+    // A wording the catalog does not recognise, but which reads as a
+    // generic recruiting/attribution survey question, is answered
+    // generically rather than blocking an otherwise valid application.
+    const survey = classifyLowStakesSurvey(field.label, field.key);
+    if (survey.low) return resolveLowStakesSurvey(field, m.matchedBy, survey.reason);
     return blocked(field, null, m.matchedBy, "UNKNOWN",
       "nothing in the question catalog matches this wording, so what is being asked is not established.");
   }
@@ -655,6 +697,17 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
     }
     return blocked(field, intent.key, matchedBy, "UNKNOWN",
       "this asks for something specific to this employer, which the profile cannot supply on its own.");
+  }
+
+  // 3b. A low-stakes recruiting/attribution survey question ("how did you
+  // hear about us"). The real-data paths above had their chance first;
+  // reaching here with a survey wording that clears every substantive
+  // guard means a generic answer is safe and blocking would be pure
+  // friction. Guarded so a named referral or any substantive question
+  // never lands here.
+  {
+    const survey = classifyLowStakesSurvey(field.label, field.key);
+    if (survey.low) return resolveLowStakesSurvey(field, matchedBy, survey.reason);
   }
 
   // 4. Sensitive. An explicit stored preference or nothing. Reaching

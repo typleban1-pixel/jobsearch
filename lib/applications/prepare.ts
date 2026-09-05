@@ -537,6 +537,10 @@ export async function prepareApplication(
 }
 
 function categoryOf(r: ResolvedField): string {
+  // A generic low-stakes survey answer is its own category, whatever
+  // intent the wording happened to match; it is not the sensitive
+  // question the catalog might otherwise classify it as.
+  if (r.confidence === "LOW_STAKES_SURVEY") return "F_LOW_STAKES_SURVEY";
   const intent = r.intentKey ? matchIntent(r.field.label).intent : null;
   return intent?.category ?? "E_UNKNOWN";
 }
@@ -546,6 +550,10 @@ function provenanceOf(r: ResolvedField): string {
     case "VERIFIED": return "PROFILE";
     case "DERIVED": return "CALCULATED";
     case "HUMAN_CONFIRMED": return "USER_RESPONSE";
+    // Not evidence about the person: a generic answer to a non-substantive
+    // survey question, recorded as such rather than disguised as a
+    // profile-, calculation- or user-sourced value.
+    case "LOW_STAKES_SURVEY": return "GENERIC_SURVEY";
     default: return "USER_RESPONSE";
   }
 }
