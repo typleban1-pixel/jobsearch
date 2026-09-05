@@ -57,31 +57,47 @@ export async function fillText(control: Locator, value: string): Promise<void> {
 export async function fillTextCommitting(control: Locator, value: string): Promise<void> {
   await control.scrollIntoViewIfNeeded().catch(() => undefined);
   await control.click({ timeout: 8000 }).catch(() => undefined);
-  await control.fill("").catch(() => undefined);            // clear (fires input)
-  await control.pressSequentially(value, { delay: 12 });    // per-character input events
-  await control.evaluate((el: any) => {
+  // The React value-tracker trick. React caches the last value on the
+  // element's _valueTracker; a bulk .fill() updates the tracker AND the
+  // value together, so the input event React then hears looks like "no
+  // change" and onChange never fires -- the DOM shows the text but the
+  // form's state stays empty (Ashby's false HANDOFF). Resetting the
+  // tracker to a stale value first makes the input event a real change,
+  // firing onChange/react-hook-form's register and committing the value.
+  await control.evaluate((el: any, v: string) => {
+    const proto = Object.getPrototypeOf(el);
+    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (el._valueTracker) el._valueTracker.setValue("");
+    if (setter) setter.call(el, v); else el.value = v;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
     el.dispatchEvent(new Event("blur", { bubbles: true }));
-    if (typeof el.blur === "function") el.blur();
-  }).catch(() => undefined);
+  }, value);
 }
 
 /**
- * Proof the framework accepted the value, not just that the DOM shows it.
+ * Proof the FRAMEWORK accepted the value, not just that the DOM shows it.
  *
- * After a reconcile pause: the value must still be present (a re-render
- * driven by real state would keep it; a stale DOM-only value is reset), and
- * the control must not be left flagged invalid. This is the
+ * The authoritative signal for a React controlled input is the value on its
+ * React props (what the component was last rendered with) -- that is the
+ * form's own state, updated only when onChange actually fired. It is read
+ * alongside the DOM value and the invalid flag. This is the
  * APPLICATION_STATE_COMMITTED check, stricter than DOM_VALUE_PRESENT.
  */
 export async function verifyCommitted(control: Locator, value: string): Promise<{ ok: boolean; why?: string }> {
-  await control.page().waitForTimeout(300);
-  const got = (await control.inputValue().catch(() => "")).trim();
-  if (got !== value.trim()) {
-    return { ok: false, why: `holds ${JSON.stringify(got.slice(0, 60))} after reconcile, so the framework did not accept ${JSON.stringify(value.slice(0, 60))}` };
+  await control.page().waitForTimeout(200);
+  const res = await control.evaluate((el: any) => {
+    const rk = Object.keys(el).find((k) => k.startsWith("__reactProps"));
+    return { dom: el.value ?? "", react: rk ? el[rk]?.value : undefined, hasReact: !!rk,
+             invalid: el.getAttribute("aria-invalid") };
+  });
+  if (String(res.dom).trim() !== value.trim()) {
+    return { ok: false, why: `holds ${JSON.stringify(String(res.dom).slice(0, 60))} in the DOM after reconcile` };
   }
-  const invalid = await control.getAttribute("aria-invalid").catch(() => null);
-  if (invalid === "true") return { ok: false, why: "is still flagged aria-invalid after filling, so the framework did not accept it" };
+  if (res.hasReact && res.react !== undefined && String(res.react).trim() !== value.trim()) {
+    return { ok: false, why: `the framework's own state holds ${JSON.stringify(String(res.react).slice(0, 60))}, not the value written, so it was not committed` };
+  }
+  if (res.invalid === "true") return { ok: false, why: "is still flagged aria-invalid after filling" };
   return { ok: true };
 }
 
