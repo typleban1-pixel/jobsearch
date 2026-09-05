@@ -1,0 +1,14 @@
+import { matchesRelativesConflict } from "../lib/applications/relatives.ts";
+let bad=0; const ok=(c:boolean,w:string,x="")=>{console.log(`  ${c?"PASS":"FAIL"}  ${w}${x?" -- "+x:""}`);if(!c)bad++;};
+const cov=(t:string)=>matchesRelativesConflict(t).covered;
+ok(cov("Do you have relatives or other close personal relations (e.g., friends, roommates) currently employed at Enova?"),"relatives employed at Enova -> covered");
+ok(cov("Do you have any family members who work for the company?"),"family members who work here -> covered");
+ok(cov("Is your spouse or partner employed by this organization?"),"spouse/partner at org -> covered");
+ok(cov("Do you have a close personal relationship with anyone associated with our company?"),"close personal relationship associated -> covered");
+ok(!cov("Who referred you to this role?"),"referral -> NOT covered");
+ok(!cov("Do you know anyone who works here?"),"know anyone -> NOT covered");
+ok(!cov("Do you have any financial interest or investments in the company?"),"financial interest -> NOT covered");
+ok(!cov("Have you previously been employed by this company?"),"prior employment -> NOT covered");
+ok(!cov("Do you have a professional or business relationship with anyone at the firm?"),"professional relationship -> NOT covered");
+ok(!cov("Are you a current or former government official?"),"government -> NOT covered");
+console.log(bad?`\n${bad} FAILED`:`\nrelatives selftest: ALL PASS`); process.exit(bad?1:0);

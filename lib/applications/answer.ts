@@ -19,6 +19,7 @@ import { relocationDestination, relocationDate, requiresRelocationAssistance } f
 export const ANSWER_RESOLVER_VERSION = 2;
 
 import { matchesPriorEmployment, PRIOR_EMPLOYMENT_ANSWER } from "./priorEmployment.ts";
+import { matchesRelativesConflict, RELATIVES_ANSWER } from "./relatives.ts";
 import { matchesAnticipatedWorkCountry, ANTICIPATED_WORK_COUNTRY } from "./workCountry.ts";
 import { classifyLowStakesSurvey, pickSurveyOption, GENERIC_SURVEY_FREETEXT } from "./lowStakesSurvey.ts";
 
@@ -577,9 +578,14 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
     if (confirmed && known) { intent = known; matchedBy = `human confirmed: ${confirmed.because}`; }
   }
   if (!intent) {
-    // A wording the catalog does not recognise, but which reads as a
-    // generic recruiting/attribution survey question, is answered
-    // generically rather than blocking an otherwise valid application.
+    // Wordings the catalog does not recognise but that a scoped, standing
+    // rule can still answer: a relatives conflict question, an on-site
+    // ability question at the relocation target, or a generic recruiting
+    // survey question. Each is self-scoped and returns null/blocks when it
+    // does not apply, so an unrelated unmatched field still blocks.
+    const rel = resolveRelatives(field, m.matchedBy);
+    if (rel) return rel;
+    if (isHybridAbilityQuestion(field.label)) return resolveOnsiteHybridAbility(field, ctx, m.matchedBy);
     const survey = classifyLowStakesSurvey(field.label, field.key);
     if (survey.low) return resolveLowStakesSurvey(field, m.matchedBy, survey.reason);
     return blocked(field, null, m.matchedBy, "UNKNOWN",
@@ -655,6 +661,19 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
 
   if (intent.key === "previously_employed_here") {
     return resolvePriorEmployment(field, ctx, matchedBy);
+  }
+
+  // A relatives / close-personal-relations conflict-of-interest question,
+  // answered from the standing declaration (scoped in relatives.ts).
+  { const r = resolveRelatives(field, matchedBy); if (r) return r; }
+
+  // Ability to work hybrid / on-site at the relocation target. Derived from
+  // the confirmed relocation truth: a Chicago-office question is Yes because
+  // the destination is Chicago. A question naming a different, non-target
+  // city is not answered here.
+  if (isHybridAbilityQuestion(field.label)) {
+    const hy = resolveOnsiteHybridAbility(field, ctx, matchedBy);
+    if (hy) return hy;
   }
 
   // The country the work will happen in, declared once and reused.
@@ -805,6 +824,55 @@ const WIDER_THAN_THE_EMPLOYER =
 const normalizeEmployer = (s: string): string =>
   s.toLowerCase().replace(/\b(?:inc|llc|ltd|corp|corporation|co|company|group|holdings|plc|gmbh)\b/g, " ")
     .replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * A relatives / close-personal-relations conflict question, from the
+ * standing declaration. Returns null when the wording is not that question,
+ * so callers fall through. Runs from BOTH the matched-intent path and the
+ * unmatched path, because form wordings for this question routinely miss
+ * the catalog's relatives_at_company pattern.
+ */
+function resolveRelatives(field: FormField, matchedBy: string): ResolvedField | null {
+  const rel = matchesRelativesConflict(`${field.label ?? ""} ${(field as any).key ?? ""}`);
+  if (!rel.covered) return null;
+  const fit = fitOption(field, RELATIVES_ANSWER);
+  if (!fit.ok) return blocked(field, "relatives_at_company", matchedBy, "AMBIGUOUS", fit.why);
+  return { field, intentKey: "relatives_at_company", matchedBy: `${matchedBy}; standing relatives declaration`,
+    answer: fit.value, confidence: "HUMAN_CONFIRMED", blockKind: null, blockedReason: null,
+    evidenceIds: [], considered: [], refused: false };
+}
+
+/** An on-site / hybrid ABILITY question ("can you come into our X office?"). */
+const HYBRID_ABILITY_RE =
+  /\bable to (?:come (?:in|into)|be in|work (?:from|at|in|out of|on-?site))\b|\bcome (?:in|into) (?:the |our )?(?:\w+ )?offices?\b|\bwork (?:from |out of )?(?:the |our )?offices?\b|(?:hybrid|on-?site|in-?office)\b[^?]{0,70}\b(?:able|willing|come in|days? (?:a|per) week|per week|report)\b|\bable to work (?:a |in a )?hybrid\b|\bcomfortable\b[^?]{0,40}\b(?:hybrid|on-?site|in-?office|coming (?:in|into))\b/i;
+function isHybridAbilityQuestion(label: string): boolean { return HYBRID_ABILITY_RE.test(label ?? ""); }
+
+const STATE_FULL: Record<string, string> = { il: "illinois", oh: "ohio" };
+/**
+ * Ability to work hybrid/on-site at the relocation target, derived from the
+ * confirmed relocation truth. A question naming the destination (Chicago),
+ * the destination state, or the current location is Yes; one that names no
+ * such place cannot be confirmed and blocks rather than guessing.
+ */
+function resolveOnsiteHybridAbility(field: FormField, ctx: ResolveContext, matchedBy: string): ResolvedField {
+  const p = ctx.profile;
+  const raw = [p.relocation_destination_city, p.relocation_destination_state, p.city, p.state]
+    .filter(Boolean).map((s: any) => String(s).toLowerCase());
+  const terms = [...raw];
+  for (const t of raw) if (STATE_FULL[t]) terms.push(STATE_FULL[t]);
+  const label = (field.label ?? "").toLowerCase();
+  const namesTarget = terms.some((t) => t.length >= 2 && new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(label));
+  if (!namesTarget) {
+    return blocked(field, "onsite_hybrid_ability", matchedBy, "UNKNOWN",
+      "asks about working on-site/hybrid but names no location matching the relocation destination or current residence, so ability there is not established by the relocation truth.");
+  }
+  const fit = fitOption(field, "Yes");
+  if (!fit.ok) return blocked(field, "onsite_hybrid_ability", matchedBy, "AMBIGUOUS", fit.why);
+  return { field, intentKey: "onsite_hybrid_ability",
+    matchedBy: `${matchedBy}; derived from the confirmed relocation to ${p.relocation_destination_city ?? "the target metro"}`,
+    answer: fit.value, confidence: "DERIVED", blockKind: null, blockedReason: null,
+    evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+}
 
 /** Degree-level spellings a form's option list might use, from a credential. */
 function degreeVariants(credential: string): string[] {
