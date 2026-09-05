@@ -1238,6 +1238,25 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
 
     if (uploadFirst(behaviour)) {
       await doUpload();
+      // Ashby's upload kicks off an ASYNC autofill parse that re-initialises
+      // the whole form when it lands -- after doUpload's fixed settle. Filling
+      // before it lands means every value we write is discarded by that
+      // re-init (the bug that made Chartis submit with 10 "missing" fields it
+      // visibly held). So wait for the field values to stop changing before
+      // reading what the parser did and filling the rest. Two identical
+      // snapshots a beat apart means the parse has settled; capped so an
+      // upload that triggers no parse still proceeds promptly.
+      if (provider === "ASHBY" || behaviour.parserMode === "PARSER_OVERWRITES") {
+        const settleDeadline = Date.now() + 30_000;
+        let prev = JSON.stringify([...(await readAll())].sort());
+        let stable = 0;
+        while (Date.now() < settleDeadline && stable < 2) {
+          await page.waitForTimeout(1500);
+          const cur = JSON.stringify([...(await readAll())].sort());
+          stable = cur === prev ? stable + 1 : 0;
+          prev = cur;
+        }
+      }
       live = await snapForm();
       const parsed = await readAll();
 

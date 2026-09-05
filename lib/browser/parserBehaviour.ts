@@ -31,7 +31,13 @@ export const INERT_EVIDENCE_THRESHOLD = 10;
 const DEFAULT_ORDERING: Record<string, UploadOrdering> = {
   GREENHOUSE: "UPLOAD_FIRST",
   LEVER: "UPLOAD_LAST",
-  ASHBY: "UPLOAD_LAST",
+  // Measured: Ashby's resume upload triggers an ASYNC autofill parse that
+  // re-initialises the form state and wipes any field the parse did not
+  // itself repopulate. Filling last therefore loses the answers to a parse
+  // that lands after the post-upload check (Name/LinkedIn survived because
+  // the parser refilled them; every other field submitted empty). So upload
+  // FIRST, wait for the parse to settle, then fill -- the real applicant flow.
+  ASHBY: "UPLOAD_FIRST",
 };
 
 export interface Behaviour {
