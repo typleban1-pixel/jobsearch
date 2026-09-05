@@ -136,6 +136,61 @@ export async function verifyCommitted(control: Locator, value: string): Promise<
                          hasReact: res.hasReact, invalid: res.invalid }, value);
 }
 
+/**
+ * Ashby stores a field value either as a plain string (text inputs) or as an
+ * object for rich controls -- a react-select place is
+ * { text: "Cleveland, Ohio, United States", providerLocationId: ... }. This
+ * turns whichever shape into the display string used for read-back, or null
+ * when there is no committed value. Pure so the shape handling is unit-tested;
+ * readAshbyCommitted applies the SAME rules inside the page.
+ */
+export function ashbyStoreDisplay(v: unknown): string | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "string") return v;
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return (o.text as string) ?? (o.label as string) ?? (o.name as string) ?? null;
+  }
+  return String(v);
+}
+
+/**
+ * The committed value of an Ashby control, read from the framework's own
+ * state rather than the DOM.
+ *
+ * Ashby keeps each field's authoritative value on the nearest ancestor
+ * fiber's props.fieldEntry.fieldValue.value -- the exact object its submit
+ * validator reads. For a text field that is the string; for a react-select
+ * (Location, demographic) it is an object like
+ * { text: "Cleveland, Ohio, United States", providerLocationId: ... }, and
+ * the control renders NO singleValue node whose text can be read, which is
+ * why a DOM read-back saw the selection as empty and dropped a committed
+ * required field. This returns the display string (the object's text/label,
+ * or the raw string), or null when the store holds no value -- the only
+ * read-back that agrees with what Ashby validates at submit.
+ */
+export async function readAshbyCommitted(control: Locator): Promise<string | null> {
+  return control.evaluate((el: any) => {
+    const fk = Object.keys(el).find((k) => k.startsWith("__reactFiber"));
+    if (!fk) return null;
+    let f = el[fk];
+    let depth = 0;
+    while (f && depth < 45) {
+      const fe = f.memoizedProps && f.memoizedProps.fieldEntry;
+      if (fe && fe.fieldValue && Object.prototype.hasOwnProperty.call(fe.fieldValue, "value")) {
+        const v = fe.fieldValue.value;
+        if (v == null || v === "") return null;
+        if (typeof v === "string") return v;
+        if (typeof v === "object") return v.text ?? v.label ?? v.name ?? null;
+        return String(v);
+      }
+      f = f.return;
+      depth++;
+    }
+    return null;
+  });
+}
+
 export async function readBack(control: Locator): Promise<string> {
   return control.inputValue();
 }

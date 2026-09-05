@@ -23,7 +23,7 @@ import { Stop, HANDOFF, type FillOutcomeName } from "./stopReasons.ts";
 import { SubmitGuard } from "./submitGuard.ts";
 import { snapshotLive, type LiveField } from "./liveSnapshot.ts";
 import { resolveFormContext, assertContextIntact, type FormContext } from "./formContext.ts";
-import { exactlyOne, fillText, fillTextCommitting, verifyCommitted, readBack, selectOption, setChecked, setFiles, clickOptionWithin, shouldReattempt } from "./actions.ts";
+import { exactlyOne, fillText, fillTextCommitting, verifyCommitted, readBack, readAshbyCommitted, selectOption, setChecked, setFiles, clickOptionWithin, shouldReattempt } from "./actions.ts";
 import { readLazyOptions, readFilteredOptions, exactOptions } from "./inspectCombobox.ts";
 import { geoSearchTerm, exactGeoMatches, qualifiedGeoMatches, sameGeography } from "./geography.ts";
 import { matchCountryOption } from "../applications/workCountry.ts";
@@ -773,14 +773,23 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         await page.waitForTimeout(500);
         await page.keyboard.press("Tab").catch(() => undefined);
         await page.waitForTimeout(400);
-        // Read-back against the value the control actually committed. Its
-        // rendered single-value carries the chosen option; if the node is
-        // absent, the container's text must at least contain it.
+        // Read-back against the value the control actually committed. The
+        // authoritative source is Ashby's own field state
+        // (fieldEntry.fieldValue.value), read from the combobox's fiber: a
+        // react-select location commits an OBJECT there ({ text, provider
+        // LocationId }) and renders NO singleValue node, so a DOM read saw the
+        // selection as empty and dropped a committed required field. Fall back
+        // to the rendered single-value / container text only when the store
+        // read is unavailable.
+        const storeHeld = (await readAshbyCommitted(combo).catch(() => null)) ?? "";
         const sv = container.locator('[class*="singleValue" i], [class*="single-value" i]').first();
-        let held = "";
-        if (await sv.count().catch(() => 0)) held = (await sv.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+        let held = storeHeld;
+        if (!held && await sv.count().catch(() => 0)) held = (await sv.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
         if (!held) held = (await container.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
-        const committed = held.toLowerCase().includes(chosen.toLowerCase());
+        // The store value for a place is its full display string ("Cleveland,
+        // Ohio, United States"); the chosen option text matches it directly.
+        const committed = held.toLowerCase().includes(chosen.toLowerCase())
+          || chosen.toLowerCase().includes(held.toLowerCase()) && held.length > 0;
         if (!committed) {
           // A required combobox that will not read back its selection fails
           // closed and halts. A non-required one is left for the person to
