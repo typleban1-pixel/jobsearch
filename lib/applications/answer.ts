@@ -621,6 +621,22 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
     return resolvePhoneCountry(field, ctx, matchedBy);
   }
 
+  // A combined "Full Name" / "Name" control. A_VERIFIED_FACT but not a
+  // single DIRECT column: it is the deterministic join of the approved
+  // legal first and last name, so it is derived here rather than read off
+  // one row. Greenhouse asks for first and last separately and never hit
+  // this; Ashby and Lever ask for one field and it blocked as "nothing
+  // has been confirmed" because no dispatch reached the derive() case.
+  if (intent.key === "full_name") {
+    const d = derive(intent, ctx.profile, field);
+    if ("block" in d) return blocked(field, intent.key, matchedBy, d.kind, d.block);
+    const fit = fitOption(field, d.value);
+    if (!fit.ok) return blocked(field, intent.key, matchedBy, "AMBIGUOUS", fit.why);
+    return { field, intentKey: intent.key, matchedBy, answer: fit.value,
+      confidence: "DERIVED", blockKind: null, blockedReason: null,
+      evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+  }
+
   if (intent.key === "previously_employed_here") {
     return resolvePriorEmployment(field, ctx, matchedBy);
   }
