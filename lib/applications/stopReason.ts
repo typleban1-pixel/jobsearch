@@ -36,6 +36,7 @@ export const STOP_CODES = [
   "ARTIFACT_MISMATCH",            // stored artifact is not the approved one
   "STALE_JOB_VERSION",            // the posting moved under the approval
   "ALREADY_SUBMITTED",            // there is a submitted_at already
+  "SUBMISSION_UNCERTAIN",         // a submit click was already attempted and never confirmed; may be at the employer
   "PROVIDER_DISABLED",            // adapter paused or capability not PRODUCTION
   "ADAPTER_REFUSED",              // the adapter declined this form
   "BROWSER_LAUNCH_FAILED",

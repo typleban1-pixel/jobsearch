@@ -96,11 +96,22 @@ async function stopAt(
 
 // ---- nothing proceeds unless the package is exactly as approved ------
 const { data: app } = await db.from("applications")
-  .select("id,job_id,job_version_id,status,human_approved,human_approved_at,authorization_mode,all_fields_confident,form_snapshot,form_snapshot_hash,resume_id,approved_artifact_sha256,approved_content_sha256,approved_answers_sha256,submitted_at")
+  .select("id,job_id,job_version_id,status,human_approved,human_approved_at,authorization_mode,all_fields_confident,form_snapshot,form_snapshot_hash,resume_id,approved_artifact_sha256,approved_content_sha256,approved_answers_sha256,submitted_at,submit_click_attempted_at")
   .eq("id", applicationId).single();
 if (!app) { console.error("no such application"); process.exit(1); }
 if (app.submitted_at) await stopAt("ALREADY_SUBMITTED", "preflight",
   `This application was already submitted at ${app.submitted_at}; nothing further was attempted.`);
+// Exactly-once, non-negotiable. submit_click_attempted_at is written
+// immediately before a click and never cleared, so its presence without a
+// submitted_at means a previous run clicked and no confirmation was ever
+// recorded: the employer MAY already hold this application. Never click
+// again on that state -- a duplicate to a real employer is worse than an
+// uncertain record. A person (or a repair with real evidence) must
+// establish whether it landed and clear the marker before any retry.
+if (app.submit_click_attempted_at) await stopAt("SUBMISSION_UNCERTAIN", "preflight",
+  `A submit click was already attempted at ${app.submit_click_attempted_at} and no confirmation was ever recorded. `
+  + `The employer may already hold this application, so no second click is attempted. Establish whether it was `
+  + `received (and clear submit_click_attempted_at) before any retry.`);
 // Either authorization path may submit, and which one it was stays
 // visible. human_approved means a person read this application;
 // POLICY_AUTHORIZED means it matched rules enabled in advance and nobody
@@ -607,6 +618,11 @@ const { error } = await db.from("applications")
     status: "SUBMITTED",
     submitted_at: submittedAt,
     confirmation_reference: evidenceReference,
+    // Record how it was actually authorized/submitted. A policy-authorized
+    // run is AUTOMATED (the program did it with nobody reading it); a
+    // human-approved one is ASSISTED (a person reviewed, the program filled
+    // and submitted). MANUAL is reserved for the separate hand-submit path.
+    submission_mode: app.authorization_mode === "POLICY_AUTHORIZED" ? "AUTOMATED" : "ASSISTED",
   }).eq("id", applicationId);
 if (error) { console.error(`confirmed, but could not record it: ${error.message}`); await finish(1); }
 
