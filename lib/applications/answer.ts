@@ -586,6 +586,8 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
     const rel = resolveRelatives(field, m.matchedBy);
     if (rel) return rel;
     if (isHybridAbilityQuestion(field.label)) return resolveOnsiteHybridAbility(field, ctx, m.matchedBy);
+    if (isPronounsQuestion(field.label)) return resolvePronouns(field, m.matchedBy);
+    { const consent = resolveConsent(field, m.matchedBy); if (consent) return consent; }
     const survey = classifyLowStakesSurvey(field.label, field.key);
     if (survey.low) return resolveLowStakesSurvey(field, m.matchedBy, survey.reason);
     return blocked(field, null, m.matchedBy, "UNKNOWN",
@@ -675,6 +677,10 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
     const hy = resolveOnsiteHybridAbility(field, ctx, matchedBy);
     if (hy) return hy;
   }
+
+  // Preferred pronouns (he/him) and ordinary Terms/Privacy consent.
+  if (isPronounsQuestion(field.label)) return resolvePronouns(field, matchedBy);
+  { const consent = resolveConsent(field, matchedBy); if (consent) return consent; }
 
   // The country the work will happen in, declared once and reused.
   // Checked against the label and the key together, and only where the
@@ -840,6 +846,47 @@ function resolveRelatives(field: FormField, matchedBy: string): ResolvedField | 
   return { field, intentKey: "relatives_at_company", matchedBy: `${matchedBy}; standing relatives declaration`,
     answer: fit.value, confidence: "HUMAN_CONFIRMED", blockKind: null, blockedReason: null,
     evidenceIds: [], considered: [], refused: false };
+}
+
+/** Preferred pronouns, from HUMAN_CONFIRMED he/him. He/Him if offered, else decline. */
+function isPronounsQuestion(label: string): boolean { return /\bpronouns?\b/i.test(label ?? ""); }
+function resolvePronouns(field: FormField, matchedBy: string): ResolvedField {
+  const opts = field.options ?? [];
+  const heHim = opts.find((o) => /\bhe\b[^a-z]*\bhim\b|\bhe\s*\/\s*him\b/i.test(o));
+  if (heHim) {
+    const fit = fitOption(field, heHim);
+    if (fit.ok) return { field, intentKey: "preferred_pronouns", matchedBy: `${matchedBy}; he/him (HUMAN_CONFIRMED)`,
+      answer: fit.value, confidence: "HUMAN_CONFIRMED", blockKind: null, blockedReason: null, evidenceIds: [], considered: [], refused: false };
+  }
+  if (!opts.length) {
+    return { field, intentKey: "preferred_pronouns", matchedBy: `${matchedBy}; he/him (HUMAN_CONFIRMED)`,
+      answer: "He/Him", confidence: "HUMAN_CONFIRMED", blockKind: null, blockedReason: null, evidenceIds: [], considered: [], refused: false };
+  }
+  const decline = opts.find((o) => /prefer not to (share|say|answer)|decline|do not want to answer/i.test(o));
+  if (decline) {
+    const fit = fitOption(field, decline);
+    if (fit.ok) return { field, intentKey: "preferred_pronouns", matchedBy: `${matchedBy}; no He/Him option, declined`,
+      answer: fit.value, confidence: "HUMAN_CONFIRMED", blockKind: null, blockedReason: null, evidenceIds: [], considered: [], refused: false };
+  }
+  return blocked(field, "preferred_pronouns", matchedBy, "AMBIGUOUS", "the control offers neither a He/Him option nor a prefer-not-to-share option");
+}
+
+/** Ordinary application Terms/Privacy consent -> agree; unusual legal terms block. */
+const CONSENT_OK = /\bterms of (use|service)\b|\bprivacy (policy|agreement|notice|statement)\b|\bterms (and|&) conditions\b|\bdata (privacy|processing|protection)\b|\bapplication (terms|agreement)\b|\bi (agree|acknowledge|consent) to\b|\bprivacy\b.*\bagreement\b/i;
+const CONSENT_UNUSUAL = /\barbitration\b|\bclass[- ]action\b|\bnon-?compete\b|\bnon-?solicit\b|\bassignment of (inventions|ip|intellectual)\b|\bintellectual property\b|\bbackground (check|screen)\b|\bcredit (check|report)\b|\bdrug (test|screen)\b|\bnon-?disclosure\b|\bnda\b|\bconfidentiality agreement\b/i;
+function resolveConsent(field: FormField, matchedBy: string): ResolvedField | null {
+  const t = field.label ?? "";
+  if (!CONSENT_OK.test(t)) return null;
+  if (CONSENT_UNUSUAL.test(t)) {
+    return blocked(field, "terms_consent", matchedBy, "UNKNOWN",
+      "this consent references a materially unusual legal obligation, which is left for you to accept.");
+  }
+  const opts = field.options ?? [];
+  const yes = opts.find((o) => /^(yes|i (agree|acknowledge|consent)|agree|accept)/i.test(o)) ?? "Yes";
+  const fit = fitOption(field, yes);
+  if (!fit.ok) return blocked(field, "terms_consent", matchedBy, "AMBIGUOUS", fit.why);
+  return { field, intentKey: "terms_consent", matchedBy: `${matchedBy}; ordinary application terms (standing authorization)`,
+    answer: fit.value, confidence: "HUMAN_CONFIRMED", blockKind: null, blockedReason: null, evidenceIds: [], considered: [], refused: false };
 }
 
 /** An on-site / hybrid ABILITY question ("can you come into our X office?"). */

@@ -33,7 +33,7 @@ import { attachResume, type AttachmentEvidence } from "./upload.ts";
 import {
   revealAshbyForm, ashbyMultiStep, readChoiceFieldsets, groupAshbyChoices,
   mergeChoiceGroups, dropFileHeaderArtifacts, chooseSingleOption, verifySingleSelected,
-  readAshbyComboboxes, markAshbyComboboxes,
+  readAshbyComboboxes, markAshbyComboboxes, readAshbyButtonGroups, mergeAshbyButtonGroups,
 } from "./ashbyForm.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
 import { hashSnapshot } from "../applications/formSnapshot.ts";
@@ -324,6 +324,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       const grouping = groupAshbyChoices(await readChoiceFieldsets(page));
       let fields = mergeChoiceGroups(dropFileHeaderArtifacts(s.fields), grouping);
       fields = markAshbyComboboxes(fields, await readAshbyComboboxes(page));
+      fields = mergeAshbyButtonGroups(fields, await readAshbyButtonGroups(page));
       return { ...s, fields };
     };
     let live = await snapForm();
@@ -840,6 +841,28 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
             + `after selecting ${JSON.stringify(chosen.option)}`);
         }
         filled.push({ field: f.label || f.key, value: chosen.option });
+        return;
+      }
+
+      // Ashby button group (custom Yes/No): click the button whose text is
+      // the answer, inside this question's own _fieldEntry_ container, and
+      // prove it commits by reading aria-pressed. No single input control
+      // exists, so this runs before control() is resolved.
+      if (f.htmlType === "ashby-button-group") {
+        const container = ctx.frame.locator("[class*=_fieldEntry_]").filter({ hasText: f.label }).first();
+        const btn = container.getByRole("button", { name: value, exact: true }).first();
+        if (await btn.count() === 0) {
+          throw new Stop("SELECTOR_AMBIGUOUS", `"${f.label || f.key}": no ${JSON.stringify(value)} button found in the field`);
+        }
+        await btn.scrollIntoViewIfNeeded().catch(() => undefined);
+        await btn.click({ timeout: 8000 });
+        await page.waitForTimeout(300);
+        const pressed = await btn.getAttribute("aria-pressed").catch(() => null);
+        if (pressed !== "true") {
+          throw new Stop("READBACK_MISMATCH",
+            `"${f.label || f.key}" button ${JSON.stringify(value)} reads aria-pressed=${JSON.stringify(pressed)} after the click, so it did not commit`);
+        }
+        filled.push({ field: f.label || f.key, value });
         return;
       }
 

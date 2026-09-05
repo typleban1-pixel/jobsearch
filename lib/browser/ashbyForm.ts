@@ -353,3 +353,75 @@ export async function readChoiceFieldsets(page: any): Promise<RawFieldset[]> {
     return out;
   });
 }
+
+/**
+ * Ashby's custom Yes/No (and similar) button groups.
+ *
+ * These are NOT radios: a field's _fieldEntry_ container holds two or more
+ * <button aria-pressed>, backed by a hidden single-name checkbox that the
+ * generic radio/checkbox discovery (which keys on the qid_optid name
+ * pattern) never sees. So work-authorization, sponsorship, prior-employment,
+ * relatives and Terms consent all went undiscovered, reached a false
+ * HANDOFF, and were reported missing at submit. This reads them as one
+ * semantic field with the button labels as options; the fill clicks the
+ * matching button and proves it reads back aria-pressed.
+ */
+export interface AshbyButtonGroup { label: string; options: string[]; required: boolean }
+
+export async function readAshbyButtonGroups(page: any): Promise<AshbyButtonGroup[]> {
+  return page.mainFrame().evaluate(() => {
+    const norm = (s: string) => (s || "").replace(/\s+/g, " ").trim();
+    const out: any[] = [];
+    const seen = new Set<string>();
+    for (const el of Array.from(document.querySelectorAll("[class*=_fieldEntry_]"))) {
+      const btns = Array.from(el.querySelectorAll("button")).filter((b) => b.getAttribute("aria-pressed") !== null);
+      if (btns.length < 2) continue;
+      const labelNode = el.querySelector("[class*=_label_], [class*=_heading_], label, legend");
+      let label = norm(labelNode?.textContent || "");
+      if (!label) {
+        let t = norm((el as HTMLElement).innerText || "");
+        for (const b of btns) t = t.replace(norm((b as HTMLElement).innerText || ""), "");
+        label = norm(t);
+      }
+      label = label.replace(/\s*\*\s*$/, "").trim();
+      if (label.length < 4 || seen.has(label)) continue;
+      seen.add(label);
+      out.push({
+        label,
+        options: btns.map((b) => norm((b as HTMLElement).innerText || "")).filter(Boolean),
+        // Requiredness is not reliably marked on these; fail closed so a
+        // genuinely required one is never treated as skippable.
+        required: true,
+      });
+    }
+    return out;
+  });
+}
+
+/**
+ * Fold discovered button groups into the field list as single "select"
+ * fields tagged ashby-button-group, and drop any generic artifact the raw
+ * snapshot produced for the same question (the backing checkbox, or a
+ * phantom "Yes"/"No" field).
+ */
+export function mergeAshbyButtonGroups(fields: LiveField[], groups: AshbyButtonGroup[]): LiveField[] {
+  if (!groups.length) return fields;
+  const groupLabels = new Set(groups.map((g) => g.label));
+  const optionTexts = new Set(groups.flatMap((g) => g.options.map((o) => o.toLowerCase())));
+  const kept = fields.filter((f) => {
+    if (groupLabels.has(f.label)) return false;                         // the backing checkbox carrying the question
+    if (optionTexts.has((f.label || "").trim().toLowerCase())) return false; // a phantom "Yes"/"No" field
+    return true;
+  });
+  let n = 0;
+  for (const g of groups) {
+    let key = g.label;
+    while (kept.some((f) => f.key === key)) key = `${g.label} (${++n})`;
+    kept.push({
+      key, label: g.label, type: "select", required: g.required, options: g.options,
+      selector: g.label, selectorKind: "label", unlabelled: false,
+      groupKey: g.label, htmlType: "ashby-button-group", associated: [], name: null,
+    });
+  }
+  return kept;
+}
