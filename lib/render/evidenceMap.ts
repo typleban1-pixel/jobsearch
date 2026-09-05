@@ -64,7 +64,7 @@ const COMPOSITES: { match: RegExp; groups: string[][] }[] = [
   },
 ];
 
-type Cond = { anySkill?: string[]; allGroups?: string[][]; evidenceSignature?: RegExp };
+type Cond = { anySkill?: string[]; allGroups?: string[][] };
 interface EntailmentRule { id: string; match: RegExp; direct?: Cond[]; transferable?: Cond[]; }
 
 /**
@@ -89,11 +89,9 @@ const ENTAILMENT: EntailmentRule[] = [
     id: "problem-solving",
     match: /problem[- ]solv|analytical mindset|analytical$/,
     // Solution development and client needs assessment ARE applied
-    // problem-solving; the contract solutioning evidence establishes it.
-    direct: [
-      { anySkill: ["solution development", "client needs assessment"] },
-      { evidenceSignature: /troubleshoot|develop solutions|translat[^.]*(goal|need)[^.]*solution|within[^.]*(budget|constraint)/i },
-    ],
+    // problem-solving; holding either verified capability establishes it.
+    // Structural only -- no evidence-text signature fallback.
+    direct: [{ anySkill: ["solution development", "client needs assessment"] }],
   },
   {
     id: "cross-functional-project",
@@ -146,10 +144,6 @@ export function mapThemesToEvidence(themes: { term: string }[], pool: VerifiedPo
         refs.push({ ref: hit.ref, source: hit.source, strength: 1 });
       }
       return refs;
-    }
-    if (c.evidenceSignature) {
-      const hit = pool.items.filter((i) => c.evidenceSignature!.test(i.text));
-      return hit.length ? hit.slice(0, 3).map((i) => ({ ref: i.ref, source: i.source, strength: 1 })) : null;
     }
     return null;
   };
