@@ -20,6 +20,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
+import { requiredBlocked } from "../lib/applications/revalidate.ts";
 
 const APP = process.argv[2];
 const REASON = process.argv[3] ?? "controlled per-application authorization";
@@ -39,10 +40,13 @@ const { data: one } = await db.from("application_answers").select("id,resolved_a
 if (one) await db.from("application_answers").update({ resolved_at: one.resolved_at ?? new Date().toISOString() }).eq("id", one.id);
 
 const { data: rows } = await db.from("application_answers").select("confidence_state,is_required,answer_text").eq("application_id", APP);
-const blocked = (rows ?? []).filter((r: any) => r.confidence_state === "BLOCKED").length;
+// Required-blocked only: an optional blocked field (deferred demographic,
+// pronoun self-ID) is left blank at fill time and must not refuse
+// authorization. Fails closed on unknown requiredness.
+const reqBlocked = requiredBlocked((rows ?? []) as any);
 const reqUnanswered = (rows ?? []).filter((r: any) => r.is_required && !r.answer_text).length;
-if (!rows?.length || blocked > 0 || reqUnanswered > 0) {
-  console.error(`refusing: ${rows?.length ?? 0} answers, ${blocked} blocked, ${reqUnanswered} required-unanswered`); process.exit(1);
+if (!rows?.length || reqBlocked > 0 || reqUnanswered > 0) {
+  console.error(`refusing: ${rows?.length ?? 0} answers, ${reqBlocked} required-blocked, ${reqUnanswered} required-unanswered`); process.exit(1);
 }
 
 const { data: fresh } = await db.from("applications").select("all_fields_confident").eq("id", APP).single();

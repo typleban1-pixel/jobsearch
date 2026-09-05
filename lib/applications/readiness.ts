@@ -17,7 +17,7 @@
  * produce at most one request.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { revalidateBeforeSubmit } from "./revalidate.ts";
+import { revalidateBeforeSubmit, requiredBlocked } from "./revalidate.ts";
 import { answerSetHash } from "./approvalBinding.ts";
 
 export type ReadinessOutcome =
@@ -86,7 +86,7 @@ export async function evaluateReadiness(db: SupabaseClient, applicationId: strin
     humanApprovedAt: (app as any).human_approved_at ?? null,
     authorizationMode: app.authorization_mode ?? null,
     allFieldsConfident: Boolean(app.all_fields_confident),
-    blockedAnswers: answers.filter((a: any) => a.confidence_state === "BLOCKED").length,
+    blockedAnswers: requiredBlocked(answers as any),
     requiredUnanswered: answers.filter((a: any) => a.is_required && !a.answer_text).length,
     jobVersionIsCurrent: version ? Boolean(version.is_current) : true,
     storedArtifactSha256: app.approved_artifact_sha256 ?? null,

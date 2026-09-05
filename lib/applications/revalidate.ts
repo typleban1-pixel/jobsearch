@@ -47,6 +47,20 @@ export interface SubmitFacts {
 export interface Refusal { code: string; detail: string }
 
 /**
+ * Answers whose REQUIRED field is still blocked, failing closed on unknown
+ * requiredness. An OPTIONAL blocked field (a deferred demographic, a
+ * pronoun self-ID, an ambiguous residence field) is left blank at fill
+ * time and must not refuse a submission; a field of unknown requiredness
+ * is treated as required. This is the count the readiness gate and the
+ * submitter both feed to `blockedAnswers`.
+ */
+export function requiredBlocked(
+  answers: Array<{ is_required?: boolean | null; confidence_state?: string | null }>,
+): number {
+  return answers.filter((a) => (a.is_required ?? true) && a.confidence_state === "BLOCKED").length;
+}
+
+/**
  * Verdicts that may reach an outbound submission.
  *
  * STRETCH is here because a person reviewing a stretch and approving it

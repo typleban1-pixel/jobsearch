@@ -36,7 +36,7 @@ import {
 import { loadContext, applicationScope } from "../lib/applications/prepare.ts";
 import { approvedArtifact } from "../lib/render/artifact.ts";
 
-import { revalidateBeforeSubmit } from "../lib/applications/revalidate.ts";
+import { revalidateBeforeSubmit, requiredBlocked } from "../lib/applications/revalidate.ts";
 import { answerSetHash } from "../lib/applications/approvalBinding.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
 import { pickResultPageIndex } from "../lib/browser/resultPage.ts";
@@ -173,7 +173,7 @@ if (!version?.is_current) await stopAt("STALE_JOB_VERSION", "preflight",
     humanApprovedAt: (app as any).human_approved_at ?? null,
     authorizationMode: app.authorization_mode ?? null,
     allFieldsConfident: Boolean(app.all_fields_confident),
-    blockedAnswers: answers2.filter((a: any) => a.confidence_state === "BLOCKED").length,
+    blockedAnswers: requiredBlocked(answers2 as any),
     requiredUnanswered: answers2.filter((a: any) => a.is_required && !a.answer_text).length,
     jobVersionIsCurrent: Boolean(version?.is_current),
     storedArtifactSha256: artifact.sha256 ?? null,
