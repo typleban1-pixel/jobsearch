@@ -35,7 +35,7 @@ export interface ApplyBoard {
   ready: ApplyRow[];
   recentlySubmitted: ApplyRow[];
   closed: ApplyRow[];
-  blocked: { blockedFields: number; answersNeeded: number; applications: number };
+  blocked: { blockedFields: number; answersNeeded: number; handoffs: number; applications: number };
 }
 
 /**
@@ -199,7 +199,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
 
   const board: ApplyBoard = {
     needsYou: [], preparing: [], ready: [], recentlySubmitted: [], closed: [],
-    blocked: { blockedFields: 0, answersNeeded: 0, applications: 0 },
+    blocked: { blockedFields: 0, answersNeeded: 0, handoffs: 0, applications: 0 },
   };
 
   for (const a of apps) {
@@ -311,7 +311,7 @@ export async function loadBlockedGroups(db: SupabaseClient): Promise<QuestionGro
   const jobIds = [...new Set(apps.map((a) => a.job_id).filter(Boolean))];
   const appIds = apps.map((a) => a.id);
   const [jobs, blocked] = await Promise.all([
-    page(db, "jobs", "id,title,company_id", scopedIn("id", jobIds)),
+    page(db, "jobs", "id,title,company_id,url,application_form_url", scopedIn("id", jobIds)),
     page(db, "application_answers",
       "id,application_id,field_key,field_label,question_text,is_required,category,block_kind,blocked_reason",
       (q) => scopedIn("application_id", appIds)(q).eq("confidence_state", "BLOCKED")),
@@ -341,6 +341,9 @@ export async function loadBlockedGroups(db: SupabaseClient): Promise<QuestionGro
       category: b.category ?? null,
       blockKind: b.block_kind ?? null,
       blockedReason: b.blocked_reason ?? null,
+      // Where a file upload is actually completed: the employer's own form.
+      // Same canonical target the board's handoff uses (form URL, else posting).
+      applyUrl: job?.application_form_url ?? job?.url ?? null,
     });
   }
   return groupBlockedQuestions(fields);

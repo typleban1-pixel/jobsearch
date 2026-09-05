@@ -44,6 +44,8 @@ export interface BlockedField {
   category: string | null;
   blockKind: string | null;
   blockedReason: string | null;
+  /** The employer's own form URL, for a file upload that must be completed there. */
+  applyUrl?: string | null;
 }
 
 export interface QuestionGroup {
@@ -153,8 +155,17 @@ export function intentKey(f: BlockedField): string {
     norm(f.questionText || f.label),
     f.type,
     f.required ? "required" : "optional",
+    // A file upload is application-specific: it is completed on that one
+    // employer's form and, for a resume/CV, bound to that application's own
+    // tailored artifact. Two applications' file fields must never collapse
+    // into one shared "question" just because the wording and type match, so
+    // the application id joins the key for files and keeps each on its own.
+    f.type === "file" ? f.applicationId : "",
   ].join("::");
 }
+
+/** A group whose field is a file upload: completed on the employer's form, not typed here. */
+export const isFileGroup = (g: QuestionGroup): boolean => g.fields[0]?.type === "file";
 
 /** Exact-string intersection, order taken from the first list. */
 function sharedOptions(sets: string[][]): string[] {
@@ -262,17 +273,24 @@ export function groupBlockedQuestions(fields: BlockedField[]): QuestionGroup[] {
 export interface BlockedSummary {
   /** Underlying application fields that are blocked. */
   blockedFields: number;
-  /** Distinct answers the person actually has to give. */
+  /** Distinct answers the person actually has to give (typed questions only). */
   answersNeeded: number;
+  /** File uploads to finish on the employer's own form. Not typeable answers. */
+  handoffs: number;
   applications: number;
 }
 
 export function summarize(groups: QuestionGroup[]): BlockedSummary {
   const apps = new Set<string>();
   let blockedFields = 0;
+  let answersNeeded = 0;
+  let handoffs = 0;
   for (const g of groups) {
     blockedFields += g.fields.length;
     for (const f of g.fields) apps.add(f.applicationId);
+    // A file upload is not an answer the reader can type here; it is a
+    // handoff to the employer's own form, counted and messaged separately.
+    if (isFileGroup(g)) handoffs += 1; else answersNeeded += 1;
   }
-  return { blockedFields, answersNeeded: groups.length, applications: apps.size };
+  return { blockedFields, answersNeeded, handoffs, applications: apps.size };
 }

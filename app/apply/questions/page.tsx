@@ -60,6 +60,7 @@ export default async function ConsolidatedQuestions() {
         controlId, reuseAnswerIds, question, blockedReason: g.blockedReason,
         required: g.required, options: g.universalOptions, type: primary.type,
         applications: [...new Set(g.fields.map((f) => f.applicationLabel))], applicationId: null,
+        applyUrl: primary.applyUrl ?? null,
       });
       total += 1;
       continue;
@@ -74,6 +75,7 @@ export default async function ConsolidatedQuestions() {
         controlId, reuseAnswerIds: [], question: f.questionText || f.label || question,
         blockedReason: f.blockedReason ?? g.blockedReason, required: f.required,
         options: f.options, type: f.type, applications: [f.applicationLabel], applicationId: f.applicationId,
+        applyUrl: f.applyUrl ?? null,
       };
       const list = byApplication.get(f.applicationLabel) ?? [];
       list.push(item); byApplication.set(f.applicationLabel, list);
@@ -95,10 +97,17 @@ export default async function ConsolidatedQuestions() {
         <PrimaryNav current="apply" />
       </header>
       <div className="wizardhead">
-        <p className="needcount"><strong>{s.answersNeeded} answer{s.answersNeeded === 1 ? "" : "s"} needed</strong></p>
+        <p className="needcount">
+          <strong>
+            {s.answersNeeded > 0
+              ? `${s.answersNeeded} answer${s.answersNeeded === 1 ? "" : "s"} needed`
+              : "No answers to type"}
+          </strong>
+        </p>
         <p className="muted">
-          Across {s.applications} application{s.applications === 1 ? "" : "s"}. Answer what you can and save once;
-          nothing is submitted here.
+          Across {s.applications} application{s.applications === 1 ? "" : "s"}.
+          {s.answersNeeded > 0 && " Answer what you can and save once; nothing is submitted here."}
+          {s.handoffs > 0 && ` ${s.handoffs} file upload${s.handoffs === 1 ? "" : "s"} to finish on the employer's own form.`}
         </p>
       </div>
       <QuestionsForm data={data} />

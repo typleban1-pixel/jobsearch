@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { summarizeQueue } from "../../lib/portal/queueFeedback.ts";
 
 export interface QueuedResult { state: "queued" | "already"; applicationId?: string }
 interface QueueCtx {
@@ -38,28 +39,32 @@ export function JobsQueue({ children }: { children: ReactNode }) {
       if (!res.ok) { setNote(json.error ?? "Could not queue — try again."); return; }
       const results: Array<{ jobId: string; state: string; applicationId?: string; message: string }> = json.results ?? [];
       const nextSel = new Map(selected); const nextQ = new Map(queued);
-      let ok = 0, already = 0; const skipped: string[] = [];
       for (const r of results) {
-        if (r.state === "queued") { ok++; nextQ.set(r.jobId, { state: "queued", applicationId: r.applicationId }); nextSel.delete(r.jobId); }
-        else if (r.state === "already") { already++; nextQ.set(r.jobId, { state: "already" }); nextSel.delete(r.jobId); }
-        else skipped.push(r.message); // keep selected so it can be retried
+        if (r.state === "queued") { nextQ.set(r.jobId, { state: "queued", applicationId: r.applicationId }); nextSel.delete(r.jobId); }
+        else if (r.state === "already") { nextQ.set(r.jobId, { state: "already" }); nextSel.delete(r.jobId); }
+        // A refused job stays selected so it can be retried; the reason is now
+        // shown at the button (see the dock) rather than only off-screen.
       }
       setSelected(nextSel); setQueued(nextQ);
-      setNote([ok ? `${ok} queued` : "", already ? `${already} already applied` : "", skipped.length ? `${skipped.length} skipped (${skipped[0]})` : ""].filter(Boolean).join(" · "));
+      setNote(summarizeQueue(results).note || "Nothing to queue.");
     } finally { setSubmitting(false); }
   };
 
   return (
     <Ctx.Provider value={{ selectedIds: new Set(selected.keys()), toggle, queuedOf: (id) => queued.get(id) }}>
       {children}
-      {note && <p className="queuenote">{note}</p>}
-      {selected.size > 0 && (
-        <div className="queuebar" role="region" aria-label="Bulk queue">
-          <span><b>{selected.size}</b> selected</span>
-          <button className="btn-quiet" onClick={() => setSelected(new Map())} disabled={submitting}>Clear</button>
-          <button className="btn-primary" onClick={queue} disabled={submitting}>
-            {submitting ? "Queuing…" : `Queue ${selected.size} Job${selected.size === 1 ? "" : "s"}`}
-          </button>
+      {(note || selected.size > 0) && (
+        <div className="queuedock">
+          {note && <p className="queuemsg" role="status" aria-live="polite">{note}</p>}
+          {selected.size > 0 && (
+            <div className="queuebar" role="region" aria-label="Bulk queue">
+              <span><b>{selected.size}</b> selected</span>
+              <button className="btn-quiet" onClick={() => { setSelected(new Map()); setNote(null); }} disabled={submitting}>Clear</button>
+              <button className="btn-primary" onClick={queue} disabled={submitting}>
+                {submitting ? "Queuing…" : `Queue ${selected.size} Job${selected.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </Ctx.Provider>

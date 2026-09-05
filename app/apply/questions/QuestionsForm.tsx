@@ -14,6 +14,7 @@ export interface FormItem {
   type: string;
   applications: string[];            // labels this control resolves
   applicationId: string | null;      // set for single items, null for shared/reusable
+  applyUrl?: string | null;          // employer's own form, for a file upload completed there
 }
 
 /** A file upload cannot be answered by typing; it is never accepted here. */
@@ -151,7 +152,10 @@ export function QuestionsForm({ data }: { data: FormData }) {
       return (
         <li className="qitem file">
           <p className="qitem-q">{it.question}</p>
-          <p className="qitem-note">This asks for a file (for example a resume). It can&rsquo;t be answered here &mdash; complete it on the employer&rsquo;s form.</p>
+          <p className="qitem-note">This is a file upload. Your tailored resume is attached automatically; anything else here is completed on the employer&rsquo;s own form.</p>
+          {it.applyUrl
+            ? <a className="qitem-continue" href={it.applyUrl} target="_blank" rel="noreferrer">Continue on the employer&rsquo;s form</a>
+            : <p className="qitem-note">Open this application from Apply to continue on the employer&rsquo;s form.</p>}
         </li>
       );
     }
@@ -200,12 +204,14 @@ export function QuestionsForm({ data }: { data: FormData }) {
         </section>
       )}
 
-      <div className="qsavebar">
-        <span className="qprogress">{answeredCount} of {allItems.length} answered</span>
-        <button className="btn-primary" onClick={saveAll} disabled={saving || answeredCount === 0}>
-          {saving ? "Saving…" : "Save all answers"}
-        </button>
-      </div>
+      {allItems.length > 0 && (
+        <div className="qsavebar">
+          <span className="qprogress">{answeredCount} of {allItems.length} answered</span>
+          <button className="btn-primary" onClick={saveAll} disabled={saving || answeredCount === 0}>
+            {saving ? "Saving…" : "Save all answers"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

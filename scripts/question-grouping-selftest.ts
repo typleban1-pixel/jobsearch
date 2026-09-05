@@ -192,11 +192,41 @@ console.log("\nacknowledgement controls, including the ones without consent word
     gs[0]!.reusable === false, String(gs[0]!.reusable));
 }
 
+console.log("\nfile uploads are application-specific and never cross-app deduped:");
+{
+  // The real Aleph + Chartis case: both Ashby forms carry a custom file field
+  // labelled "Overview Application" (key == label, type file, optional). Before
+  // the fix these collapsed into one shared "1 answer across 2 applications".
+  const fileField = (app: string): BlockedField => ({
+    applicationId: app, applicationLabel: `co ${app} — role`,
+    fieldKey: "Overview Application", label: "Overview Application",
+    questionText: "Overview Application", options: [], type: "file", required: false,
+    category: null, blockKind: "UNKNOWN",
+    blockedReason: "nothing in the question catalog matches this wording.",
+  });
+  const gs = groupBlockedQuestions([fileField("aleph"), fileField("chartis")]);
+  check("two employers' identical file fields stay TWO groups, never merged",
+    gs.length === 2, `${gs.length}`);
+  check("each file group belongs to exactly one application",
+    gs.every((g) => g.fields.length === 1), gs.map((g) => g.fields.length).join(","));
+  const s = summarize(gs);
+  check("file uploads are counted as handoffs, not typeable answers",
+    s.answersNeeded === 0 && s.handoffs === 2 && s.applications === 2, JSON.stringify(s));
+
+  // A select question with the same wording across two apps STILL groups: the
+  // file rule must not leak into ordinary questions.
+  const sel = groupBlockedQuestions([
+    field("app-x", ["Yes", "No"], "Are you authorized to work?"),
+    field("app-y", ["Yes", "No"], "Are you authorized to work?"),
+  ]);
+  check("ordinary select questions still group across applications", sel.length === 1, `${sel.length}`);
+}
+
 console.log("\ncounting:");
 {
   const s = summarize(groupBlockedQuestions(samsara));
   check("three blocked fields become one answer to give",
-    s.blockedFields === 3 && s.answersNeeded === 1 && s.applications === 3, JSON.stringify(s));
+    s.blockedFields === 3 && s.answersNeeded === 1 && s.handoffs === 0 && s.applications === 3, JSON.stringify(s));
 }
 
 console.log(`\n${pass} passed, ${fails.length} failed`);

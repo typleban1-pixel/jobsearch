@@ -556,15 +556,26 @@ a.counter:hover { border-color: currentColor; }
 .statepill.s-draft { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .statepill.s-blocked_needs_input, .statepill.s-awaiting_review { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
 .statepill.s-submitted, .statepill.s-acknowledged, .statepill.s-in_process, .statepill.s-interviewing, .statepill.s-offer { color: var(--ink-faint); }
-.queuebar {
+/* The dock carries the stickiness so feedback and the bar move together and
+   stay in view at the point of action, instead of the outcome message being
+   stranded at the end of the card list. */
+.queuedock {
   position: sticky; bottom: 1rem; z-index: 20; margin: 1rem auto 0; max-width: 30rem;
+  display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+}
+.queuebar {
   display: flex; gap: 0.75rem; align-items: center; justify-content: center;
   background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
   padding: 0.6rem 1.1rem; box-shadow: 0 6px 24px rgba(0,0,0,0.12);
   font-size: 0.9rem; color: var(--ink-soft); font-variant-numeric: tabular-nums;
 }
 .queuebar b { color: var(--ink); }
-.queuenote { text-align: center; font-size: 0.85rem; color: var(--ink-soft); margin: 0.8rem 0 0; }
+.queuemsg {
+  text-align: center; font-size: 0.85rem; color: var(--ink); margin: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+  padding: 0.4rem 0.9rem; box-shadow: 0 6px 24px rgba(0,0,0,0.12);
+  font-variant-numeric: tabular-nums;
+}
 .jobcard-badges { display: flex; gap: 0.4rem; align-items: center; flex: none; flex-wrap: wrap; justify-content: flex-end; }
 .matchbadge {
   font-size: 0.78rem; color: var(--ink-soft); background: var(--accent-soft);
@@ -703,6 +714,12 @@ a.counter:hover { border-color: currentColor; }
 .qitem-saved { margin: 0.3rem 0 0; color: var(--good, #2e7d32); font-size: 0.9rem; }
 .qitem-err { margin: 0.4rem 0 0; color: var(--bad); font-size: 0.85rem; }
 .qitem-note { margin: 0.3rem 0 0; color: var(--ink-soft); font-size: 0.82rem; }
+.qitem-continue {
+  display: inline-block; margin-top: 0.5rem; padding: 0.4rem 0.9rem;
+  border: 1px solid var(--line); border-radius: 8px; font-size: 0.85rem;
+  color: var(--ink); text-decoration: none; background: var(--surface);
+}
+.qitem-continue:hover { border-color: var(--ink-soft); }
 .qitem-options { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.4rem; }
 .qitem .qinput { margin-top: 0.4rem; width: 100%; }
 .qitem .qblank { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
