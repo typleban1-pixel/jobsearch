@@ -277,7 +277,7 @@ export function fromWire(out: unknown): ExtractionOutput {
   };
 }
 
-const VALID_KINDS = new Set([
+export const VALID_KINDS = new Set([
   "SKILL","TOOL","CREDENTIAL","EDUCATION","EXPERIENCE_YEARS","DOMAIN","TRAIT","LEGAL","LOGISTICAL","RESPONSIBILITY","OTHER",
 ]);
 const VALID_HARDNESS = new Set(["HARD","PREFERRED","UNCLEAR"]);

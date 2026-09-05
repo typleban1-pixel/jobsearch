@@ -1,0 +1,19 @@
+-- RESPONSIBILITY became an emitted requirement kind in the extractor
+-- (Resume Builder v2 Step 1, commit 5c8bd9b: the extractor now captures a
+-- role's core duties as kind RESPONSIBILITY) but the requirement_kind enum was
+-- never migrated to accept it. Extraction persistence therefore failed closed
+-- for every job whose description carried a duty -- the model response was
+-- produced and stored in job_extractions, but the job_requirements INSERT was
+-- rejected: "invalid input value for enum requirement_kind: RESPONSIBILITY".
+--
+-- Adding the value makes the extractor's output storable. Downstream scoring
+-- maps RESPONSIBILITY to the TRAIT class (kinds.ts CLASS_BY_KIND and
+-- requirementClass.ts FALLBACK_BY_KIND), i.e. OUT of skill-Fit: a workplace
+-- responsibility is something the person did, not a skill to gate against the
+-- skills table, so it must not create a false absent-capability penalty. Both
+-- mappings are added in the same change as this migration.
+--
+-- Same shape as 0011 (which added TRAIT): a bare, idempotent ADD VALUE in its
+-- own migration file, so it is never mixed with a statement that would use the
+-- new value in the same transaction.
+alter type requirement_kind add value if not exists 'RESPONSIBILITY';

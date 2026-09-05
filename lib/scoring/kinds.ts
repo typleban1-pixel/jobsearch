@@ -23,6 +23,10 @@ const CLASS_BY_KIND: Record<string, KindClass> = {
   // "ambiguity tolerance", "self-motivation and ownership mindset".
   TRAIT: "TRAIT",
   OTHER: "TRAIT",
+  // A duty the role performs (extractor kind RESPONSIBILITY, RB-v2 Step 1).
+  // Scored as a TRAIT: out of skill-Fit, so a job's duties never create a
+  // false absent-capability penalty against the skills table.
+  RESPONSIBILITY: "TRAIT",
 };
 
 export function classOfKind(kind: string): KindClass {

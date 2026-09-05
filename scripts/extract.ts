@@ -18,6 +18,8 @@ import { AnthropicProvider, modelForTier } from "../lib/llm/anthropic.ts";
 import { extractRequirements, sanitizeRequirement, reconcileHardness, dedupeRequirements,
   EXTRACTION_VERSION } from "../lib/llm/extractRequirements.ts";
 import { checkGrounding, findUncoveredRequirementSentences } from "../lib/llm/grounding.ts";
+import { assertRequirementKindsPersistable } from "../lib/llm/extractionPreflight.ts";
+import { VALID_KINDS } from "../lib/llm/extractRequirements.ts";
 import { TermMatcher } from "../lib/matching/match.ts";
 import { classOfKind } from "../lib/scoring/kinds.ts";
 import type { LlmUsage } from "../lib/llm/provider.ts";
@@ -262,6 +264,13 @@ for (let i = 0; i < selected.length; i += 100) {
 console.log(`extraction: ${selected.length} jobs, tier=fast (${modelForTier("fast")}), ` +
   `extraction_version=${EXTRACTION_VERSION}, concurrency=${concurrency}, budget ${BUDGET_CENTS}c`);
 console.log(`selection: ${staleOnly ? "stale version" : reextract ? "re-extract" : "not yet extracted"}\n`);
+
+// Fail fast and free: before any paid model call, confirm the live DB enum
+// accepts every requirement kind the extractor can emit. This is the guard the
+// RESPONSIBILITY incident lacked -- it produced 200+ paid responses the enum
+// then rejected at persistence.
+const acceptedKinds = await assertRequirementKindsPersistable(db);
+console.log(`preflight OK: requirement_kind accepts all ${VALID_KINDS.size} emittable kinds (${acceptedKinds.length} enum values)\n`);
 
 let spentCents = 0;
 let attempted = 0, succeeded = 0, failed = 0, totalReqs = 0, groundingFlags = 0, coercionCount = 0, persistFailed = 0;

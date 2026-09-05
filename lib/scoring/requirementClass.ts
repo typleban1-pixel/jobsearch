@@ -42,7 +42,7 @@ export const TAXONOMY_VERSION = 4;
  */
 export type ExtractedKind =
   | "SKILL" | "TOOL" | "DOMAIN" | "EXPERIENCE_YEARS" | "EDUCATION"
-  | "CREDENTIAL" | "TRAIT" | "LOGISTICAL" | "LEGAL" | "OTHER" | null;
+  | "CREDENTIAL" | "TRAIT" | "LOGISTICAL" | "LEGAL" | "OTHER" | "RESPONSIBILITY" | null;
 
 /**
  * What an unmatched requirement of each kind actually is.
@@ -144,6 +144,12 @@ const FALLBACK_BY_KIND: Partial<Record<NonNullable<ExtractedKind>, RequirementCl
   // already ruled on. Counting it again as an absent capability charges
   // the same fact twice.
   LOGISTICAL: "CONSTRAINT",
+  // A duty the role performs ("own the roadmap", "manage cross-functional
+  // projects). What someone DID, not a skill in the table -- scoring it as a
+  // skill would recreate the false absent-capability penalty traits had. Out
+  // of skill-Fit, like TRAIT. Text classification still wins first, so a
+  // responsibility whose term IS a nameable skill is classified on the term.
+  RESPONSIBILITY: "TRAIT",
 };
 
 /**
