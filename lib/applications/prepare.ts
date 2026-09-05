@@ -16,7 +16,7 @@ import { resolveField, shouldSkip, type BankedAnswer, type BankProvenance,
          type FormField, type ResolveContext, type ResolvedField } from "./answer.ts";
 import { loadRecallStore } from "../feedback/store.ts";
 import { reconcileAnswers, type ExistingAnswer } from "./reconcile.ts";
-import { matchIntent } from "./intents.ts";
+import { matchIntent, isResumeUploadField, ASHBY_RESUME_KEY } from "./intents.ts";
 import { snapshotForm } from "./formSnapshot.ts";
 import { tailorBullets, type BulletSource } from "../render/tailor.ts";
 import { evidenceTextOf, provenanceStatements } from "../render/evidenceText.ts";
@@ -422,10 +422,13 @@ export async function prepareApplication(
 
   for (const field of fields) {
     if (shouldSkip(field)) { skipped++; continue; }
-    // The resume field is answered by the artifact, not by a lookup.
-    if (matchIntent(field.label).intent?.key === "resume_upload") {
+    // The resume field is answered by the artifact, not by a lookup. Bound
+    // by label OR Ashby's exact `_systemfield_resume` key (defense-in-depth),
+    // always to THIS application's own tailored resume artifact.
+    if (isResumeUploadField(field)) {
       resolved.push({
-        field, intentKey: "resume_upload", matchedBy: "pattern:resume_upload",
+        field, intentKey: "resume_upload",
+        matchedBy: field.key === ASHBY_RESUME_KEY ? "key:_systemfield_resume" : "pattern:resume_upload",
         answer: tailoring.resumeId ? "the tailored resume prepared for this application" : null,
         confidence: tailoring.resumeId ? "DERIVED" : "BLOCKED",
         blockKind: tailoring.resumeId ? null : "UNKNOWN",

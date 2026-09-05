@@ -304,3 +304,23 @@ export function matchIntent(label: string, fieldKey?: string): IntentMatch {
   }
   return { intent: null, ambiguous: [], matchedBy: "no intent matched" };
 }
+
+/** Ashby's canonical resume field key. Only this exact key is a resume by key. */
+export const ASHBY_RESUME_KEY = "_systemfield_resume";
+
+/**
+ * Whether a form field is THE resume/CV upload, recognized two ways:
+ *   - the visible label matches the resume_upload intent, or
+ *   - the field key is Ashby's canonical `_systemfield_resume`.
+ *
+ * The key check is defense-in-depth: a resume upload still binds to this
+ * application's exact tailored artifact even if the employer customized the
+ * visible label away from "Resume/CV". It is deliberately the EXACT key only.
+ * Other `_systemfield_*` fields are not resumes, and an arbitrary file field is
+ * never assumed to be a resume merely because it accepts a file -- those remain
+ * unknown and are handed off to the employer's own form.
+ */
+export function isResumeUploadField(field: { key?: string | null; label: string }): boolean {
+  if (field.key === ASHBY_RESUME_KEY) return true;
+  return matchIntent(field.label).intent?.key === "resume_upload";
+}
