@@ -1132,6 +1132,28 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
           expectedSha256: createHash("sha256").update(bytes).digest("hex"),
         });
         await page.waitForTimeout(2500);
+        // Ashby round-trips the attach through an ApiSetFormValueToFile
+        // finalize that it often fires (or retries) LATE -- after a fixed
+        // settle would have closed the window, leaving the finalize to be
+        // blocked and, worse, misread as a submission. When an upload handle
+        // was created (Ashby), keep the window open until the finalize
+        // actually lands, so the approved artifact truly attaches. Bounded, so
+        // a finalize that never comes still closes the window and fails closed
+        // downstream. Providers that create no handle are unaffected.
+        if (guard.uploadHandleCreated() && !guard.resumeAttachSeen()) {
+          const deadline = Date.now() + 8000;
+          while (Date.now() < deadline && !guard.resumeAttachSeen()) {
+            await page.waitForTimeout(250);
+          }
+        }
+        // Durable, per-application proof of the server-side finalize, captured
+        // before the window is reset. For Ashby, serverFinalizeAllowed===true
+        // means the approved artifact attached server-side (not merely set on
+        // the input); undefined for providers that emit no such op.
+        if (attachment && guard.uploadHandleCreated()) {
+          attachment.uploadHandleAllowed = guard.uploadHandleCreated();
+          attachment.serverFinalizeAllowed = guard.resumeAttachSeen();
+        }
       } finally {
         guard.endResumeUpload();
       }

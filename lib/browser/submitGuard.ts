@@ -190,6 +190,12 @@ export class SubmitGuard {
   private resumeUpload = false;
   /** Set within that window once the upload handle has actually been created. */
   private uploadHandleSeen = false;
+  /** Set within that window once the set-to-file finalize has actually landed
+   *  (been allowed through). Lets the fill keep the window open until Ashby's
+   *  often-late finalize arrives, instead of closing after a fixed wait and
+   *  leaving the finalize to be blocked. Observation only -- it changes no
+   *  allow/block/benign rule. */
+  private uploadAttachSeen = false;
   private readonly context: BrowserContext;
 
   private constructor(context: BrowserContext) {
@@ -203,10 +209,18 @@ export class SubmitGuard {
    * permitted, and only for this upload. Reset the handle flag so the
    * finalize cannot ride on a handle from an earlier window.
    */
-  beginResumeUpload(): void { this.resumeUpload = true; this.uploadHandleSeen = false; }
+  beginResumeUpload(): void { this.resumeUpload = true; this.uploadHandleSeen = false; this.uploadAttachSeen = false; }
 
   /** Close the window: no further upload op is permitted until the next one. */
-  endResumeUpload(): void { this.resumeUpload = false; this.uploadHandleSeen = false; }
+  endResumeUpload(): void { this.resumeUpload = false; this.uploadHandleSeen = false; this.uploadAttachSeen = false; }
+
+  /** Whether Ashby's create-upload-handle op has been allowed in the current
+   *  window (i.e. a real artifact upload is underway on this provider). */
+  uploadHandleCreated(): boolean { return this.uploadHandleSeen; }
+
+  /** Whether the set-to-file finalize has been allowed in the current window
+   *  (the approved artifact actually attached, server-side). */
+  resumeAttachSeen(): boolean { return this.uploadAttachSeen; }
 
   /**
    * Installs layers 2 and 3 on the whole context.
@@ -242,7 +256,7 @@ export class SubmitGuard {
       // endpoint falls through to the block below.
       const upload = classifyUploadOp(url, { resumeUpload: guard.resumeUpload, handleSeen: guard.uploadHandleSeen });
       if (upload === "allow-handle") { guard.uploadHandleSeen = true; return route.continue(); }
-      if (upload === "allow-attach") return route.continue();
+      if (upload === "allow-attach") { guard.uploadAttachSeen = true; return route.continue(); }
 
       // Same origin as the form, which is what the architecture says and
       // what the first implementation got wrong by blocking every host.

@@ -33,6 +33,15 @@ export interface AttachmentEvidence {
   /** Why a byte hash is absent, when it is. */
   hashUnavailable: string | null;
   mechanism: "file-chooser" | "set-input-files";
+  /** Ashby only: whether the create-upload-handle op was allowed in the upload
+   *  window (a real server-side artifact upload began). Absent for providers
+   *  that never emit it. */
+  uploadHandleAllowed?: boolean;
+  /** Ashby only: whether the set-to-file finalize was allowed in the upload
+   *  window (the approved artifact actually attached server-side). Durable
+   *  proof, per application, that the résumé upload completed rather than only
+   *  being set on the input element client-side. */
+  serverFinalizeAllowed?: boolean;
 }
 
 /**
