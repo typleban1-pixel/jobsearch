@@ -776,7 +776,19 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         if (!held) held = (await container.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
         const committed = held.toLowerCase().includes(chosen.toLowerCase());
         if (!committed) {
-          throw new Stop("READBACK_MISMATCH", `"${f.label}" holds ${JSON.stringify(held.slice(0, 80))} after selecting ${JSON.stringify(chosen)}`);
+          // A required combobox that will not read back its selection fails
+          // closed and halts. A non-required one is left for the person to
+          // confirm at handoff -- like every other unverifiable optional field
+          // (never a guess, never a hard stop that denies the handoff). Some
+          // Ashby react-select location controls accept the click but do not
+          // surface the committed value where it can be read; that is left for
+          // the person rather than asserted as filled.
+          await page.keyboard.press("Escape").catch(() => undefined);
+          if (f.required) {
+            throw new Stop("READBACK_MISMATCH", `"${f.label}" holds ${JSON.stringify(held.slice(0, 80))} after selecting ${JSON.stringify(chosen)}`);
+          }
+          leftBlank.push({ field: f.label || f.key, why: `selected ${JSON.stringify(chosen)} but the control did not read it back; left for you to confirm on the form` });
+          return;
         }
         filled.push({ field: f.label || f.key, value: chosen });
         return;

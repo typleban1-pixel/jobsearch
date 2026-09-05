@@ -3,7 +3,7 @@
  * list of real municipalities, and picking the wrong one states something
  * untrue about where a person lives.
  */
-import { qualifiedGeoMatches, sameGeography, geoSearchTerm } from "../lib/browser/geography.ts";
+import { qualifiedGeoMatches, sameGeography, geoSearchTerm, geoParts } from "../lib/browser/geography.ts";
 
 let n = 0, bad = 0;
 const ok = (c: boolean, what: string) => { n++; if (!c) { bad++; console.error(`FAIL ${what}`); } };
@@ -108,6 +108,36 @@ ok(geoSearchTerm("Cleveland, Ohio, United States") === "Cleveland", "a fuller pl
 // A hyphenated real place name is not mistaken for prose.
 ok(geoSearchTerm("Winston-Salem, NC") === "Winston-Salem", "a hyphenated place name is preserved");
 ok(sameGeography("Winston-Salem, North Carolina", "Winston-Salem, NC"), "Winston-Salem matches across region spellings");
+
+// ---- 8. "City ST" written with NO comma (the Chartis case) ----------
+// The live Ashby city combobox answer was "Cleveland OH" (no comma). It must
+// resolve exactly like "Cleveland, OH": split on the trailing recognised
+// region abbreviation, expand, and match UNIQUELY -- never among the
+// Texas/Tennessee/East Clevelands.
+{
+  ok(geoParts("Cleveland OH").join("|") === "cleveland|ohio",
+     "'Cleveland OH' splits into city + expanded region");
+  const oh = qualifiedGeoMatches(OFFERED, "Cleveland OH", PROFILE);
+  ok(oh.length === 1 && oh[0] === "Cleveland, Ohio, United States",
+     `"Cleveland OH" (no comma) resolves to exactly Cleveland OH (got ${JSON.stringify(oh)})`);
+  ok(sameGeography("Cleveland OH", "Cleveland, Ohio"), "comma-less 'City ST' expands OH to Ohio");
+  ok(qualifiedGeoMatches(["Cleveland, Tennessee, United States"], "Cleveland OH", PROFILE).length === 0,
+     "'Cleveland OH' never matches Cleveland, Tennessee");
+  ok(qualifiedGeoMatches(["East Cleveland, Ohio, United States"], "Cleveland OH", PROFILE).length === 0,
+     "'Cleveland OH' never matches East Cleveland");
+  // the split is region-generic and honours the abbreviation the answer states,
+  // never defaulting to the profile's state (OH): with both offered, "Cleveland
+  // TX" picks Texas and rejects Ohio.
+  const tx = qualifiedGeoMatches(
+    ["Cleveland, Ohio, United States", "Cleveland, Texas, United States"], "Cleveland TX", { state: "OH", country: "US" });
+  ok(tx.length === 1 && tx[0] === "Cleveland, Texas, United States",
+     `"Cleveland TX" resolves uniquely to Texas by its stated abbreviation, not the profile's Ohio (got ${JSON.stringify(tx)})`);
+  // a genuine two-word city is never mis-split by the trailing-token rule
+  ok(geoParts("San Antonio").join("|") === "san antonio",
+     "a real two-word city ('San Antonio') is not split into city+region");
+  ok(geoParts("New York").join("|") === "new york",
+     "'New York' (no state) stays one component, never split");
+}
 
 console.log(`${n - bad}/${n} assertions passed`);
 process.exit(bad ? 1 : 0);

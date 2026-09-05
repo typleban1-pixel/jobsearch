@@ -130,8 +130,19 @@ export function stripLocationProse(place: string): string {
  * up applying from Canada. The country map deliberately has no "CA".
  */
 export function geoParts(place: string): string[] {
-  const raw = stripLocationProse(place).split(",").map((p) => clean(p)).filter(Boolean);
+  let raw = stripLocationProse(place).split(",").map((p) => clean(p)).filter(Boolean);
   if (!raw.length) return [];
+  // "City ST" written with no comma (e.g. "Cleveland OH"): if the sole
+  // component ends in a space followed by a RECOGNISED region abbreviation,
+  // split it so the region expands exactly as the comma form "Cleveland, OH"
+  // would. Only a known region abbreviation triggers the split, so a genuine
+  // multi-word city ("San Antonio", "New York") is left as one component and
+  // never mis-split. This only widens what the answer can be WRITTEN as; the
+  // match downstream still has to be unique or it fails closed.
+  if (raw.length === 1) {
+    const m = raw[0]!.match(/^(.+)\s+([a-z]{2})$/);
+    if (m && REGIONS[m[2]!.toUpperCase()]) raw = [m[1]!.trim(), m[2]!];
+  }
   return raw.map((part, i) => {
     const upper = part.toUpperCase();
     const isLast = i === raw.length - 1;
