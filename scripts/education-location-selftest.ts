@@ -1,0 +1,12 @@
+import { matchIntent } from "../lib/applications/intents.ts";
+let bad = 0; const ok = (c: boolean, w: string, x = "") => { console.log(`  ${c ? "PASS" : "FAIL"}  ${w}${x ? " -- " + x : ""}`); if (!c) bad++; };
+const k = (l: string) => matchIntent(l).intent?.key ?? "(none)";
+ok(k("School") === "education_school", "School -> education_school", k("School"));
+ok(k("University") === "education_school", "University -> education_school");
+ok(k("Degree") === "education_degree", "Degree -> education_degree", k("Degree"));
+ok(k("Highest level of education") === "education_degree", "Highest level of education -> education_degree", k("Highest level of education"));
+ok(k("Location") === "current_location_text", "bare Location -> current_location_text", k("Location"));
+ok(k("Candidate Location") === "current_location_text", "Candidate Location -> current_location_text", k("Candidate Location"));
+ok(k("Desired work location") === "desired_work_location", "Desired work location -> desired_work_location (NOT current)", k("Desired work location"));
+ok(k("Company Name") !== "education_school", "Company Name is not education_school", k("Company Name"));
+console.log(bad ? `\n${bad} FAILED` : `\neducation-location-selftest: ALL PASS`); process.exit(bad ? 1 : 0);

@@ -712,12 +712,25 @@ export async function loadContext(db: SupabaseClient): Promise<ResolveContext> {
     }))
     .sort((a, b) => String(b.start ?? "").localeCompare(String(a.start ?? "")));
 
+  // Education records back "school" / "degree" / "highest education"
+  // fields. Sorted most-recent first so [0] is the credential a single
+  // such field wants (which, for this profile, is also the highest).
+  const eduRows = await paged<any>(db, "profile_version_rows", "row_id,source_table,row_data",
+    (q) => q.eq("profile_version", version).eq("source_table", "education"), "row_id");
+  const education = eduRows
+    .map((r) => ({
+      rowId: r.row_id, institution: r.row_data.institution, credential: r.row_data.credential ?? null,
+      fieldOfStudy: r.row_data.field_of_study ?? null, end: r.row_data.end_month ?? null,
+      completed: Boolean(r.row_data.completed),
+    }))
+    .sort((a, b) => String(b.end ?? "").localeCompare(String(a.end ?? "")));
+
   // What earlier human corrections established. Absent tables mean an
   // empty store, which is exactly the behaviour before any of this
   // existed: the resolver simply has less to draw on.
   const learned = await loadRecallStore(db).catch(() => ({ mappings: [], contextual: [] }));
 
-  return { profileRowId: profileRow.row_id, profile: profileRow.row_data, bank, employment, learned };
+  return { profileRowId: profileRow.row_id, profile: profileRow.row_data, bank, employment, education, learned };
 }
 
 /**

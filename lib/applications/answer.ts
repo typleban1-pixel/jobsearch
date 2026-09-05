@@ -131,11 +131,23 @@ export interface EmploymentRow {
   start: string | null;
 }
 
+/** One frozen education record. Highest/most-recent first in the context. */
+export interface EducationRow {
+  rowId: string;
+  institution: string;
+  credential: string | null;
+  fieldOfStudy: string | null;
+  end: string | null;
+  completed: boolean;
+}
+
 export interface ResolveContext {
   profileRowId: string;
   profile: Record<string, any>;
   /** Frozen employment records, newest first. */
   employment?: EmploymentRow[];
+  /** Frozen education records, highest/most-recent first. */
+  education?: EducationRow[];
   /** Approved, reusable answers from the question bank, by intent key. */
   bank: Map<string, BankedAnswer>;
   /** Set when a Category C draft has been produced and checked. */
@@ -637,6 +649,10 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
       evidenceIds: [ctx.profileRowId], considered: [], refused: false };
   }
 
+  if (intent.key === "education_school" || intent.key === "education_degree") {
+    return resolveEducation(field, ctx, intent.key, matchedBy);
+  }
+
   if (intent.key === "previously_employed_here") {
     return resolvePriorEmployment(field, ctx, matchedBy);
   }
@@ -789,6 +805,48 @@ const WIDER_THAN_THE_EMPLOYER =
 const normalizeEmployer = (s: string): string =>
   s.toLowerCase().replace(/\b(?:inc|llc|ltd|corp|corporation|co|company|group|holdings|plc|gmbh)\b/g, " ")
     .replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Degree-level spellings a form's option list might use, from a credential. */
+function degreeVariants(credential: string): string[] {
+  const c = credential.toLowerCase();
+  const out = [credential];
+  const add = (...xs: string[]) => out.push(...xs);
+  if (/\b(ph\.?d|doctor|doctorate)\b/.test(c)) add("Doctorate", "PhD", "Doctoral Degree");
+  else if (/\bmaster|m\.?s\.?|m\.?a\.?|m\.?b\.?a|mba\b/.test(c)) add("Master's", "Master's Degree", "Masters", "Master");
+  else if (/\bbachelor|b\.?s\.?|b\.?a\.?\b/.test(c)) add("Bachelor's", "Bachelor's Degree", "Bachelors", "Bachelor", "Bachelor's Degree (BA/BS)");
+  else if (/\bassociate|a\.?a\.?|a\.?s\.?\b/.test(c)) add("Associate's", "Associate's Degree", "Associates", "Associate");
+  return [...new Set(out)];
+}
+
+/**
+ * School and degree, from the highest / most recent education record.
+ *
+ * The context is sorted highest-first, so [0] is the credential a single
+ * "School"/"Degree"/"highest education" field wants. A school field takes
+ * the institution; a degree field takes the credential, and where the
+ * control offers a fixed list it maps to the level it names (a "Bachelor
+ * of Science" onto a "Bachelor's Degree" option) and refuses if none fit.
+ */
+function resolveEducation(field: FormField, ctx: ResolveContext, key: string, matchedBy: string): ResolvedField {
+  const edu = ctx.education ?? [];
+  if (!edu.length) return blocked(field, key, matchedBy, "UNKNOWN", "no education records are on file to answer this from");
+  const top = edu[0]!;
+  if (key === "education_school") {
+    const fit = fitOption(field, top.institution);
+    if (!fit.ok) return blocked(field, key, matchedBy, "AMBIGUOUS", fit.why);
+    return { field, intentKey: key, matchedBy, answer: fit.value, confidence: "VERIFIED",
+      blockKind: null, blockedReason: null, evidenceIds: [top.rowId], considered: [], refused: false };
+  }
+  // degree
+  if (!top.credential) return blocked(field, key, matchedBy, "UNKNOWN", "the most recent education record has no credential recorded");
+  for (const cand of degreeVariants(top.credential)) {
+    const fit = fitOption(field, cand);
+    if (fit.ok) return { field, intentKey: key, matchedBy, answer: fit.value, confidence: "VERIFIED",
+      blockKind: null, blockedReason: null, evidenceIds: [top.rowId], considered: [], refused: false };
+  }
+  return blocked(field, key, matchedBy, "AMBIGUOUS",
+    `the degree "${top.credential}" did not match any option the control offers`);
+}
 
 function resolvePriorEmployment(field: FormField, ctx: ResolveContext, matchedBy: string): ResolvedField {
   const employer = ctx.application?.employer ?? null;

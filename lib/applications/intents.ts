@@ -175,7 +175,15 @@ export const INTENTS: Intent[] = [
   { key: "current_job_title", description: "Current or most recent job title", category: "B_CALCULATED",
     patterns: [/\b(?:current|present|most recent|previous) (?:job )?title\b|\bcurrent role\b/i] },
   { key: "current_location_text", description: "Where you are currently located", category: "B_CALCULATED",
-    patterns: [/\bwhere are you (?:currently )?(?:located|based)\b|\bwhat city and state do you (?:reside|live)\b|\bcity, ?state(?:, ?country)?\b|\bcurrent (?:location|residence|city)\b/i] },
+    patterns: [/\bwhere are you (?:currently )?(?:located|based)\b|\bwhat city and state do you (?:reside|live)\b|\bcity, ?state(?:, ?country)?\b|\bcurrent (?:location|residence|city)\b|^location$|\bcandidate.?location\b|\byour location\b/i],
+    // A bare "Location" on an application is the candidate's location. A
+    // desired/work/office location has its own intent and its own words.
+    excludes: [/\b(?:desired|preferred|target|work|office|job|role|position)\s+location\b/i] },
+  { key: "education_school", description: "School / university / institution attended", category: "A_VERIFIED_FACT",
+    patterns: [/\b(?:school|university|college|institution|alma mater)\b/i],
+    excludes: [/\b(?:high school|name of (?:the )?school of)\b/i, /\bwhy\b/i] },
+  { key: "education_degree", description: "Degree / level of education", category: "A_VERIFIED_FACT",
+    patterns: [/\bdegree\b|\blevel of education\b|\bhighest (?:degree|level of education|education)\b|\beducation level\b|\bqualification level\b/i] },
   { key: "resides_in_us", description: "Whether you reside in the United States", category: "B_CALCULATED",
     patterns: [/\b(?:do you reside|are you (?:currently )?(?:based|located)|do you live)\b[^?]{0,30}\b(?:the )?(?:us|u\.s\.|united states)\b/i],
     excludes: [/\bauthori[sz]ed\b|\bsponsor\w*\b|\beligible to work\b/i] },
