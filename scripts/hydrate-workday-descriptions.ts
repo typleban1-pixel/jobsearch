@@ -30,6 +30,7 @@ const write = process.argv.includes("--write");
 const limitArg = process.argv.indexOf("--limit");
 const LIMIT = limitArg > -1 ? Number(process.argv[limitArg + 1]) : Infinity;
 const ALL = process.argv.includes("--all");
+const PENDING = process.argv.includes("--pending"); // ELIGIBLE + UNCERTAIN: the states a body can still move
 // Re-fetch even where a description exists. Needed after a change to
 // htmlToText: the stored text was produced by the old normalizer and
 // may be truncated at a decoded "<".
@@ -72,7 +73,9 @@ export function detailUrl(jobUrl: string): string | null {
 const jobs = await page("jobs", "id,url,title",
   (q) => {
     const base = q.eq("source", "WORKDAY").eq("status", "OPEN");
-    return ALL ? base : base.eq("eligibility", "ELIGIBLE");
+    if (ALL) return base;
+    if (PENDING) return base.in("eligibility", ["ELIGIBLE", "UNCERTAIN"]);
+    return base.eq("eligibility", "ELIGIBLE");
   });
 const haveDesc = new Set(
   (await page("job_descriptions", "job_id,description_text", (q) => q, "job_id"))
