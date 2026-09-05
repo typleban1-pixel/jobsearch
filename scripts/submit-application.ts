@@ -37,6 +37,7 @@ import { loadContext, applicationScope } from "../lib/applications/prepare.ts";
 import { approvedArtifact } from "../lib/render/artifact.ts";
 
 import { revalidateBeforeSubmit, requiredBlocked } from "../lib/applications/revalidate.ts";
+import { resolveFormUrl } from "../lib/applications/formUrl.ts";
 import { answerSetHash } from "../lib/applications/approvalBinding.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
 import { pickResultPageIndex } from "../lib/browser/resultPage.ts";
@@ -46,6 +47,11 @@ import { formatStopDetail, fillStopCode, STOP_EVENT, type StopCode, type StopSta
 
 const applicationId = process.argv[2];
 const hold = process.argv.includes("--hold");
+// Validate the whole real submit path -- open, fill, upload, resolve the
+// submit control -- and STOP immediately before the one click. Nothing
+// reaches the employer. Used to prove a provider's submit control
+// resolves cleanly before risking a real, irreversible click.
+const dryRun = process.argv.includes("--dry-run");
 if (!applicationId) { console.error("usage: submit-application.ts <application_id>"); process.exit(2); }
 
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
@@ -143,7 +149,14 @@ if (artifact.sha256 !== app.approved_artifact_sha256) {
 }
 
 const { data: job } = await db.from("jobs")
-  .select("id,title,source,application_form_url,company_id").eq("id", app.job_id).single();
+  .select("id,title,source,application_form_url,apply_url,url,company_id").eq("id", app.job_id).single();
+// One resolver for the form URL, shared with the fill path, so the two
+// never disagree. Ashby has no board form route, so it falls back to the
+// apply page; a null here is a fail-closed stop, never a page.goto(null).
+const formUrl = resolveFormUrl(job!);
+if (!formUrl) await stopAt("NAVIGATION_FAILED", "preflight",
+  `No application form URL could be resolved for ${job!.source} job ${job!.id} `
+  + `(application_form_url and apply_url are both unusable); nothing was opened.`);
 const { data: company } = await db.from("companies").select("name,domain,ats_token").eq("id", job!.company_id).single();
 const { data: version } = await db.from("job_versions").select("id,is_current").eq("id", app.job_version_id).single();
 if (!version?.is_current) await stopAt("STALE_JOB_VERSION", "preflight",
@@ -247,7 +260,7 @@ const degreeOptions: string[] = company?.ats_token
 
 console.log(`${company?.name} — ${job!.title}`);
 console.log(`  approved artifact ${artifact.sha256.slice(0, 12)} (${artifact.pdf.length} bytes)`);
-console.log(`  form ${job!.application_form_url}\n`);
+console.log(`  form ${formUrl}\n`);
 
 const runStarted = Date.now();
 const fillRun = startFillRun({
@@ -338,7 +351,7 @@ resolveContext.application = await applicationScope(db, job!.id).catch(() => und
 
 const outcome = await fillApplication({
   db, context, applicationId, provider: job!.source,
-  applyUrl: job!.application_form_url!, storedHash: app.form_snapshot_hash,
+  applyUrl: formUrl!, storedHash: app.form_snapshot_hash,
   storedFields: (app.form_snapshot as any)?.fields ?? [],
   answers, resumePdfPath, runDir, resolveContext,
   boardToken: company?.ats_token ?? null, educationRecords, degreeOptions,
@@ -385,7 +398,7 @@ if (outcome.reason !== "HANDOFF") {
 // success wording for any provider, so an unencoded provider (Ashby today)
 // still fails to a not-confirmed outcome rather than a false SUBMITTED.
 const pages = context.pages();
-const page: Page = pages[pickResultPageIndex(pages.map((p) => p.url()), job!.application_form_url!)] ?? pages[pages.length - 1]!;
+const page: Page = pages[pickResultPageIndex(pages.map((p) => p.url()), formUrl!)] ?? pages[pages.length - 1]!;
 
 // ---- what the page looked like before the click ---------------------
 const before = await page.evaluate(() => ({
@@ -406,6 +419,15 @@ if (count !== 1) {
   await stopAt("SUBMIT_CONTROL_AMBIGUOUS", "pre-submit",
     `The submit control resolved to ${count} elements, not exactly one, so no click was attempted.`,
     { page });
+}
+if (dryRun) {
+  const label = await submit.first().innerText().catch(() => "?");
+  await capture(page, join(runDir, "10-dry-before-submit.png"));
+  console.log(`\nDRY RUN: the full submit path succeeded to the point of no return.`);
+  console.log(`  submit control resolves to exactly 1: "${label}"`);
+  console.log(`  résumé uploaded and every required field filled + read back; nothing was clicked, nothing reached the employer.`);
+  console.log(`  evidence: ${runDir}`);
+  await finish(0);
 }
 console.log(`\nclicking submit (${await submit.first().innerText().catch(() => "?")})`);
 const requestedAt = new Date();

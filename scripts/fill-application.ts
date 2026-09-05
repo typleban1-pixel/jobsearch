@@ -29,6 +29,7 @@ import { isFailure } from "../lib/browser/stopReasons.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
 import { pickResultPageIndex } from "../lib/browser/resultPage.ts";
 import { startFillRun, recordFillRun, type UploadedArtifact } from "../lib/applications/fillRun.ts";
+import { resolveFormUrl } from "../lib/applications/formUrl.ts";
 
 const applicationId = process.argv[2];
 const validate = process.argv.includes("--validate");
@@ -82,8 +83,7 @@ const { data: company } = await db.from("companies").select("name").eq("id", job
 // an employer page and hoping it leads to the right requisition.
 // Ashby publishes no separate verified form route: the form is revealed on
 // the posting page itself, so its own posting URL is the form URL.
-const formUrl: string | null = job!.application_form_url
-  ?? (job!.source === "ASHBY" ? (job!.apply_url ?? job!.url ?? null) : null);
+const formUrl: string | null = resolveFormUrl(job!);
 if (!formUrl) {
   if (job!.source === "GREENHOUSE") {
     console.error(`no verified application form url for this job.`);
