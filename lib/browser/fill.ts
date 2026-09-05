@@ -23,7 +23,7 @@ import { Stop, HANDOFF, type FillOutcomeName } from "./stopReasons.ts";
 import { SubmitGuard } from "./submitGuard.ts";
 import { snapshotLive, type LiveField } from "./liveSnapshot.ts";
 import { resolveFormContext, assertContextIntact, type FormContext } from "./formContext.ts";
-import { exactlyOne, fillText, readBack, selectOption, setChecked, setFiles, clickOptionWithin, shouldReattempt } from "./actions.ts";
+import { exactlyOne, fillText, fillTextCommitting, verifyCommitted, readBack, selectOption, setChecked, setFiles, clickOptionWithin, shouldReattempt } from "./actions.ts";
 import { readLazyOptions, readFilteredOptions, exactOptions } from "./inspectCombobox.ts";
 import { geoSearchTerm, exactGeoMatches, qualifiedGeoMatches, sameGeography } from "./geography.ts";
 import { matchCountryOption } from "../applications/workCountry.ts";
@@ -949,6 +949,16 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         await selectOption(c, value);
       } else if (f.type === "boolean") {
         await setChecked(c, /^(yes|true|i acknowledge|acknowledge)$/i.test(value));
+      } else if (provider === "ASHBY") {
+        // Ashby's controlled inputs ignore a bulk value-set, so it is typed
+        // and committed through the framework, then proven ACCEPTED (value
+        // survives reconcile and the control is not left invalid) rather
+        // than merely present in the DOM.
+        await fillTextCommitting(c, value);
+        const committed = await verifyCommitted(c, value);
+        if (!committed.ok) {
+          throw new Stop("READBACK_MISMATCH", `"${f.label || f.key}" ${committed.why}`);
+        }
       } else {
         await fillText(c, value);
         const got = await readBack(c);

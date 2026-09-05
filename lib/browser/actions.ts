@@ -43,6 +43,48 @@ export async function fillText(control: Locator, value: string): Promise<void> {
   await control.fill(value);
 }
 
+/**
+ * Fill a controlled input so a React framework actually registers it.
+ *
+ * A bulk value-set (`.fill()`) sets the DOM value and dispatches one input
+ * event, which Greenhouse's inputs accept but Ashby's do not: its form
+ * state stays empty, the DOM shows the text, and submit-time validation
+ * reports the field missing. Real keystrokes (`pressSequentially`) fire a
+ * keydown/input per character that the framework's onChange reliably
+ * catches, and an explicit change+blur commits and validates it. Slower, so
+ * it is used only where the plain fill is known to be ignored.
+ */
+export async function fillTextCommitting(control: Locator, value: string): Promise<void> {
+  await control.scrollIntoViewIfNeeded().catch(() => undefined);
+  await control.click({ timeout: 8000 }).catch(() => undefined);
+  await control.fill("").catch(() => undefined);            // clear (fires input)
+  await control.pressSequentially(value, { delay: 12 });    // per-character input events
+  await control.evaluate((el: any) => {
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.dispatchEvent(new Event("blur", { bubbles: true }));
+    if (typeof el.blur === "function") el.blur();
+  }).catch(() => undefined);
+}
+
+/**
+ * Proof the framework accepted the value, not just that the DOM shows it.
+ *
+ * After a reconcile pause: the value must still be present (a re-render
+ * driven by real state would keep it; a stale DOM-only value is reset), and
+ * the control must not be left flagged invalid. This is the
+ * APPLICATION_STATE_COMMITTED check, stricter than DOM_VALUE_PRESENT.
+ */
+export async function verifyCommitted(control: Locator, value: string): Promise<{ ok: boolean; why?: string }> {
+  await control.page().waitForTimeout(300);
+  const got = (await control.inputValue().catch(() => "")).trim();
+  if (got !== value.trim()) {
+    return { ok: false, why: `holds ${JSON.stringify(got.slice(0, 60))} after reconcile, so the framework did not accept ${JSON.stringify(value.slice(0, 60))}` };
+  }
+  const invalid = await control.getAttribute("aria-invalid").catch(() => null);
+  if (invalid === "true") return { ok: false, why: "is still flagged aria-invalid after filling, so the framework did not accept it" };
+  return { ok: true };
+}
+
 export async function readBack(control: Locator): Promise<string> {
   return control.inputValue();
 }
