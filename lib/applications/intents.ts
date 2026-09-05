@@ -178,7 +178,15 @@ export const INTENTS: Intent[] = [
     patterns: [/\bwhere are you (?:currently )?(?:located|based)\b|\bwhat city and state do you (?:reside|live)\b|\bcity, ?state(?:, ?country)?\b|\bcurrent (?:location|residence|city)\b|^location$|\bcandidate.?location\b|\byour location\b/i],
     // A bare "Location" on an application is the candidate's location. A
     // desired/work/office location has its own intent and its own words.
-    excludes: [/\b(?:desired|preferred|target|work|office|job|role|position)\s+location\b/i] },
+    // A question that names a SINGLE sub-field as its head noun -- "the
+    // city of your current residence", "list the city", "state of
+    // residence" -- is asking for that one field, so it is left to the
+    // specific city/state intent rather than swallowed here and blocked as
+    // ambiguous against it (Chartis' required Location field did exactly
+    // that: matched both and blocked, though the profile answers it plainly).
+    excludes: [/\b(?:desired|preferred|target|work|office|job|role|position)\s+location\b/i,
+               /\b(?:city|state|province|town|zip|postal code)\s+of\s+(?:your\s+)?(?:current\s+)?residence\b/i,
+               /\blist (?:the |your )?(?:city|state|town)\b/i] },
   { key: "education_school", description: "School / university / institution attended", category: "A_VERIFIED_FACT",
     patterns: [/\b(?:school|university|college|institution|alma mater)\b/i],
     excludes: [/\b(?:high school|name of (?:the )?school of)\b/i, /\bwhy\b/i] },
