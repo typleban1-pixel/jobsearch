@@ -425,3 +425,30 @@ export function mergeAshbyButtonGroups(fields: LiveField[], groups: AshbyButtonG
   }
   return kept;
 }
+
+/**
+ * Wait until Ashby's React form has hydrated enough to accept input.
+ *
+ * Ashby server-renders the form, so the controls exist and can be typed
+ * into before react-hook-form has attached its onChange handlers. Filling
+ * in that window sets the DOM value but never reaches the form's state, so
+ * every field -- text, buttons, radios -- submits as "missing" while the
+ * page visibly shows the values. This polls until a real text input carries
+ * React props with an onChange function, which is the signal that a fill
+ * will actually register.
+ */
+export async function waitForAshbyHydration(page: any, timeoutMs = 20000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const ready = await page.mainFrame().evaluate(() => {
+      const input = document.querySelector("input[type=text], input[type=email], input:not([type])");
+      if (!input) return false;
+      const rk = Object.keys(input).find((k) => k.startsWith("__reactProps"));
+      if (!rk) return false;
+      return typeof (input as any)[rk]?.onChange === "function";
+    }).catch(() => false);
+    if (ready) return true;
+    await page.waitForTimeout(250);
+  }
+  return false;
+}

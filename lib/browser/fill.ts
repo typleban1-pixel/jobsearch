@@ -34,6 +34,7 @@ import {
   revealAshbyForm, ashbyMultiStep, readChoiceFieldsets, groupAshbyChoices,
   mergeChoiceGroups, dropFileHeaderArtifacts, chooseSingleOption, verifySingleSelected,
   readAshbyComboboxes, markAshbyComboboxes, readAshbyButtonGroups, mergeAshbyButtonGroups,
+  waitForAshbyHydration,
 } from "./ashbyForm.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
 import { hashSnapshot } from "../applications/formSnapshot.ts";
@@ -286,6 +287,10 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
     // one control reveals fields; it never submits. Shared with preparation.
     if (provider === "ASHBY") {
       await revealAshbyForm(page);
+      // Do not fill until react-hook-form has attached: a fill before
+      // hydration sets DOM values the form's state never sees, and every
+      // field submits as "missing" while visibly filled.
+      await waitForAshbyHydration(page);
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)).catch(() => undefined);
       await page.waitForTimeout(800);
       await page.evaluate(() => window.scrollTo(0, 0)).catch(() => undefined);

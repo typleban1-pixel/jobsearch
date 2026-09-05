@@ -94,7 +94,14 @@ export async function verifyCommitted(control: Locator, value: string): Promise<
   if (String(res.dom).trim() !== value.trim()) {
     return { ok: false, why: `holds ${JSON.stringify(String(res.dom).slice(0, 60))} in the DOM after reconcile` };
   }
-  if (res.hasReact && res.react !== undefined && String(res.react).trim() !== value.trim()) {
+  // The React props value is the framework's own state and is authoritative.
+  // If the control has no React props at all, the form has not hydrated and
+  // the value cannot be confirmed committed -- which is exactly the
+  // fill-before-hydration failure that shows filled but submits as missing.
+  if (!res.hasReact) {
+    return { ok: false, why: "has no React props (the form is not hydrated), so the value cannot be confirmed as committed to the framework" };
+  }
+  if (res.react !== undefined && String(res.react).trim() !== value.trim()) {
     return { ok: false, why: `the framework's own state holds ${JSON.stringify(String(res.react).slice(0, 60))}, not the value written, so it was not committed` };
   }
   if (res.invalid === "true") return { ok: false, why: "is still flagged aria-invalid after filling" };
