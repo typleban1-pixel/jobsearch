@@ -50,15 +50,6 @@ const PHRASE: Record<string, string> = {
 };
 const phraseOf = (id: string) => PHRASE[id] ?? id;
 
-/**
- * A metric must strengthen the DOMINANT story, not merely mention a theme.
- * Creative/production accomplishments (video, motion graphics, film) are not
- * summary metrics for these professional roles; their quantity is about the
- * creative work, not the driving strength. Defensive filter -- with precise
- * evidence-ID coverage (production wiring) such a line would not be tagged to
- * a coordination/marketing/product theme in the first place.
- */
-const OFF_NARRATIVE = /\bvideo\b|motion graphic|\bfilm(ed|ing)?\b|\bedited\b|photograph|3d print|deliverables/i;
 
 export interface SummaryResult {
   text: string;
@@ -71,7 +62,11 @@ export interface SummaryResult {
   gapsExcluded: string[];
 }
 
-export function buildSummary(plan: NarrativePlan, selection: SelectionResult): SummaryResult {
+/** A compact, standalone verified metric statement, tagged with the themes it
+ *  strengthens. NOT a reframe of an experience bullet. */
+export interface MetricPhrase { phrase: string; themes: string[] }
+
+export function buildSummary(plan: NarrativePlan, selection: SelectionResult, metrics: MetricPhrase[] = []): SummaryResult {
   const strong = new Set(plan.themes.filter((t) => t.coverage === "DIRECT").map((t) => t.id));
   const primary = plan.primaryStory.themeIds.filter((id) => strong.has(id));
   const support = plan.supportingThemes.filter((id) => strong.has(id) && !plan.primaryStory.themeIds.includes(id));
@@ -89,18 +84,22 @@ export function buildSummary(plan: NarrativePlan, selection: SelectionResult): S
     text += ` Comfortable ${joined}.`;
   }
 
-  // Metric: only a selected, quantitative accomplishment that covers a PRIMARY
-  // story theme. Never forced; omitted entirely when none qualifies.
+  // Metric: a COMPACT, standalone verified metric statement that covers a
+  // PRIMARY story theme. Never a reframe of a selected experience bullet, and
+  // never a duplicate of one -- so the render's no-duplicate guard always
+  // passes and the summary reads tightly. Never forced; omitted when none
+  // qualifies.
   const primarySet = new Set(plan.primaryStory.themeIds);
-  const looksQuant = (s: string) => /\b\d[\d,]*\b|\$|%/.test(s);
-  const metricLine = selection.selected
-    .filter((s) => looksQuant(s.text) && s.themes.some((t) => primarySet.has(t)) && !OFF_NARRATIVE.test(s.text))
+  const selectedLower = selection.selected.map((s) => s.text.toLowerCase());
+  const duplicates = (p: string) => { const pl = p.toLowerCase().replace(/\s+/g, " ").trim(); return selectedLower.some((t) => { const tl = t.replace(/\s+/g, " ").trim(); return tl.includes(pl) || pl.includes(tl); }); };
+  const metricCand = metrics
+    .filter((m) => m.themes.some((t) => primarySet.has(t)) && !duplicates(m.phrase))
     .sort((a, b) => b.themes.filter((t) => primarySet.has(t)).length - a.themes.filter((t) => primarySet.has(t)).length)[0];
   let metric: SummaryResult["metric"] = null;
-  if (metricLine) {
-    const strengthens = metricLine.themes.find((t) => primarySet.has(t))!;
-    metric = { text: metricLine.text, strengthens };
-    text += ` ${metricLine.text}`;
+  if (metricCand) {
+    const strengthens = metricCand.themes.find((t) => primarySet.has(t))!;
+    metric = { text: metricCand.phrase, strengthens };
+    text += ` ${metricCand.phrase}`;
   }
 
   const evByTheme = new Map(plan.themes.map((t) => [t.id, t.evidence.map((e) => e.ref)]));

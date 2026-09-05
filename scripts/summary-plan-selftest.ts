@@ -41,7 +41,8 @@ const coord = buildSummary(coordPlan, coordSel);
 const mktPlan = plan("marketing", ["seo", "digital marketing"], ["email marketing"],
   [theme("seo", "marketing", "DIRECT"), theme("digital marketing", "marketing", "DIRECT"), theme("email marketing", "marketing", "DIRECT")], []);
 const mktSel = sel([{ text: "Built segmented email funnels for an audience of roughly 70,000 to 180,000 contacts.", themes: ["digital marketing", "email marketing"] }]);
-const mkt = buildSummary(mktPlan, mktSel);
+const EMAIL_METRIC = { phrase: "Grew a marketing email audience to approximately 180,000 contacts.", themes: ["digital marketing"] };
+const mkt = buildSummary(mktPlan, mktSel, [EMAIL_METRIC]);
 
 console.log("summaries:");
 console.log("  COORD:  " + coord.text);
@@ -61,7 +62,11 @@ for (const banned of ["financial services", "wealth management", "power bi", "cr
 ok(coord.gapsExcluded.includes("financial services experience"), "gaps are recorded as excluded");
 // metric discipline
 ok(coord.metric === null, "no metric is forced when no selected quantitative accomplishment covers a primary theme");
-ok(mkt.metric !== null && /70,000|180,000/.test(mkt.metric.text) && mktPlan.primaryStory.themeIds.includes(mkt.metric.strengthens), "a metric is included only when it strengthens a primary story theme");
+ok(mkt.metric !== null && /180,000/.test(mkt.metric.text) && mktPlan.primaryStory.themeIds.includes(mkt.metric.strengthens), "a compact metric is included only when it strengthens a primary story theme");
+ok(mkt.metric !== null && !mktSel.selected.some((s) => s.text === mkt.metric!.text), "the metric is a compact phrase, never a verbatim selected bullet");
+// dedup: a metric phrase that duplicates a selected bullet is dropped
+const dupSel = sel([{ text: "Grew a marketing email audience to approximately 180,000 contacts.", themes: ["digital marketing"] }]);
+ok(buildSummary(mktPlan, dupSel, [EMAIL_METRIC]).metric === null, "a metric that duplicates a selected bullet is dropped (no duplication reaches the render)");
 // house style
 ok(!/—|--/.test(coord.text) && !/—|--/.test(mkt.text), "no em dashes in employer-facing copy");
 // product story only when supported
