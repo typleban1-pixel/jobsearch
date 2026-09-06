@@ -192,9 +192,15 @@ export function assembleTailoredDoc(
   // that restates the identity line is not a contribution and must not
   // count toward the project's rank.
   const projectPools = master.projects.map((p) => {
-    const l = tailor(p.line);
-    // Same rule as the roles above: the score comes from the master
-    // wording, the printed text from the tailored wording.
+    // The identity line is the project's existence, grounded in the
+    // verified project row -- not a claim to be earned through tailoring.
+    // Fall back to the master wording when no tailored version was
+    // accepted, exactly as the summary does (`tailor(...) ?? master`).
+    // Without this fallback tailor() returned null and silently dropped
+    // the whole project, which is how RentPup -- Ty's strongest product
+    // evidence -- disappeared from a Product Operations resume while the
+    // identity line's own contract says it "always prints".
+    const l = tailor(p.line) ?? p.line;
     const scored = (p.optional ?? [])
       .map((masterLine, i) => ({
         line: byOriginal.get(masterLine.text)
@@ -219,8 +225,14 @@ export function assembleTailoredDoc(
     }
     // Ranked on the best it could actually print, exactly as a role is
     // ranked on its best maxPerRole rather than on everything it holds.
-    return { project: p, line: l, pool,
-      entryScore: pool.slice(0, budget.maxPerProject).reduce((n, x) => n + x.score, 0) };
+    const entryScore = pool.slice(0, budget.maxPerProject).reduce((n, x) => n + x.score, 0);
+    // Relevance of the project to THIS posting: the best of its identity
+    // and its claims. An independent product is shown when it speaks to
+    // the role and stays off a posting it has nothing to do with, which
+    // is the "compete fairly, appear when relevant" rule -- not "always".
+    const identityScore = l ? scoreClaim(l.text, profile) : 0;
+    return { project: p, line: l, pool, entryScore,
+      relevance: Math.max(entryScore, identityScore) };
   });
 
   // -- the project's allowance, from the same table, at its own rank ---
@@ -363,6 +375,13 @@ export function assembleTailoredDoc(
   const projects: ResumeProject[] = projectPools
     .map((x) => {
       if (!x.line) return null;
+      // Appear when relevant, not always: a project with no concept
+      // overlap with this posting (identity and claims both score 0) is
+      // dropped rather than printed as an unexplained line.
+      if (x.relevance === 0) {
+        dropped.push({ line: x.line.text, why: `${x.project.name}: no measured relevance to this posting` });
+        return null;
+      }
       const keep = projectSlots[projectPools.indexOf(x)]!.taken;
       for (const y of x.pool.slice(keep)) {
         dropped.push({ line: y.line.text,

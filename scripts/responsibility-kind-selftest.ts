@@ -23,13 +23,19 @@ const ok = (c: boolean, w: string, x = "") => { console.log(`  ${c ? "PASS" : "F
   ok(!!clean && clean.requirement.kind === "RESPONSIBILITY", "sanitizeRequirement keeps kind RESPONSIBILITY (it is a VALID_KIND)");
   ok(VALID_KINDS.has("RESPONSIBILITY"), "RESPONSIBILITY is in the extractor's VALID_KINDS");
 }
-// 2. scoring class: TRAIT, out of skill-Fit -- never SKILL.
+// 2. scoring class: its own RESPONSIBILITY class, out of the hard-requirement
+//    set -- never SKILL (which would recreate the false absent-capability
+//    penalty). A duty maps to positive evidence in fit.ts when a verified
+//    capability supports it, and is dropped otherwise; it is never a gate.
 {
-  ok(classOfKind("RESPONSIBILITY") === "TRAIT", "classOfKind(RESPONSIBILITY) = TRAIT", classOfKind("RESPONSIBILITY"));
+  // Legacy v1 scorer (kinds.ts) still folds it into TRAIT for skill-Fit
+  // exclusion; the live candidacy path uses classifyRequirement below.
+  ok(classOfKind("RESPONSIBILITY") === "TRAIT", "classOfKind(RESPONSIBILITY) folds to TRAIT in the legacy scorer", classOfKind("RESPONSIBILITY"));
   // A duty term text can't resolve to a nameable skill -> the extractor's kind
-  // decides, and it must be TRAIT (out of Fit), not the SKILL default.
+  // decides, and it must be RESPONSIBILITY (positive-only, never a gate), not
+  // the SKILL default.
   const c = classifyRequirement("Oversee the widget release cadence across teams.", "widget release cadence oversight", [], "RESPONSIBILITY");
-  ok(c.requirementClass === "TRAIT", "an inconclusive RESPONSIBILITY classifies as TRAIT, not SKILL", c.requirementClass);
+  ok(c.requirementClass === "RESPONSIBILITY", "an inconclusive RESPONSIBILITY classifies as RESPONSIBILITY, never SKILL", c.requirementClass);
 }
 // 3. Postgres round-trip: persist a RESPONSIBILITY requirement and read it back.
 {

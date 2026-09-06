@@ -7,6 +7,7 @@
  * is how the result is compared against the accepted simulation before
  * anything is committed.
  */
+import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { buildFitBreakdown, FIT_FORMULA_VERSION } from "../lib/scoring/fit.ts";
@@ -33,6 +34,13 @@ const relations = new Map<string, any>();
 for (const r of await page("capability_relations", "requirement_concept,satisfied_by_skill,relation,rationale")) {
   if (!verified.has(r.satisfied_by_skill)) continue;
   relations.set(toConcept(r.requirement_concept).concept, { skill: r.satisfied_by_skill, relation: r.relation, rationale: r.rationale }); }
+if (process.argv.includes("--overlay")) {
+  const ov = JSON.parse(readFileSync("data/candidacy-relations.json", "utf8")).relations as any[];
+  let n = 0;
+  for (const r of ov) { if (!verified.has(r.satisfied_by_skill)) continue;
+    relations.set(toConcept(r.requirement_concept).concept, { skill: r.satisfied_by_skill, relation: r.relation, rationale: r.rationale }); n++; }
+  console.error(`overlay: merged ${n}/${ov.length} proposed relations`);
+}
 const index: CapabilityIndex = { relations, matchTerm: (t: string) => { const m = matcher.match(t); return { status: m.status, skillName: m.skillName, method: m.method, terminal: m.terminal }; } };
 const { data: credDecl } = await db.from("credential_declarations").select("family,status");
 const cred: Record<string, string> = {}; for (const c of credDecl ?? []) cred[c.family] = c.status;

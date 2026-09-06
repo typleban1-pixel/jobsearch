@@ -139,10 +139,36 @@ const CSS = `
   .project ul { margin-top: 8px; }
 `;
 
-export function renderResumeHtml(doc: ResumeDoc): string {
+/**
+ * A modest spacing tightening for a document that spills a little past a
+ * page. It reduces vertical rhythm only -- margins, spacing, line-height
+ * -- and never the type size, so the page stays readable (Part 20: "never
+ * solve layout by making everything tiny"). Applied by the compaction
+ * pass before any evidence is trimmed.
+ */
+const COMPACT_CSS = `
+  body { line-height: 1.26; }
+  .masthead { margin-bottom: 7px; padding-bottom: 5px; }
+  .capability { margin: 0 0 8px; padding-bottom: 6px; }
+  section { margin-bottom: 5px; }
+  h2 { margin: 0 0 6px; }
+  .summary { line-height: 1.3; }
+  .role { margin-bottom: 6px; }
+  .role-org { margin: 2px 0 4px; }
+  li { margin-bottom: 3px; }
+  .skill-row { margin-bottom: 3px; }
+  .edu { margin-bottom: 2px; }
+  .project { margin-bottom: 6px; }
+  .project ul { margin-top: 5px; }
+`;
+
+export interface RenderOptions { compact?: boolean }
+
+export function renderResumeHtml(doc: ResumeDoc, opts: RenderOptions = {}): string {
   const contact = [esc(doc.location), esc(doc.email), doc.phone ? esc(doc.phone) : null,
     ...doc.links.map(anchor)].filter(Boolean);
-  return `<!doctype html><meta charset="utf-8"><title>${esc(doc.name)}</title><style>${CSS}</style>
+  const style = opts.compact ? CSS + COMPACT_CSS : CSS;
+  return `<!doctype html><meta charset="utf-8"><title>${esc(doc.name)}</title><style>${style}</style>
 <div class="masthead">
   <h1 class="name">${esc(doc.name)}</h1>
   <p class="contact">${contact.map((c) => `<span>${c}</span>`).join("")}</p>
@@ -185,10 +211,10 @@ ${doc.education.map((e) => `<p class="edu"><b>${esc(e.credential)}${e.field ? `,
  * The machinery, including the refusal to output a document missing any
  * of its lines or repeating one, lives in renderCore.
  */
-export async function renderResume(doc: ResumeDoc): Promise<RenderedResume> {
+export async function renderResume(doc: ResumeDoc, opts: RenderOptions = {}): Promise<RenderedResume> {
   // 11in less the 14mm + 13mm this template reserves, at 96dpi.
   const printable = 11 * 96 - ((14 + 13) / 25.4) * 96;
-  return renderHtmlToPdf(renderResumeHtml(doc), doc, RENDERER_VERSION, printable);
+  return renderHtmlToPdf(renderResumeHtml(doc, opts), doc, RENDERER_VERSION, printable);
 }
 
 export type { RenderedResume };

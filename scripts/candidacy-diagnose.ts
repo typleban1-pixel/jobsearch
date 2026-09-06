@@ -4,6 +4,7 @@
  * resolves it (DIRECT / TRANSFERABLE / UNKNOWN / ABSENT), plus the verdict.
  *   node scripts/candidacy-diagnose.ts <job-id-prefix>
  */
+import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { TermMatcher } from "../lib/matching/match.ts";
@@ -19,7 +20,7 @@ const page = async (t: string, c: string, f: (q: any) => any = (q) => q) => { co
   for (let x = 0; ; x += 1000) { const { data, error } = await f(db.from(t).select(c)).range(x, x + 999);
     if (error) throw new Error(`${t}: ${error.message}`); o.push(...data); if (!data || data.length < 1000) break; } return o; };
 
-const allSkills = await page("skills", "id,name,related_terms,status");
+const allSkills = await page("skills", "id,name,related_terms,status,level,category");
 const aliases = await page("term_aliases", "alias,canonical_term");
 const matcher = new TermMatcher(allSkills.map((s: any) => ({ id: s.id, name: s.name, relatedTerms: s.related_terms ?? [], status: s.status })), aliases as any);
 const verified = new Set(allSkills.filter((s: any) => s.status === "VERIFIED").map((s: any) => s.name));
@@ -27,6 +28,13 @@ const relations = new Map<string, any>();
 for (const r of await page("capability_relations", "requirement_concept,satisfied_by_skill,relation,rationale")) {
   if (!verified.has(r.satisfied_by_skill)) continue;
   relations.set(toConcept(r.requirement_concept).concept, { skill: r.satisfied_by_skill, relation: r.relation, rationale: r.rationale }); }
+if (process.argv.includes("--overlay")) {
+  const ov = JSON.parse(readFileSync("data/candidacy-relations.json", "utf8")).relations as any[];
+  let n = 0;
+  for (const r of ov) { if (!verified.has(r.satisfied_by_skill)) continue;
+    relations.set(toConcept(r.requirement_concept).concept, { skill: r.satisfied_by_skill, relation: r.relation, rationale: r.rationale }); n++; }
+  console.error(`overlay: merged ${n}/${ov.length} proposed relations`);
+}
 const index: CapabilityIndex = { relations, matchTerm: (t: string) => { const m = matcher.match(t); return { status: m.status, skillName: m.skillName, method: m.method, terminal: m.terminal }; } };
 const { data: credDecl } = await db.from("credential_declarations").select("family,status");
 const cred: Record<string, string> = {}; for (const c of credDecl ?? []) cred[c.family] = c.status;

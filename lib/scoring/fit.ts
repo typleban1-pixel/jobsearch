@@ -1,5 +1,6 @@
 import { type ExtractedKind, classifyRequirement, type RequirementClass, type CredentialFamily } from "./requirementClass.ts";
 import { resolveConcept, creditFor, type CapabilityIndex, type Resolution } from "./capability.ts";
+import { compositeResolution, type CompositeContext } from "./composite.ts";
 import { resolveWithEvidence, type EvidenceContext } from "./evidenceResolution.ts";
 import { collapseAlternatives } from "./requirementLogic.ts";
 import { decompose } from "../matching/concepts.ts";
@@ -199,12 +200,18 @@ function bareField(alternative: string): string {
 }
 
 function bestOfAlternatives(
-  parts: string[], index: CapabilityIndex,
+  parts: string[], index: CapabilityIndex, composite: CompositeContext | null = null,
 ): { resolution: Resolution; via: string | null; rationale: string } {
   let best: { resolution: Resolution; via: string | null; rationale: string } | null = null;
   let branch: string | null = null;
   for (const p of parts) {
-    const r = resolveConcept(p, index);
+    let r = resolveConcept(p, index);
+    // A branch a single skill does not name may still be a composite of
+    // verified capabilities ("high-growth startup", "product operations").
+    if (r.resolution === "ABSENT" && composite) {
+      const c = compositeResolution(p, composite);
+      if (c) r = c;
+    }
     if (!best || RESOLUTION_RANK[r.resolution] > RESOLUTION_RANK[best.resolution]) { best = r; branch = p; }
   }
   if (!best) return { resolution: "UNKNOWN", via: null, rationale: "the requirement listed no alternatives to evaluate" };
@@ -290,6 +297,15 @@ export function buildFitBreakdown(
   const byConcept = new Map<string, ScorableConcept>();
   const excludedByClass: Record<string, number> = {};
   const allConcepts: string[] = [];
+
+  // Composite concepts ("product operations") are credited from their
+  // parts only when every part is independently evidenced; see
+  // composite.ts. Disabled when no evidence context is supplied, so a
+  // positional caller that predates this is unaffected.
+  const composite: CompositeContext | null = evidenceContext
+    ? { resolve: (c: string) => resolveConcept(c, index).resolution,
+        supportingCategories: evidenceContext.supportingCategories }
+    : null;
 
   // The extractor gives every requirement pulled from one sentence the
   // same raw_text. Grouping by that text tells the classifier when its
@@ -392,7 +408,11 @@ export function buildFitBreakdown(
 
     for (const part of units) {
       if (!part || part.length < 2) continue;
-      const hardness = (r.is_hard_requirement as ScorableConcept["hardness"]) ?? "UNCLEAR";
+      // A RESPONSIBILITY is never a hard qualification: it enters Fit only
+      // as positive evidence, at PREFERRED weight, or not at all.
+      const hardness: ScorableConcept["hardness"] = c.requirementClass === "RESPONSIBILITY"
+        ? "PREFERRED"
+        : ((r.is_hard_requirement as ScorableConcept["hardness"]) ?? "UNCLEAR");
       // Keyed by class as well as text. "management" as an acceptable
       // degree field and "management" as work experience are different
       // requirements, and merging them let a degree list silently absorb
@@ -434,7 +454,7 @@ export function buildFitBreakdown(
         // One requirement, several acceptable answers. It resolves to
         // its best branch and is credited once, because meeting it twice
         // is not meeting two requirements.
-        res = bestOfAlternatives(decomposition.parts, index);
+        res = bestOfAlternatives(decomposition.parts, index, composite);
       } else {
         res = resolveConcept(part, index);
       }
@@ -446,6 +466,23 @@ export function buildFitBreakdown(
       if (evidenceContext) {
         const refined = resolveWithEvidence(part, res, evidenceContext, { minimumYears: r.minimum_years ?? null });
         if (refined.changed) res = { resolution: refined.resolution, via: res.via, rationale: refined.rationale };
+      }
+
+      // A SKILL concept no single skill names, and the evidence layer did
+      // not rescue, may still be a composite of verified capabilities.
+      // Never applied to a qualification gate.
+      if (res.resolution === "ABSENT" && composite && (c.requirementClass === "SKILL" || c.requirementClass === "RESPONSIBILITY")) {
+        const comp = compositeResolution(part, composite);
+        if (comp) res = comp;
+      }
+
+      // A duty nothing in the profile evidences is dropped, not scored as
+      // an unmet requirement: an unmapped responsibility describes the job,
+      // not a gap in the candidate. Only a duty that maps to a verified
+      // capability stays, as positive PREFERRED-weight evidence.
+      if (c.requirementClass === "RESPONSIBILITY" && (res.resolution === "ABSENT" || res.resolution === "UNKNOWN")) {
+        excludedByClass["RESPONSIBILITY"] = (excludedByClass["RESPONSIBILITY"] ?? 0) + 1;
+        continue;
       }
 
       // A one-item list is not a choice. Recording alternatives for it

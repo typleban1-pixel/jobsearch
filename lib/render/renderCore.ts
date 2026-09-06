@@ -24,6 +24,8 @@ export interface RenderedResume {
   rendererVersion: number;
   /** Text as a reader and an ATS see it, for verification. */
   extractedText: string;
+  /** Continuous content height in CSS px, for last-page fill checks. */
+  contentPx: number;
 }
 
 export const esc = (s: string) =>
@@ -83,6 +85,7 @@ export async function renderHtmlToPdf(
 
     const pdf = await page.pdf({ format: "Letter", printBackground: true, preferCSSPageSize: true });
     const extractedText = (await page.evaluate(() => document.body.innerText)) ?? "";
+    const contentPx = (await page.evaluate(() => document.body.scrollHeight)) ?? 0;
     // Counted from the PDF itself, not estimated from the body height.
     //
     // The old measurement divided the continuous scroll height by a
@@ -123,7 +126,7 @@ export async function renderHtmlToPdf(
       }
     }
 
-    return { pdf, sha256: hashPdf(pdf), bytes: pdf.length, pages, rendererVersion, extractedText };
+    return { pdf, sha256: hashPdf(pdf), bytes: pdf.length, pages, rendererVersion, extractedText, contentPx };
   } finally {
     await browser.close();
   }

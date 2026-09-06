@@ -85,12 +85,26 @@ const accept = (d: ResumeDoc) => documentLines(d).map((t) => ({ original: t, cla
     JSON.stringify(dropped));
 }
 {
-  // Space is not a reason. Every claim here is irrelevant to the posting.
+  // Space is not a reason. Every claim here is irrelevant, but the
+  // posting speaks to what the project IS (a monitoring system that
+  // checks data sources), so the project stays on its identity alone.
   const d = doc([["Grows tomatoes.", "x1"], ["Paints fences.", "x2"], ["Bakes bread.", "x3"]]);
-  const { doc: out } = assembleTailoredDoc(d, accept(d), ["e-billing", "contract lifecycle"], DEFAULT_BUDGET, "Legal Operations");
+  const { doc: out } = assembleTailoredDoc(d, accept(d), ["data monitoring", "system checks"], DEFAULT_BUDGET, "Data Operations");
   check("an empty allowance is not filled with irrelevant claims", out.projects[0]!.optional.length === 0,
     JSON.stringify(out.projects[0]!.optional.map((l) => l.text)));
-  check("but the project itself survives", out.projects.length === 1);
+  check("a project relevant on its identity survives with no optional claims", out.projects.length === 1);
+}
+{
+  // Appear when relevant, not always: when NOTHING about the project --
+  // identity or claims -- speaks to the posting, it is dropped rather
+  // than printed as an unexplained line. This is the Part-16 rule.
+  const d = doc([["Grows tomatoes.", "x1"], ["Paints fences.", "x2"], ["Bakes bread.", "x3"]]);
+  const { doc: out, dropped } = assembleTailoredDoc(d, accept(d), ["e-billing", "contract lifecycle"], DEFAULT_BUDGET, "Legal Operations");
+  check("a project with no relevance to the posting is dropped", out.projects.length === 0,
+    JSON.stringify(out.projects.map((p) => p.name)));
+  check("and the drop is recorded with a reason",
+    dropped.some((x) => /property-compliance monitoring/.test(x.line) && /no measured relevance/.test(x.why)),
+    JSON.stringify(dropped.map((x) => x.why)));
 }
 {
   // Eight relevant claims, ceiling of three.
@@ -286,7 +300,7 @@ check("no word is changed", normalizeProse("Taught 250+ students, translating wo
     /implementationState: source\.implementationState/.test(tailor), "");
   const composer = readFileSync("lib/render/resume.ts", "utf8");
   check("the composer builds the project pool from links, not from source",
-    /optional: claims\.map/.test(composer) && /projectClaims\(p\.row_id, rows\)/.test(composer), "");
+    /optional: \[\.\.\.traction/.test(composer) && /projectClaims\(p\.row_id, rows\)/.test(composer), "");
   check("every project line, optional included, is gated by allLines",
     /p\.optional\]/.test(composer), "");
 }

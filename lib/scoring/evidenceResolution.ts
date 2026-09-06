@@ -52,6 +52,13 @@ import type { Resolution } from "./capability.ts";
 export interface EvidenceContext {
   /** Categories of VERIFIED, non-EXPOSURE skills. Exact names only. */
   verifiedCategories: Set<string>;
+  /**
+   * Categories broad enough to support a component of a composite
+   * concept: at least two verified skills. A single-skill category
+   * ("sales" = one phone-sales row) is too thin to stand in for a
+   * discipline, so it does not credit "sales operations"; see composite.ts.
+   */
+  supportingCategories: Set<string>;
   /** Durations the profile states for a capability, in years. */
   capabilityYears: Map<string, number>;
   /** Capabilities or credentials explicitly declared as not held. */
@@ -151,6 +158,13 @@ export function buildEvidenceContext(input: {
 
   const verifiedCategories = new Set(
     verified.map((s) => norm(s.category ?? "")).filter(Boolean));
+  const categoryCounts = new Map<string, number>();
+  for (const s of verified) {
+    const c = norm(s.category ?? "");
+    if (c) categoryCounts.set(c, (categoryCounts.get(c) ?? 0) + 1);
+  }
+  const supportingCategories = new Set(
+    [...categoryCounts].filter(([, n]) => n >= 2).map(([c]) => c));
 
   // Only durations the profile states about a capability, and only ones
   // approved for use. "Years of hands-on FDM 3D printing experience"
@@ -166,5 +180,5 @@ export function buildEvidenceContext(input: {
     if (label) capabilityYears.set(label, m.numeric_value);
   }
 
-  return { verifiedCategories, capabilityYears, notHeld: new Set((input.notHeld ?? []).map(norm)) };
+  return { verifiedCategories, supportingCategories, capabilityYears, notHeld: new Set((input.notHeld ?? []).map(norm)) };
 }

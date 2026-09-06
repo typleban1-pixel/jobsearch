@@ -32,6 +32,7 @@ const check = (name: string, ok: boolean, detail = "") => {
 /** The real shape of Ty's profile, reduced to what this decides on. */
 const ctx = (over: Partial<EvidenceContext> = {}): EvidenceContext => ({
   verifiedCategories: new Set(["operations", "marketing", "product development", "creative"]),
+  supportingCategories: new Set(["operations", "marketing", "product development", "creative"]),
   capabilityYears: new Map([["fdm 3d printing", 4]]),
   notHeld: new Set(["certified public accountant"]),
   ...over,

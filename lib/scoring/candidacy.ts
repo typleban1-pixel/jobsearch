@@ -52,7 +52,8 @@ export type ReasonCode =
   | "LOW_HARD_RATIO"
   | "MEETS_HARD_REQUIREMENTS"
   | "UNRESOLVED_ROLE_DEFINING_REQUIREMENT"
-  | "NO_DIRECT_BUT_TRANSFERABLE";
+  | "NO_DIRECT_BUT_TRANSFERABLE"
+  | "OCCUPATIONAL_ADJACENT_ONLY";
 
 /**
  * What kind of demand a HARD requirement is.
@@ -317,6 +318,47 @@ export function assessCandidacy(input: CandidacyInput): CandidacyResult {
     return out("STRETCH", "CORE_GAP_WITHOUT_SUPPORT",
       `one role-defining gap (${coreGaps[0]}) against ${hardMet}/${hardTotal} hard requirements met`);
   }
+  // No discriminating hard requirement means there is nothing to reject
+  // ON. A posting whose only extracted substance is a degree checkbox, a
+  // responsibility, or a preferred nice-to-have arrives here with
+  // hardTotal 0. That is a thin or incomplete posting, not a candidate
+  // found wanting -- routing it to a confident REJECT would let sparse
+  // extraction masquerade as a qualification gap, which is the exact
+  // failure Part A forbids. It goes to a person instead. Checked BEFORE
+  // the direct-evidence arm so a job with no denominator can never be
+  // rejected for a ratio it does not have.
+  // No discriminating hard requirement means there is usually nothing to
+  // reject ON -- but "nothing to test" and "affirmative evidence of a
+  // different occupation" are not the same posting, and must not share a
+  // verdict.
+  //
+  //   THIN: a posting whose extraction produced too little to judge (a
+  //   lone responsibility, a degree checkbox, a program blurb). Routed to
+  //   a person, never rejected, because sparse extraction is not a
+  //   qualification gap (Part A).
+  //
+  //   AFFIRMATIVE MISMATCH: a posting rich enough to judge (scorable),
+  //   whose many stated concepts all resolve ABSENT with nothing
+  //   credited -- ten unmet software-engineering concepts, say, that the
+  //   extractor happened to label PREFERRED. That is "very low
+  //   substantive capability overlap", which IS a REJECT. It falls
+  //   through to the direct-evidence arm below.
+  if (hardTotal === 0) {
+    const credited = scored.filter((c) => (c.credit ?? 0) > 0).length;
+    const absent = scored.filter((c) => (c.credit ?? 0) === 0).length;
+    // Affirmative mismatch: the posting is rich enough to judge, states
+    // several concepts, and the profile covers almost none of them with
+    // no direct match anywhere. A couple of incidental transferable hits
+    // among many absent concepts do not rescue it (a compliance software
+    // role Ty cannot do); a lone adjacent concept with nothing absent is
+    // thin, not a mismatch, and still goes to a person.
+    const evaluable = credited + absent;
+    const affirmativeMismatch = input.fit.scorable && directMatches === 0
+      && absent >= 3 && evaluable > 0 && (credited / evaluable) < 0.34;
+    if (!affirmativeMismatch) return out("MANUAL_REVIEW", "NO_DISCRIMINATING_REQUIREMENTS",
+      "the posting states no hard requirement that discriminates, so there was nothing to test against");
+  }
+
   // No DIRECT title/label match is a weak signal, not a verdict. For a broad
   // profile, verified TRANSFERABLE coverage of the substance, with NO defining
   // occupational gap and no role-defining gap, is a reasonable stretch a
@@ -347,26 +389,25 @@ export function assessCandidacy(input: CandidacyInput): CandidacyResult {
   if (unresolvedBlocks) return unresolvedOut();
   if (occAbsent.length) return out("STRETCH", "OCCUPATIONAL_GAP",
     `the occupational substance is not established: ${occAbsent.map((c) => c.concept).join(", ")}`);
-  // No denominator is not a passing score.
-  //
-  // hardTotal counts the HARD requirements that discriminate: baseline
-  // ones are excluded because holding a bachelor's degree says nothing
-  // about whether he can do the job. A posting whose only HARD
-  // requirement is that degree therefore arrives with hardTotal 0, and
-  // "hardTotal === 0 ||" waved it through as MEETS_HARD_REQUIREMENTS
-  // having tested nothing. That produced 17 of 23 candidates on the
-  // 2026-09-01 run, nearly all UChicago research roles whose real
-  // substance (transgenic mouse colonies, clinical trial documentation,
-  // social science research methods) the posting lists as PREFERRED and
-  // which he matched none of.
-  //
-  // This changes no threshold. The 50% bar below is untouched and still
-  // decides every posting that states a requirement to test. It only
-  // stops an empty set from counting as a cleared bar, and sends the
-  // judgment to a person instead.
-  if (hardTotal === 0) return out("MANUAL_REVIEW", "NO_DISCRIMINATING_REQUIREMENTS",
-    "the posting states no hard requirement that discriminates, so there was nothing to test against");
 
+  // Occupational substance carried ONLY by adjacency is a stretch, not an
+  // autonomous candidate.
+  //
+  // A composite ("product operations" from a product category and an
+  // operations category) or a related-term match shows the work is
+  // adjacent to the profile. That is real evidence and the right reason
+  // to preserve a job for review -- it is not the direct establishment of
+  // the discipline that an UNATTENDED application has to rest on. So when
+  // every occupational concept is met only transferably, with no direct
+  // occupational match anywhere, the job is STRETCH. This is the guard
+  // that keeps recall expansion flowing to STRETCH rather than lowering
+  // the APPLICATION_CANDIDATE bar; a job with no occupational concept at
+  // all is unaffected and still judged on its hard ratio below.
+  const occDirect = occConcepts.some((c) => c.resolution === "DIRECT" && (c.credit ?? 0) > 0);
+  if (occConcepts.length > 0 && !occDirect)
+    return out("STRETCH", "OCCUPATIONAL_ADJACENT_ONLY",
+      "the occupational substance is adjacent (transferable) rather than directly established: "
+      + occConcepts.map((c) => c.concept).join(", "));
   return hardMet / hardTotal >= 0.5
     ? out("APPLICATION_CANDIDATE", "MEETS_HARD_REQUIREMENTS", `no role-defining or occupational gap; ${hardMet}/${hardTotal} hard requirements met`)
     : out("STRETCH", "LOW_HARD_RATIO", `no role-defining or occupational gap, but only ${hardMet}/${hardTotal} hard requirements met`);

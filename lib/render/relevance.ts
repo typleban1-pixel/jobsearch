@@ -74,8 +74,19 @@ const CONCEPTS: Record<string, string[]> = {
   ],
   product_development: [
     "product", "roadmap", "prototype", "prototyping", "iteration", "iterative", "feature",
-    "features", "design", "development", "build", "shipped", "release", "user", "customer",
-    "research", "testing", "validation",
+    "features", "design", "development", "build", "built", "building", "ship", "shipped",
+    "shipping", "release", "launch", "launched", "user", "users", "customer", "customers",
+    "research", "testing", "validation", "mvp", "traction", "adoption", "retention",
+  ],
+  // Impact and traction: a shipped product with users and revenue is
+  // evidence in its own right, especially for product, operations,
+  // startup and business roles. Without these words a real traction line
+  // ("in use by 21 users, ~$1,200/mo revenue") carried no concept and
+  // read as irrelevant to every posting.
+  impact_traction: [
+    "revenue", "users", "customers", "subscribers", "paying", "monetize", "monetization",
+    "growth", "adoption", "retention", "arr", "mrr", "traction", "roi", "conversion",
+    "acquisition", "profit", "sales", "generating", "reached", "peak",
   ],
   teaching_enablement: [
     "training", "train", "teaching", "teach", "mentor", "mentoring", "enablement", "instruction",

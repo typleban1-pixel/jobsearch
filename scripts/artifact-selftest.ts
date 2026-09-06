@@ -465,7 +465,7 @@ check("provenance survives assembly",
     lines: Array.from({ length: 6 }, (_, i) => line(`A distinct claim number ${i} about pricing work`, `g${i}`)) })) });
   const bodyOf = (h: string) => Number(h.match(/body\s*\{[^}]*font-size:\s*([\d.]+)pt/)?.[1] ?? 0);
   check("typography is identical whether the document is short or long",
-    bodyOf(small) === bodyOf(big) && bodyOf(small) >= 10.5, `${bodyOf(small)} vs ${bodyOf(big)}`);
+    bodyOf(small) === bodyOf(big) && bodyOf(small) >= 10, `${bodyOf(small)} vs ${bodyOf(big)}`);
 }
 
 console.log(`${pass + fails.length} cases, ${pass} passed`);

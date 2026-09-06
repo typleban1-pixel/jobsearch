@@ -40,6 +40,21 @@ const TRAILING_NOUNS = new RegExp(
     "experience", "experiences", "proficiency", "skills", "skill", "knowledge",
     "expertise", "background", "capability", "capabilities", "competency", "competencies",
     "fundamentals", "principles", "practices", "acumen", "fluency", "literacy",
+    // Container nouns: a way of packaging a capability, not the
+    // capability itself. "ai-assisted development tools" is
+    // "ai-assisted development"; "workflow automation software" is
+    // "workflow automation". Stripping them can only ever help a term
+    // match a verified skill it already names, never invent one.
+    "tools", "tool", "tooling", "platforms", "platform", "software",
+    "systems", "solutions", "suite", "suites", "applications", "stack",
+    // Trailing qualifiers: "X strategy", "X initiatives" are "the
+    // <qualifier> for X", where X carries the capability. Stripping them
+    // lets the head match a verified capability it already names; it can
+    // never invent a match the head does not support. NOTE: "operations"
+    // and "management" are deliberately NOT here -- they change the
+    // discipline ("revenue operations" is not "revenue"), and composite.ts
+    // handles those by requiring every part to be evidenced.
+    "strategy", "strategies", "initiatives", "initiative",
   ].join("|") + ")$", "i");
 
 /** "5+ years of X", "a minimum of 3 years in X". The years live elsewhere. */

@@ -10,6 +10,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hashPdf, renderResume, RENDERER_VERSION } from "./resumePdf.ts";
 import { contentHash } from "./canonical.ts";
+import { compactToFit, type CompactTrim } from "./compact.ts";
+import { auditLayout, type LayoutReport } from "./layoutAudit.ts";
 import type { ResumeDoc } from "./resume.ts";
 
 export interface StoredArtifact {
@@ -19,12 +21,42 @@ export interface StoredArtifact {
   rendererVersion: number | null;
 }
 
-/** Renders a document and stores it against a resume row. */
+/**
+ * Renders a document and stores it against a resume row.
+ *
+ * Before rendering the final artifact it runs the compaction pass
+ * (compact.ts): a trivial trailing overflow is resolved by tightening
+ * spacing and, only if that is not enough, trimming the weakest evidence.
+ * A bullet trimmed for layout is no longer on the resume, so its
+ * resume_claims row is removed too -- the artifact and the recorded
+ * provenance never disagree. The rendered artifact is then audited
+ * (layoutAudit); the report is returned so the caller can fail closed on
+ * a blocking layout defect (Part 21).
+ *
+ * Pass { noCompact: true } to store a document exactly as given (used by
+ * tests that assert a fixed artifact hash).
+ */
 export async function renderAndStore(
-  db: SupabaseClient, resumeId: string, doc: ResumeDoc,
-): Promise<{ sha256: string; contentSha256: string; bytes: number; pages: number }> {
-  const r = await renderResume(doc);
-  const content = contentHash(doc);
+  db: SupabaseClient, resumeId: string, doc: ResumeDoc, opts: { noCompact?: boolean } = {},
+): Promise<{ sha256: string; contentSha256: string; bytes: number; pages: number; trims: CompactTrim[]; layout: LayoutReport }> {
+  const probe = async (d: ResumeDoc, compact: boolean) => {
+    const rr = await renderResume(d, { compact });
+    return { pages: rr.pages, contentPx: rr.contentPx };
+  };
+  const fit = opts.noCompact
+    ? { doc, compact: false, trims: [] as CompactTrim[] }
+    : await compactToFit(doc, probe);
+  const finalDoc = fit.doc;
+  const r = await renderResume(finalDoc, { compact: fit.compact });
+
+  // Keep provenance honest: a bullet trimmed to fit is not on the resume,
+  // so the claim recorded for it must go. Matched on the exact line text,
+  // which is what resume_claims stores.
+  for (const t of fit.trims) {
+    await db.from("resume_claims").delete().eq("resume_id", resumeId).eq("claim", t.line);
+  }
+
+  const content = contentHash(finalDoc);
   const { error } = await db.from("resumes").update({
     content_sha256: content,
     artifact_pdf: r.pdf.toString("base64"),
@@ -34,7 +66,9 @@ export async function renderAndStore(
     renderer_version: r.rendererVersion,
   }).eq("id", resumeId);
   if (error) throw new Error(`could not store the resume artifact: ${error.message}`);
-  return { sha256: r.sha256, contentSha256: content, bytes: r.bytes, pages: r.pages };
+
+  const layout = auditLayout({ pageCount: r.pages, contentPx: r.contentPx, doc: finalDoc, text: r.extractedText });
+  return { sha256: r.sha256, contentSha256: content, bytes: r.bytes, pages: r.pages, trims: fit.trims, layout };
 }
 
 export async function loadArtifact(db: SupabaseClient, resumeId: string): Promise<StoredArtifact | null> {

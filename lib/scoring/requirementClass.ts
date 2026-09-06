@@ -145,11 +145,13 @@ const FALLBACK_BY_KIND: Partial<Record<NonNullable<ExtractedKind>, RequirementCl
   // the same fact twice.
   LOGISTICAL: "CONSTRAINT",
   // A duty the role performs ("own the roadmap", "manage cross-functional
-  // projects). What someone DID, not a skill in the table -- scoring it as a
-  // skill would recreate the false absent-capability penalty traits had. Out
-  // of skill-Fit, like TRAIT. Text classification still wins first, so a
-  // responsibility whose term IS a nameable skill is classified on the term.
-  RESPONSIBILITY: "TRAIT",
+  // projects"). What someone DID -- not a qualification it gates on. Scored
+  // as its own class so Fit can credit a duty that maps to a verified
+  // capability as POSITIVE evidence while NEVER letting an unmapped duty
+  // become an unmet requirement (see fit.ts). Text classification still
+  // wins first, so a responsibility whose term IS a nameable skill is
+  // classified SKILL on the term.
+  RESPONSIBILITY: "RESPONSIBILITY",
 };
 
 /**
@@ -189,7 +191,7 @@ export function credentialFamily(text: string): CredentialFamily {
 }
 
 export type RequirementClass =
-  | "GATING_CREDENTIAL" | "EDUCATION" | "SKILL" | "TRAIT" | "CONSTRAINT" | "GENERIC";
+  | "GATING_CREDENTIAL" | "EDUCATION" | "SKILL" | "TRAIT" | "CONSTRAINT" | "GENERIC" | "RESPONSIBILITY";
 
 /**
  * Regulated credentials. Deliberately a NAMED list, not a keyword like
@@ -293,6 +295,8 @@ const PURE_GENERIC = new Set([
   "communication", "communications", "communication skills",
   "interpersonal", "interpersonal communication",
   "problem solving", "problem-solving", "critical thinking", "analytical thinking",
+  "strategic thinking", "strategic mindset", "analytical skills", "analytical",
+  "problem-solving skills", "conceptual thinking", "creative thinking",
   "attention to detail", "detail orientation", "time management", "organization",
   "organizational", "multitasking", "prioritization", "adaptability", "flexibility",
   "collaboration", "teamwork", "team player", "self-starter", "self starter",
@@ -315,13 +319,27 @@ const GENERIC_BY_SHAPE: RegExp[] = [
   /^(?:\w+\s+){0,2}communications?$/i,
   /^(?:\w+\s+){0,2}(?:collaboration|teamwork|professionalism|adaptability|flexibility)$/i,
   /^(?:emotional intelligence|executive presence|business sense|common sense|soft skills)$/i,
+  // "strategic thinking", "growth mindset": a disposition, not a nameable
+  // capability. Kept to the soft-trait adjectives on purpose so a
+  // recognised competency ("systems thinking") and a real method ("design
+  // thinking") are NOT swallowed.
+  /^(?:strategic|analytical|critical|creative|conceptual|logical|abstract|big[- ]?picture|holistic|independent)\s+thinking$/i,
+  /^(?:growth|entrepreneurial|ownership|abundance|beginner'?s?|founder'?s?|owner'?s?)\s+mindset$/i,
   /^technolog(?:y|ies)$/i,
   /^(?:general|broad|strong|solid)$/i,
 ];
 
 /** Personal qualities that are not in the pure-generic list but still traits. */
 const TRAIT_MARKER =
-  /\b(mindset|attitude|passionate|passion for|self-motivat|entrepreneurial|resilien|empathy|humility|integrity|judgment|judgement|thrives?|comfortable with ambiguity|bias for action|sense of urgency)\b/i;
+  /\b(mindset|attitude|passionate|passion for|self-motivat|self-direct|self-start|entrepreneurial|resilien|empathy|humility|integrity|judgment|judgement|thrives?|comfortable with ambiguity|bias for action|sense of urgency|results[- ]driven|results[- ]oriented|detail[- ]oriented|proactiv)\b/i;
+
+/**
+ * "Translating strategy into execution" and its kin. A description of a
+ * way of working, not a nameable capability with evidence behind it, so
+ * it can contribute as a trait but never stand as a role-defining gap.
+ */
+const SOFT_COMPETENCY_PHRASE =
+  /\btranslat\w*\s+(?:strategy|vision|goals?|ideas?|concepts?|insights?)\s+(?:in)?to\s+(?:execution|action|results|reality|practice|outcomes?)\b/i;
 
 const CONSTRAINT_MARKER =
   // "residency restriction" and "residing" are here rather than left to
@@ -448,9 +466,9 @@ function classifyText(text: string, concept: string): Omit<ClassifiedRequirement
              educationField: null, educationLevel: null,
              reason: "phrase carries no capability content" };
   }
-  if (TRAIT_MARKER.test(text)) {
+  if (TRAIT_MARKER.test(text) || SOFT_COMPETENCY_PHRASE.test(text)) {
     return { concept, credentialFamily: null, requirementClass: "TRAIT",
-             educationField: null, educationLevel: null, reason: "a personal quality" };
+             educationField: null, educationLevel: null, reason: "a personal quality or way of working" };
   }
   return null;
 }
@@ -554,6 +572,8 @@ export function classifyRequirement(
              educationField: null, educationLevel: null, evidence: "KIND",
              reason: byKind === "TRAIT"
                ? `a personal quality, which the extractor labelled ${extractedKind}`
+               : byKind === "RESPONSIBILITY"
+               ? "a duty the role performs; credited only where a verified capability supports it, never a gate"
                : `a condition of the job rather than the person, which the extractor labelled ${extractedKind}` };
   }
 
