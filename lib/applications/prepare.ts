@@ -25,6 +25,7 @@ import { tailorBullets, type BulletSource } from "../render/tailor.ts";
 import { evidenceTextOf, provenanceStatements } from "../render/evidenceText.ts";
 import { classifyRequirement } from "../scoring/requirementClass.ts";
 import { composeResume, type ResumeDoc } from "../render/resume.ts";
+import { isRecruiterFacing, assertRecruiterFacing } from "../render/languageQuality.ts";
 import { selectSummary } from "../render/summary.ts";
 import { assembleTailoredDoc, dropSummarySentencesDuplicatedInBullets,
   selectCapabilities } from "../render/tailoredDoc.ts";
@@ -969,6 +970,34 @@ export async function composeFromRequirements(
     vetted.push({ ...a, text: a.original, evidenceIds: fallbackIds, generation: "SELECTED" });
   }
   result.accepted = vetted;
+
+  // Recruiter-language gate on the tailored bullets.
+  //
+  // The master composer (composeResume) guards its own lines, but the
+  // tailored path selects and reframes verified EVIDENCE that never passed
+  // that gate. That evidence is written for many purposes, some of it in
+  // implementation language captured from a repository ("a scheduled job
+  // recomputes obligation statuses ... spooled ... reported to the
+  // operator"). It is legitimate evidence and stays in the truth store; it
+  // must never become a résumé bullet. Provenance (above) only asks whether
+  // a line is grounded -- an implementation bullet is perfectly grounded --
+  // so it let engineering documentation onto the résumé. This drops any
+  // tailored line that reads as internals, preferring the audited master
+  // wording when it is recruiter-facing, and dropping the line otherwise: a
+  // résumé missing one internal bullet is correct; jargon is not.
+  const recruiterVetted: typeof vetted = [];
+  const droppedForLanguage: string[] = [];
+  for (const a of vetted) {
+    if (isRecruiterFacing(a.text)) { recruiterVetted.push(a); continue; }
+    if (a.text !== a.original && isRecruiterFacing(a.original)) {
+      const ids = masterEvidence.get(a.original) ?? a.evidenceIds;
+      const fb = auditClaim({ claim: a.original, cited: ids.map((id) => auditById.get(id)!).filter(Boolean), profile: auditSources });
+      if (fb.verdict === "SUPPORTED") { recruiterVetted.push({ ...a, text: a.original, evidenceIds: ids, generation: "SELECTED" }); continue; }
+    }
+    droppedForLanguage.push(a.text);
+  }
+  result.accepted = recruiterVetted;
+
   // The document itself. Composed here so the candidate path and the
   // application path produce the same bytes from the same inputs.
   const { data: profileRow } = await db.from("profile")
@@ -1052,6 +1081,26 @@ export async function composeFromRequirements(
         + "sentences repeated verbatim in the experience bullets; regenerate rather than pad it" };
     }
     doc.summary = finalSummary.summary;
+  }
+
+  // Final defensive gate, the same one composeResume applies to the master:
+  // no assembled line -- summary, experience bullet or project line -- may
+  // read as engineering documentation. The per-bullet filter above is the
+  // primary defence; this makes a regression fail LOUDLY (as a provenance
+  // failure the caller records and stops on) rather than silently shipping
+  // internals, which is how a pre-guard artifact slipped through before.
+  const asText = (v: any): string => typeof v === "string" ? v : (v && typeof v.text === "string" ? v.text : "");
+  try {
+    assertRecruiterFacing([
+      { text: asText(doc.summary), where: "summary" },
+      ...(doc.roles ?? []).flatMap((r: any) => (r.lines ?? []).map((l: any) => ({ text: asText(l), where: r.title ?? r.employer }))),
+      ...(doc.projects ?? []).flatMap((p: any) => [
+        { text: asText(p.line), where: p.name },
+        ...(p.optional ?? []).map((l: any) => ({ text: asText(l), where: p.name })),
+      ]),
+    ].filter((l) => l.text));
+  } catch (e) {
+    return { provenanceFailure: `a tailored line read as engineering documentation rather than recruiter-facing prose: ${(e as Error).message}` };
   }
 
   return { doc, masterDoc, masterResumeId: master.id, profileVersion, rows, themes, result, dropped, revertedForProvenance };
