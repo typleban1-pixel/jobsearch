@@ -238,7 +238,16 @@ if (kind === "daily") {
   } else if (process.argv.includes("--no-applications")) {
     console.log("  --  applications             skipped by flag");
   } else {
-    steps.push(await run("applications", ["scripts/application-worker.ts", "--commit", "--limit", "10"], 60 * 60_000));
+    // How many applications go out is governed by how many jobs pass every
+    // qualification and safety guard, NOT by a quota: the daily volume cap
+    // (automation_policy.max_applications_per_day) is null. This --limit is
+    // only a runaway backstop -- if a scoring regression ever made an
+    // implausible number of jobs autonomously eligible at once, it bounds a
+    // single run rather than mass-submitting to employers. It sits far above
+    // any realistic eligible count for this profile, so it never shapes normal
+    // volume. The worker still processes each selected job SEQUENTIALLY, one
+    // isolated browser at a time, which is the technical pacing.
+    steps.push(await run("applications", ["scripts/application-worker.ts", "--commit", "--limit", "40"], 3 * 60 * 60_000));
   }
 }
 
