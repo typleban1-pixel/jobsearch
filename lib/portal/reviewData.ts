@@ -74,6 +74,22 @@ export interface ReviewData {
   /** Blocking problems, in plain English. Empty means approval may proceed. */
   warnings: string[];
   canApprove: boolean;
+  /** How many employer fields were actually discovered. Zero means the form
+   *  was never read, so there is nothing to review or approve here. */
+  discoveredFields: number;
+  /** Whether this provider can be submitted through the automated adapter. */
+  automatable: boolean;
+  /** The employer's own application URL, for the manual/external path. */
+  applyUrl: string | null;
+  providerLabel: string;
+  /**
+   * The single next action when the automated in-portal path is not
+   * available (form not read, or a provider with no adapter): apply on the
+   * employer's site. Guarantees this page is never a dead end.
+   */
+  externalAction: { label: string; href: string } | null;
+  /** Why there is no in-portal action, in one plain sentence. */
+  noActionReason: string | null;
   technical: Record<string, string | number | null>;
 }
 
@@ -136,6 +152,13 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   const blocked = requiredBlocked(answers as any);
   const optionalBlocked = answers.filter((a: any) => !(a.is_required ?? true) && a.confidence_state === "BLOCKED").length;
   const unansweredRequired = answers.filter((a: any) => a.is_required && !a.answer_text).length;
+  // Zero discovered fields is not low confidence -- there is nothing to be
+  // confident ABOUT. The all_fields_confident flag defaults false and cannot
+  // be recomputed with no answer rows, so an unprepared or unautomatable
+  // application (Northern Trust: a WORKDAY form never snapshotted) otherwise
+  // shows "not every field has a confident answer yet" over zero fields, with
+  // no field to display and no control to fix it. That is the dead end.
+  const discoveredFields = answers.length;
   const cand = candidacyRows?.[0] ?? null;
 
   const submittedOnOpening = await (async () => {
@@ -184,6 +207,10 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   };
   const warnings = guard.refusals
     .filter((r) => !PRE_APPROVAL.has(r.code))
+    // A confidence complaint over zero discovered fields is not a real
+    // warning: the honest state is "the form was not read", surfaced as an
+    // external action below rather than as an unfixable "needs another look".
+    .filter((r) => !(r.code === "FIELDS_NOT_CONFIDENT" && discoveredFields === 0))
     .map((r) => SAID[r.code] ?? r.detail);
 
   const contentLines = Array.isArray((resume?.content as any)?.lines) ? (resume!.content as any).lines.length : 0;
@@ -224,6 +251,26 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   const terminalState: ReviewData["terminalState"] = classifyTerminalState({
     submitOutcome: app.submit_outcome, confirmationReference: app.confirmation_reference,
     confirmationEmailReceived: app.confirmation_email_received, submittedAt: app.submitted_at });
+
+  // The escape hatch that keeps this page from ever being a dead end. When
+  // there is no in-portal action to offer -- the form was never read, or the
+  // provider has no automated adapter -- the honest next step is the
+  // employer's own application. Greenhouse is the only productionised
+  // submitter today; every other provider hands off to the employer's site.
+  const ATS_LABEL: Record<string, string> = { WORKDAY: "Workday", GREENHOUSE: "Greenhouse", LEVER: "Lever", ASHBY: "Ashby" };
+  const provider = String(job!.source ?? "");
+  const providerLabel = ATS_LABEL[provider] ?? provider;
+  const automatable = provider === "GREENHOUSE" && !app.blocked_reason;
+  const applyUrl = (job as any)!.application_form_url ?? job!.url ?? null;
+  const formNotRead = discoveredFields === 0;
+  const externalOnly = !app.submitted_at && (formNotRead || Boolean(app.blocked_reason) || !automatable);
+  const externalAction = externalOnly && applyUrl
+    ? { label: `Apply on ${providerLabel}`, href: applyUrl } : null;
+  const noActionReason = externalOnly
+    ? (formNotRead
+        ? `${providerLabel}'s form has not been read by the system, so there is nothing to review or approve here. Apply on the employer's site.`
+        : `${providerLabel} cannot be submitted through the automated adapter. Apply on the employer's site.`)
+    : null;
 
   return {
     applicationId, jobId: app.job_id,
@@ -274,7 +321,10 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     resumeChecks, applicationChecks, finalChecks,
     warnings,
     canApprove: warnings.length === 0 && !app.submitted_at && !app.human_approved
-      && !app.submit_requested_at && app.submit_outcome !== "AMBIGUOUS",
+      && !app.submit_requested_at && app.submit_outcome !== "AMBIGUOUS"
+      // Never "approvable" with no fields: there is nothing to approve.
+      && discoveredFields > 0,
+    discoveredFields, automatable, applyUrl, providerLabel, externalAction, noActionReason,
     technical: {
       applicationId, jobId: app.job_id,
       canonicalOpeningId: job!.canonical_opening_id ?? null,

@@ -81,6 +81,11 @@ export default async function ReviewPage(props: {
           <strong>Approved</strong>
           <span>Waiting for the final submission step. Nothing has been submitted.</span>
         </div>
+      ) : r.noActionReason ? (
+        <div className="banner plain">
+          <strong>Apply on the employer&rsquo;s site</strong>
+          <span>{r.noActionReason}</span>
+        </div>
       ) : (
         <div className="banner plain">
           <strong>Application prepared</strong>
@@ -101,6 +106,16 @@ export default async function ReviewPage(props: {
             <dt>Resume used</dt><dd>{r.resume.hasArtifact ? "Exact tailored PDF (saved below)" : "no saved PDF bound"}</dd>
             <dt>Confirmation</dt><dd>{r.confirmed ? "Received" : r.terminalState === "CONFIRMED" ? "Received" : "Not received"}</dd>
           </dl>
+        </section>
+      ) : r.noActionReason ? (
+        // The in-portal preparation checklist does not apply when the
+        // application is completed on the employer's site: showing ✗ marks
+        // for a resume that was never meant to be prepared here reads as work
+        // the person must do, with no control to do it. The external action
+        // below is the whole next step.
+        <section className="pane">
+          <h3>How this application works</h3>
+          <p className="muted">{r.noActionReason}</p>
         </section>
       ) : (
         <section className="checklists">
@@ -259,6 +274,16 @@ export default async function ReviewPage(props: {
               Approval means this resume and these answers may proceed to the final submission
               workflow. It does not mean the application has been submitted yet.
             </p>
+          </>
+        ) : r.noActionReason ? (
+          <>
+            {r.externalAction && (
+              <a className="btn-primary big" href={r.externalAction.href} target="_blank" rel="noreferrer">{r.externalAction.label}</a>
+            )}
+            {!r.externalAction && r.jobUrl && (
+              <a className="btn-primary big" href={r.jobUrl} target="_blank" rel="noreferrer">Open job listing</a>
+            )}
+            <p className="muted">{r.noActionReason}</p>
           </>
         ) : r.phase === "PREPARED" ? (
           <p className="muted">This cannot be approved until the points above are resolved.</p>
