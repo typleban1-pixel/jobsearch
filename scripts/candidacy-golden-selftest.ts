@@ -182,6 +182,56 @@ const CASES: Case[] = [
 ];
 
 // ---------- HOLDOUT (not consulted while tuning) ----------
+// ---- implementation / automation / AI-ENABLEMENT family (the "person
+//      between the business problem and the technology") ----------------
+const IMPL_FAMILY: Case[] = [
+  { title: "Implementation Manager", band: "STRETCH_ONLY", reqs: [
+    { t: "implement business systems and software for clients", h: "HARD", k: "EXPERIENCE_YEARS" },
+    { t: "configure saas platforms", h: "HARD", k: "SKILL" },
+    { t: "coordinate cross-functional rollout", h: "HARD", k: "RESPONSIBILITY" },
+    { t: "drive user adoption", h: "PREFERRED", k: "RESPONSIBILITY" },
+    { t: "process improvement", h: "HARD", k: "SKILL" } ], note: "transferable implementation/process/integration evidence" },
+  { title: "Business Process Automation Analyst", band: "SURFACE", reqs: [
+    { t: "business process automation", h: "HARD", k: "SKILL" },
+    { t: "workflow design", h: "HARD", k: "SKILL" },
+    { t: "analyze and improve operational processes", h: "HARD", k: "RESPONSIBILITY" },
+    { t: "no-code automation tools", h: "PREFERRED", k: "TOOL" } ] },
+  { title: "AI Enablement Manager", band: "STRETCH_ONLY", reqs: [
+    { t: "ai enablement", h: "HARD", k: "EXPERIENCE_YEARS" },
+    { t: "workflow automation", h: "HARD", k: "SKILL" },
+    { t: "implement llm-enabled workflows", h: "HARD", k: "RESPONSIBILITY" },
+    { t: "change management and user adoption", h: "PREFERRED", k: "RESPONSIBILITY" } ], note: "USING/adopting AI, not building models" },
+  { title: "Digital Transformation Consultant", band: "STRETCH_ONLY", reqs: [
+    { t: "digital transformation", h: "HARD", k: "EXPERIENCE_YEARS" },
+    { t: "process redesign", h: "HARD", k: "SKILL" },
+    { t: "technology implementation", h: "HARD", k: "SKILL" },
+    { t: "stakeholder management", h: "PREFERRED", k: "SKILL" } ] },
+  { title: "Business Systems Analyst", band: "STRETCH_ONLY", reqs: [
+    { t: "business systems", h: "HARD", k: "EXPERIENCE_YEARS" },
+    { t: "systems integration", h: "HARD", k: "SKILL" },
+    { t: "requirements gathering and documentation", h: "HARD", k: "RESPONSIBILITY" } ] },
+  // --- too-technical: BUILDING AI / software / infra -> REJECT ---
+  { title: "Machine Learning Engineer", band: "REJECT", reqs: [
+    { t: "machine learning model development", h: "HARD", k: "SKILL" },
+    { t: "pytorch and tensorflow", h: "HARD", k: "TOOL" },
+    { t: "python and statistics", h: "HARD", k: "SKILL" },
+    { t: "phd or ms in computer science or machine learning", h: "HARD", k: "EDUCATION" } ] },
+  { title: "AI Infrastructure Engineer", band: "REJECT", reqs: [
+    { t: "model serving infrastructure at scale", h: "HARD", k: "SKILL" },
+    { t: "kubernetes and gpu clusters", h: "HARD", k: "TOOL" },
+    { t: "distributed systems engineering", h: "HARD", k: "SKILL" } ] },
+  { title: "Enterprise SAP Implementation Consultant", band: "NOT_SURFACE", reqs: [
+    { t: "sap s/4hana configuration", h: "HARD", k: "SKILL" },
+    { t: "abap development", h: "HARD", k: "SKILL" },
+    { t: "5+ years of sap implementation", h: "HARD", k: "EXPERIENCE_YEARS", yrs: 5 } ], note: "specialist ERP config Ty does not have" },
+  // --- generic PM unrelated to tech/process implementation -> REJECT ---
+  { title: "Construction Project Manager", band: "REJECT", reqs: [
+    { t: "construction project scheduling", h: "HARD", k: "SKILL" },
+    { t: "subcontractor and trade management", h: "HARD", k: "SKILL" },
+    { t: "building codes and osha compliance", h: "HARD", k: "SKILL" },
+    { t: "on-site construction supervision", h: "HARD", k: "RESPONSIBILITY" } ] },
+];
+
 const HOLDOUT: Case[] = [
   { title: "Operations Analyst, Product", band: "STRETCH_ONLY", holdout: true, reqs: [
     { t: "product operations", h: "HARD", k: "EXPERIENCE_YEARS" },
@@ -226,6 +276,7 @@ const runSet = (cases: Case[], label: string) => {
   }
 };
 runSet(CASES, "DEV");
+runSet(IMPL_FAMILY, "IMPLEMENTATION/AI-ENABLEMENT FAMILY");
 if (process.argv.includes("--holdout")) runSet(HOLDOUT, "HOLDOUT");
 console.log(`\n${run - bad}/${run} passed${bad ? ` -- ${bad} FAILED` : ""}`);
 process.exit(bad ? 1 : 0);
