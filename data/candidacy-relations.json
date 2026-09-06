@@ -318,6 +318,42 @@
       "satisfied_by_skill": "Solution development",
       "relation": "TRANSFERABLE",
       "rationale": "assessed client needs and developed solutions; adjacent to solutions consulting"
+    },
+    {
+      "requirement_concept": "system implementation",
+      "satisfied_by_skill": "Third-party service integration",
+      "relation": "TRANSFERABLE",
+      "rationale": "integrated services into a working product; adjacent to system implementation"
+    },
+    {
+      "requirement_concept": "end-to-end system implementation",
+      "satisfied_by_skill": "Third-party service integration",
+      "relation": "TRANSFERABLE",
+      "rationale": "built and integrated an end-to-end working system (RentPup); adjacent"
+    },
+    {
+      "requirement_concept": "implementation project management",
+      "satisfied_by_skill": "Project coordination",
+      "relation": "TRANSFERABLE",
+      "rationale": "coordinated projects end to end; adjacent to implementation project management"
+    },
+    {
+      "requirement_concept": "technology implementation",
+      "satisfied_by_skill": "Third-party service integration",
+      "relation": "TRANSFERABLE",
+      "rationale": "implemented technology/integrations in a product; adjacent"
+    },
+    {
+      "requirement_concept": "business process improvement",
+      "satisfied_by_skill": "Process improvement",
+      "relation": "TRANSFERABLE",
+      "rationale": "verified process improvement"
+    },
+    {
+      "requirement_concept": "process redesign and automation",
+      "satisfied_by_skill": "Workflow automation",
+      "relation": "TRANSFERABLE",
+      "rationale": "redesigned and automated workflows"
     }
   ]
 }
