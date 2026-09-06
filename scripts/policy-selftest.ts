@@ -106,5 +106,44 @@ check("an excluded job is skipped", decide(job(), { ...POLICY, excludedJobIds: [
 check("requiring resume review stops every submission",
   decide(job(), { ...POLICY, requireResumeReview: true }, ON).action === "REVIEW");
 
+
+// ============================================================================
+// STRETCH autonomous policy: BOTH APPLICATION_CANDIDATE and STRETCH may
+// auto-submit when every OTHER safeguard passes. The candidacy MEANINGS are
+// unchanged; only submission policy widened. decide() is generic, so this
+// is exercised by a policy whose auto-submit list includes STRETCH.
+// ============================================================================
+const STRETCH_POLICY: AutomationPolicy = {
+  ...POLICY, autoSubmitCandidacy: ["APPLICATION_CANDIDATE", "STRETCH"], reviewCandidacy: ["MANUAL_REVIEW"],
+};
+console.log("\nSTRETCH autonomous policy");
+check("APPLICATION_CANDIDATE + all safeguards still auto-submits",
+  decide(job({ candidacy: "APPLICATION_CANDIDATE" }), STRETCH_POLICY, ON).action === "SUBMIT");
+check("STRETCH + all safeguards now auto-submits",
+  decide(job({ candidacy: "STRETCH" }), STRETCH_POLICY, ON).action === "SUBMIT",
+  decide(job({ candidacy: "STRETCH" }), STRETCH_POLICY, ON).why);
+check("STRETCH on an unsupported provider does NOT submit (SKIP)",
+  decide(job({ candidacy: "STRETCH", provider: "LEVER" }), STRETCH_POLICY, ON).action === "SKIP");
+check("STRETCH below the salary floor does NOT submit (SKIP)",
+  decide(job({ candidacy: "STRETCH", baseSalaryMin: 60_000 }), STRETCH_POLICY, ON).action === "SKIP");
+check("STRETCH that is ineligible does NOT submit (SKIP)",
+  decide(job({ candidacy: "STRETCH", eligibility: "INELIGIBLE" }), STRETCH_POLICY, ON).action === "SKIP");
+check("STRETCH with an unresolved HUMAN_FACT/blocked answer -> REVIEW, not submit",
+  decide(job({ candidacy: "STRETCH", blockedAnswers: 1 }), STRETCH_POLICY, ON).action === "REVIEW");
+check("STRETCH with fields not all confident -> REVIEW, not submit",
+  decide(job({ candidacy: "STRETCH", allFieldsConfident: false }), STRETCH_POLICY, ON).action === "REVIEW");
+check("STRETCH with a failed resume grounding check -> REVIEW, not submit",
+  decide(job({ candidacy: "STRETCH", resumeClaimsAllGrounded: false }), STRETCH_POLICY, ON).action === "REVIEW");
+check("STRETCH with an invalid artifact -> REVIEW, not submit",
+  decide(job({ candidacy: "STRETCH", artifactValid: false }), STRETCH_POLICY, ON).action === "REVIEW");
+check("STRETCH at the daily cap -> REVIEW, not submit",
+  decide(job({ candidacy: "STRETCH", submittedToday: 3 }), { ...STRETCH_POLICY, maxApplicationsPerDay: 3 }, ON).action === "REVIEW");
+check("STRETCH demotes to REVIEW when auto-submit is switched off globally",
+  decide(job({ candidacy: "STRETCH" }), STRETCH_POLICY, OFF).action === "REVIEW");
+check("REJECT never auto-submits under the STRETCH policy",
+  decide(job({ candidacy: "REJECT" }), STRETCH_POLICY, ON).action === "SKIP");
+check("MANUAL_REVIEW never auto-submits under the STRETCH policy (routes to REVIEW)",
+  decide(job({ candidacy: "MANUAL_REVIEW" }), STRETCH_POLICY, ON).action === "REVIEW");
+
 console.log(`\n${failures === 0 ? "all passed" : `${failures} FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);
