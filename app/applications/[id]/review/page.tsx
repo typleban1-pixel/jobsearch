@@ -53,17 +53,28 @@ export default async function ReviewPage(props: {
         </p>
       </section>
 
-      {r.warnings.length > 0 ? (
+      {/* A submission that has happened is terminal: its outcome takes
+          precedence over any pre-submit readiness. Only when nothing has been
+          submitted (terminalState NONE) do the readiness warnings show. */}
+      {r.terminalState === "CONFIRMED" ? (
+        <div className="banner good">
+          <strong>Submitted successfully \u2713</strong>
+          <span>Employer confirmed receipt of this application.</span>
+        </div>
+      ) : r.terminalState === "UNCERTAIN" ? (
+        <div className="banner warn">
+          <strong>Submission uncertain</strong>
+          <span>A submission may have reached the employer but was never confirmed. It was not re-sent; this needs manual verification.</span>
+        </div>
+      ) : r.terminalState === "SENT_UNCONFIRMED" ? (
+        <div className="banner plain">
+          <strong>Submitted</strong>
+          <span>This was sent; the employer has not yet confirmed receipt.</span>
+        </div>
+      ) : r.warnings.length > 0 ? (
         <div className="banner warn">
           <strong>Needs another look</strong>
           <ul>{r.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
-        </div>
-      ) : r.phase === "SUBMITTED" ? (
-        <div className="banner good">
-          <strong>{r.confirmed ? "Submitted \u2713" : "Submission needs verification"}</strong>
-          <span>{r.confirmed
-            ? "Employer confirmation received."
-            : "This was sent but the employer has not confirmed receipt."}</span>
         </div>
       ) : r.phase === "APPROVED" ? (
         <div className="banner good">
@@ -77,20 +88,36 @@ export default async function ReviewPage(props: {
         </div>
       )}
 
-      <section className="checklists">
-        <div>
-          <h3>Resume</h3>
-          <ul className="checks">{r.resumeChecks.map((c) => <Check key={c.label} c={c} />)}</ul>
-        </div>
-        <div>
-          <h3>Application</h3>
-          <ul className="checks">{r.applicationChecks.map((c) => <Check key={c.label} c={c} />)}</ul>
-        </div>
-        <div>
-          <h3>Final submission</h3>
-          <ul className="checks">{r.finalChecks.map((c) => <Check key={c.label} c={c} />)}</ul>
-        </div>
-      </section>
+      {r.terminalState !== "NONE" ? (
+        <section className="pane">
+          <h3>Submission record</h3>
+          <dl className="submission-record">
+            <dt>Status</dt><dd>{r.terminalState === "CONFIRMED" ? "Employer confirmed"
+              : r.terminalState === "UNCERTAIN" ? "Uncertain \u2014 not confirmed"
+              : "Sent \u2014 awaiting confirmation"}</dd>
+            {r.submittedAt && (<><dt>Submitted</dt><dd>{new Date(r.submittedAt).toLocaleString()}</dd></>)}
+            <dt>Employer &amp; role</dt><dd>{r.company} \u2014 {r.title}</dd>
+            {r.submissionMode && (<><dt>Submission mode</dt><dd>{r.submissionMode}</dd></>)}
+            <dt>Resume used</dt><dd>{r.resume.hasArtifact ? "Exact tailored PDF (saved below)" : "no saved PDF bound"}</dd>
+            <dt>Confirmation</dt><dd>{r.confirmed ? "Received" : r.terminalState === "CONFIRMED" ? "Received" : "Not received"}</dd>
+          </dl>
+        </section>
+      ) : (
+        <section className="checklists">
+          <div>
+            <h3>Resume</h3>
+            <ul className="checks">{r.resumeChecks.map((c) => <Check key={c.label} c={c} />)}</ul>
+          </div>
+          <div>
+            <h3>Application</h3>
+            <ul className="checks">{r.applicationChecks.map((c) => <Check key={c.label} c={c} />)}</ul>
+          </div>
+          <div>
+            <h3>Final submission</h3>
+            <ul className="checks">{r.finalChecks.map((c) => <Check key={c.label} c={c} />)}</ul>
+          </div>
+        </section>
+      )}
 
       <section className="pane">
         <h3>Tailored resume</h3>

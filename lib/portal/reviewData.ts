@@ -7,7 +7,7 @@
  * audit fields come along too, but the page keeps them folded away.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { revalidateBeforeSubmit } from "../applications/revalidate.ts";
+import { revalidateBeforeSubmit, requiredBlocked } from "../applications/revalidate.ts";
 import { answerSetHash } from "../applications/approvalBinding.ts";
 
 export interface ReviewAnswer {
@@ -40,6 +40,16 @@ export interface ReviewData {
 
   /** Human phase, deliberately not the internal status. */
   phase: "PREPARED" | "APPROVED" | "SUBMITTED";
+  /**
+   * The authoritative terminal state, from the submission OUTCOME, which
+   * takes precedence over any pre-submit readiness once a submission has
+   * happened. CONFIRMED = employer confirmed receipt; UNCERTAIN = a click
+   * may have transmitted but was never confirmed (must NEVER read as
+   * success); SENT_UNCONFIRMED = submitted with no confirmation signal yet;
+   * NONE = nothing submitted, the pre-submit review is what matters.
+   */
+  terminalState: "NONE" | "CONFIRMED" | "UNCERTAIN" | "SENT_UNCONFIRMED";
+  submissionMode: string | null;
   submitQueued: boolean;
   submitRunning: boolean;
   submitOutcome: "CONFIRMED" | "SAFE_STOP" | "AMBIGUOUS" | "DECLINED" | null;
@@ -69,6 +79,27 @@ export interface ReviewData {
 
 const SENSITIVE = /gender|ethnic|race|disability|veteran|hispanic/i;
 
+/**
+ * The authoritative terminal state of an application, decided by submission
+ * OUTCOME and confirmation evidence -- never by pre-submit readiness. Pure so
+ * the precedence rule (a confirmed submission is terminal and outranks any
+ * stale readiness warning; an uncertain click is NEVER rendered as success)
+ * is regression-tested without a database.
+ */
+export function classifyTerminalState(a: {
+  submitOutcome?: string | null;
+  confirmationReference?: string | null;
+  confirmationEmailReceived?: boolean | null;
+  submittedAt?: string | null;
+}): "NONE" | "CONFIRMED" | "UNCERTAIN" | "SENT_UNCONFIRMED" {
+  const hasConfirmation = Boolean(
+    a.confirmationEmailReceived || a.confirmationReference || a.submitOutcome === "CONFIRMED");
+  if (hasConfirmation) return "CONFIRMED";
+  if (a.submitOutcome === "AMBIGUOUS") return "UNCERTAIN";
+  if (a.submittedAt) return "SENT_UNCONFIRMED";
+  return "NONE";
+}
+
 export async function loadReview(db: SupabaseClient, applicationId: string): Promise<ReviewData | null> {
   const { data: app } = await db.from("applications").select("*").eq("id", applicationId).maybeSingle();
   if (!app) return null;
@@ -95,7 +126,15 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     ]);
 
   const answers = (answersRaw ?? []);
-  const blocked = answers.filter((a: any) => a.confidence_state === "BLOCKED").length;
+  // "Needs your answer" means a REQUIRED employer field the system could not
+  // resolve -- a genuine human blocker. An OPTIONAL blocked field (a deferred
+  // demographic, a pronoun self-ID) is left blank on purpose and must never
+  // read as a question waiting on Ty. This is the same required-only rule the
+  // submit path applies; counting all BLOCKED answers here is what made the
+  // review screen say "2 questions still need your answer" while also saying
+  // "All required questions answered".
+  const blocked = requiredBlocked(answers as any);
+  const optionalBlocked = answers.filter((a: any) => !(a.is_required ?? true) && a.confidence_state === "BLOCKED").length;
   const unansweredRequired = answers.filter((a: any) => a.is_required && !a.answer_text).length;
   const cand = candidacyRows?.[0] ?? null;
 
@@ -179,6 +218,12 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
 
   const description = desc?.description_text ?? "";
   const phase: ReviewData["phase"] = app.submitted_at ? "SUBMITTED" : app.human_approved ? "APPROVED" : "PREPARED";
+  // Terminal state is decided by the submission OUTCOME, not by readiness.
+  // CONFIRMED wins outright; AMBIGUOUS is UNCERTAIN and must never render as
+  // success; a submitted_at with neither is SENT_UNCONFIRMED.
+  const terminalState: ReviewData["terminalState"] = classifyTerminalState({
+    submitOutcome: app.submit_outcome, confirmationReference: app.confirmation_reference,
+    confirmationEmailReceived: app.confirmation_email_received, submittedAt: app.submitted_at });
 
   return {
     applicationId, jobId: app.job_id,
@@ -198,6 +243,8 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     keyRequirements: (reqs ?? []).map((r: any) => String(r.raw_text)).slice(0, 6),
     jobUrl: job!.url ?? null,
     phase,
+    terminalState,
+    submissionMode: app.submission_mode ?? null,
     submitQueued: Boolean(app.submit_requested_at && !app.submit_started_at),
     submitRunning: Boolean(app.submit_requested_at && app.submit_started_at),
     submitOutcome: app.submit_outcome ?? null,
