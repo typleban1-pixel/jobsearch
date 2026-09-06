@@ -33,6 +33,7 @@ import { required } from "../lib/env.ts";
 import { readSwitches, readPolicy, decide, type Candidate } from "../lib/automation/policy.ts";
 import { authoritativeCandidacy, authoritativeCandidacyRows, productionApplications } from "../lib/applications/authoritativeCandidacy.ts";
 import { activeApplicationByJob, openingsWorked, isClosedApplication } from "../lib/applications/applicationLifecycle.ts";
+import { requiredBlocked } from "../lib/applications/revalidate.ts";
 import { FIT_FORMULA_VERSION } from "../lib/scoring/fit.ts";
 import { TAXONOMY_VERSION } from "../lib/scoring/requirementClass.ts";
 import { CANDIDACY_MODEL_VERSION } from "../lib/scoring/candidacy.ts";
@@ -310,9 +311,15 @@ for (const w of work.slice(0, limit)) {
     // handed to a submitter that would refuse it, leaving a false record
     // of authorization behind. So the decision is made again, now that
     // the facts exist.
-    const { count: blockedNow } = await db.from("application_answers")
-      .select("id", { count: "exact", head: true })
-      .eq("application_id", app.id).eq("confidence_state", "BLOCKED");
+    // Required-blocked only -- the SAME count the submitter's revalidate and
+    // the portal readiness gate use (requiredBlocked). An OPTIONAL blocked
+    // field -- a deferred demographic, a "how did you hear" left blank -- must
+    // not hold an otherwise ready application: the submitter would accept it
+    // and the filler leaves it blank, so this gate has to agree or it silently
+    // pre-empts submissions the rest of the system considers ready.
+    const { data: answerRows } = await db.from("application_answers")
+      .select("is_required,confidence_state").eq("application_id", app.id);
+    const blockedNow = requiredBlocked(answerRows ?? []);
     const { data: resume } = app.resume_id
       ? await db.from("resumes").select("artifact_sha256,content_sha256").eq("id", app.resume_id).maybeSingle()
       : { data: null };
