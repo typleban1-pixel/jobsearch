@@ -16,6 +16,7 @@
  * wording was negotiated once and it does not get improved here.
  */
 import type { NameParts } from "./names.ts";
+import { isRecruiterFacing, assertRecruiterFacing } from "./languageQuality.ts";
 import { projectClaims, mayBeReframed } from "./projectEvidence.ts";
 import { consolidateEmployment, orderForRecruiter, orderForPresentation,
          type EmploymentPeriod, type EmploymentRelationship } from "./relationships.ts";
@@ -605,29 +606,37 @@ export function composeResume(rows: FrozenRow[], name: NameParts, displayName: s
        * what the data does not establish, an end-to-end workflow, and
        * scheduled automation that produces an outcome.
        */
-      const SHOWCASE = [
-        // Recurring collection of outside data, tied to real properties.
-        /collects and normali[sz]es information from multiple/i,
-        // Automation that ends in an outcome rather than a dashboard.
-        /scheduled job recomputes obligation statuses/i,
-        // A built thing with an integration and a lifecycle behind it.
-        //
-        // This replaced "reports the status as Unknown rather than
-        // asserting". That claim is a genuine product decision and is
-        // the sort of thing that reads well once someone is already
-        // interested; as one of five lines it spent its space on
-        // restraint rather than on what was built. It stays in the
-        // evidence system for tailoring.
-        /generates individuali[sz]ed direct-mail pieces/i,
+      // Prefer verified claims that read as capability/outcome AND pass the
+      // recruiter-facing language guard. The old fixed list hard-required an
+      // evidence claim whose TEXT is engineering documentation ("a scheduled
+      // job recomputes obligation statuses ... undelivered alerts spooled ...
+      // reported to the operator"); it rendered verbatim into a submitted
+      // PDF. Selection now skips any claim the guard flags, so internal-
+      // documentation evidence can never become a bullet, and takes the most
+      // recruiter-facing verified claims first.
+      const PREFERRED = [
+        /automatically checks .*data sources on a recurring/i,   // recurring public-record monitoring, no owner action
+        /recognizes deadlines, identifies changes/i,             // deadlines + change detection + activity against the property
+        /direct-mail measurement and attribution system/i,       // a built system, product/business framing
+        /generates individuali[sz]ed direct-mail pieces/i,       // (guard drops it if the text carries "queue")
+        /runs largely automatically/i,                           // outcome: little ongoing work to operate
       ];
-      const showcase = SHOWCASE.map((rx) => {
-        const found = claims.find((c) => rx.test(c.line.text));
-        // A pattern that matches nothing is a silent hole in the resume:
-        // the section simply renders one bullet shorter and nothing says
-        // why. An earlier selection lost a line exactly that way.
-        if (!found) throw new Error(`RentPup showcase pattern matched no claim: ${rx}`);
-        return found;
-      });
+      // Concise AND recruiter-facing: a résumé bullet is a clause, not a
+      // paragraph, so a claim far longer than a normal bullet is skipped even
+      // when it carries no implementation vocabulary.
+      const CONCISE = 170;
+      const recruiterClaims = claims.filter((c) =>
+        isRecruiterFacing(c.line.text) && c.line.text.replace(/\s+/g, " ").trim().length <= CONCISE);
+      const showcase: typeof claims = [];
+      for (const rx of PREFERRED) {
+        if (showcase.length >= 2) break;
+        const found = recruiterClaims.find((c) => rx.test(c.line.text) && !showcase.includes(c));
+        if (found) showcase.push(found);
+      }
+      // Fill to at most two, from any remaining concise recruiter-facing
+      // claim; never an implementation-prose or paragraph-length one. The
+      // traction line leads, so the section is never empty even if none match.
+      for (const c of recruiterClaims) { if (showcase.length >= 2) break; if (!showcase.includes(c)) showcase.push(c); }
 
       // The traction facts lead, because they are what changed: this is
       // no longer only something he built, it is something in use.
@@ -650,18 +659,31 @@ export function composeResume(rows: FrozenRow[], name: NameParts, displayName: s
         name: "RENTPUP - rentpup.com - Independent Product",
         title: "Founder / Product Builder",
         line: {
-          // A fixed descriptor. Every word rests on the project row: it is
-          // a property-compliance monitoring system (description) built
-          // independently, outside of full-time employment (current_status:
-          // "an independent project built in his own time, never employment
-          // and never a substitute for full-time employment").
-          text: "Property-compliance monitoring system built independently outside of full-time employment.",
+          // The verified project-row description, which is written
+          // recruiter-facing ("A property-compliance monitoring product
+          // helping Cleveland rental-property owners identify regulatory
+          // issues and upcoming compliance risks"). Every word rests on the
+          // project row; the fixed fallback keeps it grounded if the row has
+          // no description. NOT an implementation summary from evidence.
+          text: (typeof p.row_data.description === "string" && p.row_data.description.trim())
+            ? String(p.row_data.description).trim()
+            : "Property-compliance monitoring system built independently outside of full-time employment.",
           sources: [p.row_id],
         },
         optional: [...traction, ...showcase.map((c) => c.line)],
         fixedWording: claims.filter((c) => !c.reframable).flatMap((c) => c.line.sources),
       };
     });
+
+  // General gate: no résumé line may read as engineering documentation.
+  // The RentPup showcase already selects only recruiter-facing claims; this
+  // catches any FUTURE source (any role or project) that would regress into
+  // internals, before it can reach a submitted PDF.
+  assertRecruiterFacing([
+    ...roles.flatMap((r) => r.lines.map((l) => ({ text: l.text, where: r.title }))),
+    ...projects.flatMap((p) => [{ text: p.line.text, where: p.name },
+      ...p.optional.map((l) => ({ text: l.text, where: p.name }))]),
+  ]);
 
   return {
     name: displayName,

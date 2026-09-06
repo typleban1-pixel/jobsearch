@@ -128,6 +128,12 @@ const CSS = `
      was being moved to a page of its own as one block. */
   .project { margin-bottom: 10px; break-inside: auto; }
   .project-name { font-size: 11.6pt; font-weight: 700; margin: 0 0 4px; break-after: avoid; page-break-after: avoid; }
+  /* The identity unit -- Selected Work heading, project name, description,
+     and first bullet -- stays together. Without this the RentPup description
+     could split off its name and render at the foot of a later page, below
+     Education. Later bullets may still flow. */
+  .project-desc { margin: 0 0 4px; break-before: avoid; page-break-before: avoid; break-after: avoid; page-break-after: avoid; }
+  .project > ul > li:first-child { break-before: avoid; page-break-before: avoid; }
   /* Optional project claims sit under the description, spaced as role
      bullets are, so a project reads like the rest of the document. */
   .project ul { margin-top: 8px; }
@@ -156,7 +162,7 @@ ${doc.roles.map((r) => `<div class="role">
 </div></section>
 
 ${doc.projects.length ? `<section><h2>Selected Work</h2>
-${doc.projects.map((p) => `<div class="project"><p class="project-name">${esc(p.name)}</p><p>${esc(p.line.text)}</p>${
+${doc.projects.map((p) => `<div class="project"><p class="project-name">${esc(p.name)}</p><p class="project-desc">${esc(p.line.text)}</p>${
   p.optional.length ? `<ul>${p.optional.map((l) => `<li>${esc(l.text)}</li>`).join("")}</ul>` : ""
 }</div>`).join("")}
 </section>` : ""}
