@@ -50,8 +50,16 @@ not("Where are you currently located?");
 }
 {
   const p = pickSurveyOption(["Referral","Recruiter","Something Else"]);
-  ok(!!p && p.value === "Something Else", "falls back to closest harmless (last) option", p?.value);
+  ok(!!p && p.value === "Something Else", "specific channels excluded; 'Something Else' is a truthful not-listed answer", p?.value);
 }
+// Truthfulness: a specific channel that did not happen must never be chosen,
+// even when its label loosely contains a generic word.
+{
+  const p = pickSurveyOption(["LinkedIn","Company Website","Campus Career Site","Employee Referral","Other"]);
+  ok(!!p && p.value === "Company Website", "Campus Career Site is NOT read as a generic careers site", p?.value);
+}
+ok(pickSurveyOption(["Campus Career Site"]) === null, "only an untruthful-specific option -> null (leave for review, do not invent)");
+ok(pickSurveyOption(["Campus","Career Fair","Employee Referral","Friend or Family"]) === null, "no truthful generic option -> null (block to review)");
 ok(pickSurveyOption([]) === null, "no options -> null (caller uses free text)");
 ok(GENERIC_SURVEY_FREETEXT === "Company website", "free-text answer is 'Company website'");
 

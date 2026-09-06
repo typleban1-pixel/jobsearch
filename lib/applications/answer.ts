@@ -354,6 +354,16 @@ function derive(intent: Intent, p: Record<string, any>, field: FormField):
       if (p.country) return { value: "No", because: `the profile records country ${p.country}` };
       return { block: "the profile records no country", kind: "UNKNOWN" };
     case "salary_expectation": {
+      // Salary expectation is a strategic, employer-facing disclosure, not an
+      // ordinary verified fact like a name or work-authorization status.
+      // Stating a number to an employer is a negotiating move, so it is NOT
+      // auto-answered on the strength of the stored target alone: it is
+      // released only when the person has explicitly authorized employer-facing
+      // salary disclosure. Absent that authorization it BLOCKS to review, where
+      // the person decides what to say. Default is not to disclose.
+      if (p.disclose_salary_to_employers !== true) {
+        return { block: "a salary expectation is a strategic employer-facing disclosure; autonomous answering of it is not authorized, so a person supplies it in review", kind: "UNKNOWN" };
+      }
       // A stored preference, not an inference.
       //
       // The blocked reason said "none exists yet" while

@@ -88,20 +88,33 @@ const OPTION_PREFERENCE: RegExp[] = [
   /career\s*platform|job\s*board|\blinkedin\b|\bindeed\b|\bglassdoor\b|\bbuiltin\b|\bziprecruiter\b/i,
   /company\s*(?:site|page)/i,
   /other\s*\/\s*not listed|not listed/i,
-  /\bother\b/i,
+  /\bother\b|something\s*else|none\s*of\s*the\s*above/i,
 ];
 
 export type OptionLike = { label?: string; value?: string } | string;
 
+/**
+ * Options that name a SPECIFIC channel this application did not come through.
+ * Selecting one asserts a sourcing story that did not happen, so they are
+ * removed before any preference match and are never a fallback -- even when
+ * the label loosely contains a generic word. "Campus Career Site" contains
+ * "career site" but is a campus-recruiting channel, not a generic careers
+ * page, and picking it told an employer something untrue.
+ */
+const UNTRUTHFUL_SPECIFIC = /\bcampus\b|career\s*fair|job\s*fair|\bfair\b|conference|\bevent\b|meet\s*up|meetup|hackathon|webinar|\balumni\b|professor|\bfaculty\b|\bfriend\b|\bfamily\b|referr|recruiter\s*(?:reached|contact|reach|out)|\bagency\b|current\s*(?:employee|staff|colleague)|word\s*of\s*mouth|news\s*letter|newsletter|podcast|\bradio\b|\btv\b|billboard|\bmagazine\b/i;
+
 export function pickSurveyOption(options: OptionLike[]): { value: string; reason: string } | null {
   const opts = (options ?? []).map((o) =>
     typeof o === "string" ? { label: o, value: o } : { label: o.label ?? o.value ?? "", value: o.value ?? o.label ?? "" });
-  const usable = opts.filter((o) => o.label.trim());
-  if (!usable.length) return null;
+  // Only options that could be answered truthfully. A specific channel that
+  // did not happen is dropped, not preferred-around.
+  const usable = opts.filter((o) => o.label.trim() && !UNTRUTHFUL_SPECIFIC.test(o.label));
+  if (!usable.length) return null; // nothing truthful to say -> caller leaves it for review
   for (const pref of OPTION_PREFERENCE) {
     const m = usable.find((o) => pref.test(o.label));
-    if (m) return { value: m.label, reason: `closest generic sourcing option: "${m.label}"` };
+    if (m) return { value: m.label, reason: `truthful generic sourcing option: "${m.label}"` };
   }
-  const last = usable[usable.length - 1]!;
-  return { value: last.label, reason: `no preferred generic option offered; chose the closest harmless option "${last.label}"` };
+  // No generic option we can stand behind. Do NOT fall back to an arbitrary
+  // option -- leaving it for a person is better than inventing a source.
+  return null;
 }
