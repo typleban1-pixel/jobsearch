@@ -51,7 +51,8 @@ export type ReasonCode =
   | "OCCUPATIONAL_GAP"
   | "LOW_HARD_RATIO"
   | "MEETS_HARD_REQUIREMENTS"
-  | "UNRESOLVED_ROLE_DEFINING_REQUIREMENT";
+  | "UNRESOLVED_ROLE_DEFINING_REQUIREMENT"
+  | "NO_DIRECT_BUT_TRANSFERABLE";
 
 /**
  * What kind of demand a HARD requirement is.
@@ -112,6 +113,20 @@ export function experienceObject(term: string): ExperienceObject {
   SETTING.lastIndex = 0;
   const residue = t.replace(SETTING, " ").replace(FILLER, " ").replace(/[^a-z0-9+#]+/g, " ").trim();
   return residue ? "OCCUPATIONAL" : "SETTING_ONLY";
+}
+
+/**
+ * A requirement that names an intended junior LEVEL -- "early-career",
+ * "recent graduate", "entry-level", "0-2 years" -- is a seniority/positioning
+ * signal, not an occupational capability. Someone with MORE experience is not
+ * missing a capability; at worst they are over-qualified, which is a
+ * desirability/positioning concern, never an absent-skill REJECT. Such a
+ * requirement is therefore excluded from the discriminating set and the
+ * occupational-gap set (it is neither met nor absent as a capability).
+ */
+const JUNIOR_SENIORITY = /\b(early[- ]?career|recent grad(?:uate)?|new grad|entry[- ]?level|junior|intern(?:ship)?|0[- ]?(?:to[- ]?)?2 years?|1[- ]?2 years?|up to (?:two|2) years?)\b/i;
+export function isJuniorSeniorityTarget(concept: string): boolean {
+  return JUNIOR_SENIORITY.test(String(concept ?? ""));
 }
 
 export function stratumOf(c: ScorableConcept, reqById: Map<string, RequirementRow>): Stratum {
@@ -202,12 +217,14 @@ export function assessCandidacy(input: CandidacyInput): CandidacyResult {
 
   // A baseline requirement neither helps nor hurts: a degree he holds
   // says nothing about whether he can do the job.
-  const ratioSet = hardAll.filter((c) => strata.get(c) !== "BASELINE" && !c.isBaseline);
+  // Junior-seniority targets are positioning, not capability: out of the set.
+  const ratioSet = hardAll.filter((c) => strata.get(c) !== "BASELINE" && !c.isBaseline && !isJuniorSeniorityTarget(c.concept));
+  const overqualifiedFor = hardAll.filter((c) => isJuniorSeniorityTarget(c.concept)).map((c) => c.concept);
   const hardMet = ratioSet.filter((c) => (c.credit ?? 0) > 0).length;
   const hardTotal = ratioSet.length;
   const baselineMet = hardAll.filter((c) => strata.get(c) === "BASELINE" && (c.credit ?? 0) > 0).length;
 
-  const occConcepts = hardAll.filter((c) => strata.get(c) === "OCCUPATIONAL");
+  const occConcepts = hardAll.filter((c) => strata.get(c) === "OCCUPATIONAL" && !isJuniorSeniorityTarget(c.concept));
   const occupational = occConcepts.map((c) => ({ concept: c.concept, resolution: c.resolution, met: (c.credit ?? 0) > 0 }));
   const occAbsent = occConcepts.filter((c) => (c.credit ?? 0) === 0);
   const coreGaps = ratioSet.filter((c) => isCoreGap(c, title)).map((c) => c.concept);
@@ -300,10 +317,33 @@ export function assessCandidacy(input: CandidacyInput): CandidacyResult {
     return out("STRETCH", "CORE_GAP_WITHOUT_SUPPORT",
       `one role-defining gap (${coreGaps[0]}) against ${hardMet}/${hardTotal} hard requirements met`);
   }
-  // A stretch reaches from a foothold. No direct evidence is no foothold,
-  // and having LESS evidence must never be a route to surviving.
-  if (directMatches === 0) return out("REJECT", "NO_DIRECT_EVIDENCE",
-    `no direct evidence for anything the posting asks (${transferableMatches} transferable only)`);
+  // No DIRECT title/label match is a weak signal, not a verdict. For a broad
+  // profile, verified TRANSFERABLE coverage of the substance, with NO defining
+  // occupational gap and no role-defining gap, is a reasonable stretch a
+  // recruiter could consider -- the "reasonable applicant" test -- so it
+  // becomes STRETCH (which routes to review, never auto-submit), NOT a reject.
+  // Without a transferable foothold, or with a real occupational/role-defining
+  // gap, it stays REJECT: less evidence is never a route to surviving, and a
+  // job whose DEFINING discipline he lacks (its occupational SKILL requirement
+  // resolves ABSENT) still fails the occAbsent/coreGaps guards below and here.
+  if (directMatches === 0) {
+    // A reasonable applicant must also clear the SAME discriminating-
+    // requirement bar a candidate does: meeting at least half the HARD
+    // requirements. Without this, a role whose real substance he lacks (a
+    // DevOps intern at 1/8, a data engineer at 1/7) slipped through on a
+    // single incidental transferable match ("git", "project management")
+    // and no OCCUPATIONAL-labelled gap. The ratio is what separates a
+    // genuine adjacent stretch (Instawork product-ops at 1/1) from a
+    // different occupation he simply cannot do.
+    const reasonableApplicant = transferableMatches >= 1 && occAbsent.length === 0
+      && coreGaps.length === 0 && hardTotal > 0 && !unresolvedBlocks
+      && (hardMet / hardTotal) >= 0.5;
+    if (!reasonableApplicant) return out("REJECT", "NO_DIRECT_EVIDENCE",
+      `no direct evidence for anything the posting asks (${transferableMatches} transferable only)`);
+    return out("STRETCH", "NO_DIRECT_BUT_TRANSFERABLE",
+      `no direct-title match, but ${transferableMatches} transferable capability match(es) and no defining occupational gap`
+      + (overqualifiedFor.length ? `; note: targets a more junior level (${overqualifiedFor.join(", ")})` : ""));
+  }
   if (unresolvedBlocks) return unresolvedOut();
   if (occAbsent.length) return out("STRETCH", "OCCUPATIONAL_GAP",
     `the occupational substance is not established: ${occAbsent.map((c) => c.concept).join(", ")}`);

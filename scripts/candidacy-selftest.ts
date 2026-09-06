@@ -28,9 +28,8 @@ const NOT_HELD = { CLINICAL: "NOT_HELD", LEGAL: "NOT_HELD", FINANCE: "NOT_HELD",
 // written against that ladder and every expectation in it is a statement
 // about that model, so it keeps testing it after the current version
 // moves on. Model 4's own arm is covered by candidacy-model4-selftest.ts.
-const run = (concepts: ScorableConcept[], requirements: RequirementRow[], title = "Operations Manager") =>
-  assessCandidacy({ jobTitle: title, fit: fitOf(concepts), requirements, credentialDeclarations: NOT_HELD,
-    modelVersion: 3 });
+const run = (concepts: ScorableConcept[], requirements: RequirementRow[], title = "Operations Manager", modelVersion = 3) =>
+  assessCandidacy({ jobTitle: title, fit: fitOf(concepts), requirements, credentialDeclarations: NOT_HELD, modelVersion });
 
 // ---- 1. the experience object -----------------------------------------
 check("the current model is 4", CANDIDACY_MODEL_VERSION === 4, String(CANDIDACY_MODEL_VERSION));
@@ -140,8 +139,25 @@ for (const t of ["logistics, supply chain management, consulting", "customer suc
   check("and it is not converted to an absence", r.gatingGaps.length === 0 && r.unknownGates.length === 1, "");
 }
 {
-  const r = run([C({ concept: "widgets", resolution: "TRANSFERABLE", credit: 0.5, requirementIds: ["a"] })], reqs(["a", "SKILL", "widgets"]));
-  check("transferable-only evidence never survives", r.verdict === "REJECT" || r.reasonCodes[0] === "NO_DIRECT_EVIDENCE", `${r.verdict}: ${r.reason}`);
+  // A single transferable match that covers the discriminating substance
+  // (hard ratio 1/1, no occupational gap) is now a reasonable-applicant
+  // STRETCH, not a reject. The old "transferable-only never survives" rule
+  // was too strict for a broad profile applying to adjacent work. This is a
+  // candidacy decision only; transferable is NEVER rewritten as direct on the
+  // résumé. (Model 4 loosens; model 3 keeps the strict reject.)
+  const r = run([C({ concept: "widgets", resolution: "TRANSFERABLE", credit: 0.5, requirementIds: ["a"] })], reqs(["a", "SKILL", "widgets"]), "Widget Operations Analyst", 4);
+  check("transferable-only with a full hard ratio is a reasonable STRETCH",
+    r.verdict === "STRETCH" && r.reasonCodes[0] === "NO_DIRECT_BUT_TRANSFERABLE", `${r.verdict}: ${r.reason}`);
+}
+{
+  // But transferable on only a FRACTION of the discriminating requirements --
+  // a different occupation he cannot do -- still REJECTs.
+  const r = run([
+    C({ concept: "widgets", resolution: "TRANSFERABLE", credit: 0.5, requirementIds: ["a"] }),
+    C({ concept: "gizmos", resolution: "ABSENT", credit: 0, requirementIds: ["b"] }),
+    C({ concept: "sprockets", resolution: "ABSENT", credit: 0, requirementIds: ["c"] }),
+  ], reqs(["a", "SKILL", "widgets"], ["b", "SKILL", "gizmos"], ["c", "SKILL", "sprockets"]), "Widget Engineer", 4);
+  check("transferable on only a fraction of the substance still REJECTs", r.verdict === "REJECT", `${r.verdict}: ${r.reason}`);
 }
 check("only CANDIDATE and STRETCH may prepare",
   mayPrepare("APPLICATION_CANDIDATE") && mayPrepare("STRETCH") && !mayPrepare("REJECT") && !mayPrepare("MANUAL_REVIEW"));
