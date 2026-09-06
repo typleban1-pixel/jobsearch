@@ -40,6 +40,12 @@ import { CANDIDACY_MODEL_VERSION } from "../lib/scoring/candidacy.ts";
 const commit = process.argv.includes("--commit");
 const limitArg = process.argv.indexOf("--limit");
 const limit = limitArg >= 0 ? Number(process.argv[limitArg + 1]) : 25;
+// Narrow a run to a single job (id or id-prefix). The full selection and every
+// gate still run for that job -- this only drops the others from the queue, so
+// a one-off recovery can prepare, re-decide and submit exactly one application
+// in an observable window without walking the whole board.
+const jobArg = process.argv.indexOf("--job");
+const jobFilter = jobArg >= 0 ? process.argv[jobArg + 1] : null;
 
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
 const LOCK = `${ROOT}/.worker.lock`;
@@ -191,6 +197,13 @@ for (const job of jobs) {
   const disposition = decide(candidate, policy, switches);
   if (disposition.action === "SKIP") continue;
   work.push({ job, disposition, existing });
+}
+
+if (jobFilter) {
+  const kept = work.filter((w) => w.job.id.startsWith(jobFilter));
+  work.length = 0;
+  work.push(...kept);
+  console.log(`--job ${jobFilter}: narrowed to ${work.length} matching job(s)`);
 }
 
 const toSubmit = work.filter((w) => w.disposition.action === "SUBMIT");
