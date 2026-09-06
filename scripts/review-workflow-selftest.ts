@@ -11,7 +11,7 @@
  *   node scripts/review-workflow-selftest.ts
  */
 import { present, type ApplicationFacts } from "../lib/portal/presentationState.ts";
-import { deriveBlocker, type BlockerFacts } from "../lib/portal/blocker.ts";
+import { deriveBlocker, approvalProhibitedBy, type BlockerFacts } from "../lib/portal/blocker.ts";
 
 let bad = 0;
 const ok = (c: boolean, w: string, x = "") => { console.log(`  ${c ? "PASS" : "FAIL"}  ${w}${x ? " -- " + x : ""}`); if (!c) bad++; };
@@ -70,6 +70,56 @@ for (const [name, over] of [
   const b = deriveBlocker({ ...bbase, ...over, provider: "GREENHOUSE", providerCapability: "PRODUCTION" }, "app1");
   const asksUser = /needs your|hand-finish|sign-in|out of date/i.test(b.status);
   ok(!asksUser || Boolean(b.action), `${name} -> ${b.code}`, b.action?.label ?? "(no action)");
+}
+
+// ---------------------------------------------------------------------------
+// Approval-consistency invariant (the /jobs vs /review dead-end).
+//
+//   IF /jobs says "it submits after you approve it" THEN approval must be
+//   genuinely possible (no qualification/candidacy/posting refusal), and
+//   conversely a prohibited approval must NEVER be shown as WAITING_FOR_MY_REVIEW.
+//
+// deriveBlocker is the /jobs derivation; a WAITING_FOR_MY_REVIEW code is the
+// only one whose reason promises approval. approvalProhibitedBy is the shared
+// truth the review page's canApprove also keys on, so testing the blocker code
+// against the refusals proves both surfaces agree.
+console.log("\napproval consistency: /jobs never promises approval the guard would refuse");
+const gbase: BlockerFacts = {
+  status: "AWAITING_REVIEW", submittedAt: null, submitQueued: false, submitRunning: false, submitOutcome: null,
+  humanApproved: false, blockedAnswers: 0, requiredUnanswered: 0, discoveredFields: 8, refusals: [],
+  provider: "GREENHOUSE", providerCapability: "PRODUCTION", providerPaused: false, applyUrl: "https://boards.greenhouse.io/x/jobs/1",
+  handoffReason: null, dailyCapReached: false, jobStatus: "OPEN",
+};
+const promisesApprove = (b: { reason: string }) => /submits after you approve/.test(b.reason);
+const cases: Array<[string, Partial<BlockerFacts>, { code: string; approvePromised: boolean; hasAction: boolean }]> = [
+  // A. Greenhouse, everything resolved, no refusal -> review/approve promised, action present.
+  ["A greenhouse ready for review", {}, { code: "WAITING_FOR_MY_REVIEW", approvePromised: true, hasAction: true }],
+  // B. policy-authorized (READY_TO_SUBMIT, not human-approved) -> not asked to approve again.
+  ["B policy-authorized ready", { status: "READY_TO_SUBMIT", humanApproved: true }, { code: "READY_TO_SUBMIT", approvePromised: false, hasAction: false }],
+  // C. Workday external-only (capability NONE) -> external action, never approve.
+  ["C workday external-only", { provider: "WORKDAY", providerCapability: "NONE" }, { code: "ATS_NOT_AUTOMATED", approvePromised: false, hasAction: true }],
+  // D. unresolved HUMAN_FACT (blocked answer) -> answer action, not approve.
+  ["D blocked answer", { blockedAnswers: 1 }, { code: "WAITING_FOR_MY_ANSWER", approvePromised: false, hasAction: true }],
+  // E. material qualification gap -> manual optional, never approve, action present.
+  ["E material qualification gap", { refusals: ["MATERIAL_QUALIFICATION_GAP"] }, { code: "MANUAL_OPTIONAL_QUALIFICATION_GAP", approvePromised: false, hasAction: true }],
+  // F. unsupported provider (Lever paused) with fields read -> external, never approve.
+  ["F lever paused", { provider: "LEVER", providerCapability: "PRODUCTION", providerPaused: true }, { code: "ATS_NOT_AUTOMATED", approvePromised: false, hasAction: true }],
+  // G. submission uncertain -> inspect, never a retry/approve.
+  ["G ambiguous submit", { submitOutcome: "AMBIGUOUS" }, { code: "AMBIGUOUS_SUBMIT_STATE", approvePromised: false, hasAction: true }],
+  // H. already submitted -> confirmation, no approve.
+  ["H submitted", { submittedAt: "2026-09-01" }, { code: "SUBMITTED", approvePromised: false, hasAction: false }],
+  // I. candidacy refuses -> not a match, never approve, action present.
+  ["I candidacy refuses", { refusals: ["CANDIDACY_REFUSES"] }, { code: "NOT_A_MATCH", approvePromised: false, hasAction: true }],
+  // J. posting changed pre-approval -> re-review, never a bare "approve it".
+  ["J posting changed", { refusals: ["POSTING_CHANGED"] }, { code: "REVALIDATION_FAILED", approvePromised: false, hasAction: true }],
+];
+for (const [name, over, exp] of cases) {
+  const b = deriveBlocker({ ...gbase, ...over }, "app1");
+  ok(b.code === exp.code, `${name} -> code ${b.code}`, b.code === exp.code ? "" : `expected ${exp.code}`);
+  ok(promisesApprove(b) === exp.approvePromised, `${name} -> approve-promised=${promisesApprove(b)}`, "");
+  ok(Boolean(b.action) === exp.hasAction, `${name} -> hasAction=${Boolean(b.action)}`, b.action?.label ?? "(none)");
+  // The core invariant: a promise of approval implies no prohibiting refusal.
+  if (promisesApprove(b)) ok(approvalProhibitedBy((over.refusals as string[]) ?? []) === null, `${name} -> promise implies approvable`, "");
 }
 
 console.log(bad ? `\n${bad} FAILED` : `\nreview-workflow-selftest: ALL PASS`);

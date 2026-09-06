@@ -270,12 +270,22 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   const automatable = provider === "GREENHOUSE" && !app.blocked_reason;
   const applyUrl = (job as any)!.application_form_url ?? job!.url ?? null;
   const formNotRead = discoveredFields === 0;
-  const externalOnly = !app.submitted_at && (formNotRead || Boolean(app.blocked_reason) || !automatable);
+  // A qualification/candidacy refusal means approval is genuinely prohibited:
+  // the honest state is not "cannot be approved" with no control (a dead end
+  // the person actually hit), but "this will not be submitted automatically;
+  // apply manually if you want". Even a fully automatable Greenhouse job gets
+  // a manual action in that case, matching what the /jobs board now shows.
+  const qualificationBlocked = !app.human_approved && guard.refusals.some(
+    (r) => r.code === "MATERIAL_QUALIFICATION_GAP" || r.code === "CANDIDACY_REFUSES"
+      || r.code === "NOT_ELIGIBLE" || r.code === "NO_CURRENT_CANDIDACY" || r.code === "APPROVAL_PREDATES_CANDIDACY");
+  const externalOnly = !app.submitted_at && (formNotRead || Boolean(app.blocked_reason) || !automatable || qualificationBlocked);
   const externalAction = externalOnly && applyUrl
     ? { label: `Apply on ${providerLabel}`, href: applyUrl } : null;
   const noActionReason = externalOnly
     ? (formNotRead
         ? `${providerLabel}'s form has not been read by the system, so there is nothing to review or approve here. Apply on the employer's site.`
+        : qualificationBlocked
+        ? `This will not be submitted automatically because its core qualifications are not established by your verified evidence. You can still apply on the employer's site if you want.`
         : `${providerLabel} cannot be submitted through the automated adapter. Apply on the employer's site.`)
     : null;
 

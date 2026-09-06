@@ -17,6 +17,8 @@ export type BlockerCode =
   | "WAITING_FOR_MY_ANSWER"
   | "FORM_NOT_READ"              // zero discovered fields; nothing to approve yet
   | "WAITING_FOR_MY_REVIEW"
+  | "MANUAL_OPTIONAL_QUALIFICATION_GAP" // qualification gap: not auto-submittable, manual optional
+  | "NOT_A_MATCH"               // candidacy/eligibility no longer supports submitting
   | "ATS_NOT_AUTOMATED"          // provider capability/pause; handoff to a person
   | "AUTHENTICATION_REQUIRED"
   | "REVALIDATION_FAILED"        // approval no longer matches present facts
@@ -57,6 +59,33 @@ export interface Blocker {
   reason: string;
   /** What the person should do. null when no action is needed from them. */
   action: { label: string; href: string } | null;
+}
+
+/**
+ * The single classification of what a submit-guard refusal means for
+ * APPROVAL, shared by every surface (the /jobs board, the /apply board and
+ * the /review page) so they can never disagree about whether approval is
+ * possible. `NOT_AUTHORIZED`, `NO_APPROVED_ARTIFACT`, `ARTIFACT_CHANGED`,
+ * `FIELDS_NOT_CONFIDENT` and the answer conditions are deliberately absent:
+ * they describe "not approved yet", which is exactly what the review flow is
+ * for, and they have their own earlier gates.
+ */
+const QUALIFICATION_GAP = new Set(["MATERIAL_QUALIFICATION_GAP"]);
+const CANDIDACY_BLOCK = new Set(["CANDIDACY_REFUSES", "NOT_ELIGIBLE", "NO_CURRENT_CANDIDACY", "APPROVAL_PREDATES_CANDIDACY"]);
+const POSTING_STALE = new Set(["POSTING_CHANGED", "POSTING_NOT_OPEN", "ALREADY_SUBMITTED_ON_OPENING", "ANSWERS_CHANGED"]);
+
+/**
+ * Why approval is not possible, if it is not. A material qualification gap is
+ * distinguished from an outright candidacy/eligibility refusal because the
+ * honest user-facing state differs: a gap is a stretch a person may still
+ * choose to apply to manually, while a refusal means this should not be sent.
+ * Returns null when nothing prohibits approval.
+ */
+export function approvalProhibitedBy(refusals: string[]): "QUALIFICATION_GAP" | "CANDIDACY" | "POSTING" | null {
+  if (refusals.some((c) => QUALIFICATION_GAP.has(c))) return "QUALIFICATION_GAP";
+  if (refusals.some((c) => CANDIDACY_BLOCK.has(c))) return "CANDIDACY";
+  if (refusals.some((c) => POSTING_STALE.has(c))) return "POSTING";
+  return null;
 }
 
 export function deriveBlocker(f: BlockerFacts, id: string): Blocker {
@@ -108,13 +137,41 @@ export function deriveBlocker(f: BlockerFacts, id: string): Blocker {
       reason: f.handoffReason ?? "The employer's site needs you to sign in before this can continue.",
       action: f.applyUrl ? { label: `Continue on ${f.provider}`, href: f.applyUrl } : null };
   }
-  if (!capable && f.humanApproved) {
-    return { code: "ATS_NOT_AUTOMATED", status: "Hand-finish required",
-      reason: `${f.provider} submission is not automated; finish it on the employer's site.`,
-      action: f.applyUrl ? { label: `Continue on ${f.provider}`, href: f.applyUrl } : null };
+  // A provider the machine definitely cannot submit through (capability NONE,
+  // or PRODUCTION but paused) must never reach the review branch and promise
+  // "it submits after you approve it" -- approval cannot cause an automated
+  // submission there. The unknown/null capability case is left to flow to
+  // review, so a missing ats_policy row does not wrongly divert Greenhouse.
+  const notAutomatable = (f.providerCapability != null && f.providerCapability !== "PRODUCTION") || f.providerPaused;
+  if (notAutomatable) {
+    return { code: "ATS_NOT_AUTOMATED", status: "Finish on the employer's site",
+      reason: `${f.provider} submission is not automated; apply on the employer's site.`,
+      action: f.applyUrl ? { label: `Apply on ${f.provider}`, href: f.applyUrl } : { label: "View application", href: `${href}/review` } };
   }
 
+  // Approval capability is the SAME truth the review page and the submit
+  // guard use. If the guard would refuse approval on qualification or
+  // candidacy grounds, the board must not say "it submits after you approve
+  // it" and route to a review page that has no approval control. This is the
+  // exact contradiction a person hit: /jobs promised approval, /review
+  // refused it. Only reached once the answer and form gates above pass.
   if (!f.humanApproved && f.status !== "READY_TO_SUBMIT") {
+    const prohibited = approvalProhibitedBy(f.refusals);
+    if (prohibited === "QUALIFICATION_GAP") {
+      return { code: "MANUAL_OPTIONAL_QUALIFICATION_GAP", status: "Stretch — optional",
+        reason: "This role's core qualifications are not established by your verified evidence, so it will not be submitted automatically. You can still apply manually if you want.",
+        action: f.applyUrl ? { label: `Apply on ${f.provider}`, href: f.applyUrl } : { label: "View application", href: `${href}/review` } };
+    }
+    if (prohibited === "CANDIDACY") {
+      return { code: "NOT_A_MATCH", status: "Not a current match",
+        reason: "Current candidacy and eligibility no longer support submitting this, so it will not be sent. Review it or apply manually if you disagree.",
+        action: { label: "View application", href: `${href}/review` } };
+    }
+    if (prohibited === "POSTING") {
+      return { code: "REVALIDATION_FAILED", status: "Posting moved on",
+        reason: `The posting changed after this was prepared (${f.refusals.join(", ")}). Re-review to proceed.`,
+        action: { label: "Review again", href: `${href}/review` } };
+    }
     return { code: "WAITING_FOR_MY_REVIEW", status: "Needs your review",
       reason: "Every field is resolved. It submits after you approve it (or policy authorizes it).",
       action: { label: "Review application", href: `${href}/review` } };

@@ -17,6 +17,7 @@ const CLOSED = new Set(["REJECTED", "WITHDRAWN", "ABANDONED"]);
 const PILES: Array<{ label: string; match: (r: BoardRow) => boolean }> = [
   { label: "Needs your answer", match: (r) => r.blocker.code === "WAITING_FOR_MY_ANSWER" },
   { label: "Needs your review", match: (r) => r.blocker.code === "WAITING_FOR_MY_REVIEW" },
+  { label: "Stretch — apply manually if you want", match: (r) => ["MANUAL_OPTIONAL_QUALIFICATION_GAP", "NOT_A_MATCH"].includes(r.blocker.code) },
   { label: "Needs your eyes", match: (r) => ["AMBIGUOUS_SUBMIT_STATE", "SUBMISSION_FAILED", "REVALIDATION_FAILED"].includes(r.blocker.code) },
   { label: "Finish on the employer's site", match: (r) => ["ATS_NOT_AUTOMATED", "AUTHENTICATION_REQUIRED"].includes(r.blocker.code) },
   { label: "Ready — the listener owns these", match: (r) => ["READY_TO_SUBMIT", "ENQUEUED", "SUBMISSION_IN_PROGRESS", "DAILY_CAP_REACHED"].includes(r.blocker.code) },
@@ -40,6 +41,7 @@ export default async function Applications() {
       <p className="muted">
         {summary.needAnswer > 0 && <><strong>{summary.needAnswer} need your answer</strong> · </>}
         {summary.needReview > 0 && <><strong>{summary.needReview} need your review</strong> · </>}
+        {summary.stretchManual > 0 && <><strong>{summary.stretchManual} stretch (manual only)</strong> · </>}
         {summary.issue > 0 && <><strong>{summary.issue} with a submission issue</strong> · </>}
         {summary.ready} ready · {summary.processing} processing · {summary.submittedToday} submitted today ·{" "}
         {summary.submittedTotal} submitted all-time
