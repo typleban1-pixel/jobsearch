@@ -134,7 +134,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
         ? db.from("resumes").select("id,artifact_sha256,content_sha256,renderer_version,grounding_version,artifact_pdf,content")
             .eq("id", app.resume_id).maybeSingle()
         : Promise.resolve({ data: null } as any),
-      db.from("job_candidacy").select("verdict,reason,created_at,core_gaps,occupational,direct_matches")
+      db.from("job_candidacy").select("verdict,reason,reason_codes,hard_met,hard_total,created_at,core_gaps,occupational,direct_matches")
         .eq("job_id", app.job_id).order("created_at", { ascending: false }).limit(1),
       db.from("job_descriptions").select("description_text").eq("job_id", app.job_id).maybeSingle(),
       db.from("job_requirements").select("raw_text,is_hard_requirement")
@@ -176,6 +176,12 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     eligibility: job!.eligibility,
     candidacyVerdict: cand?.verdict ?? null,
     candidacyComputedAt: cand?.created_at ?? null,
+    // The material-qualification guard needs these; without them the review
+    // page showed canApprove=true for a material-gap job the submit path
+    // would refuse (Algo Trader / Sales Engineer).
+    candidacyReasonCode: (cand as any)?.reason_codes?.[0] ?? null,
+    hardMet: (cand as any)?.hard_met ?? null,
+    hardTotal: (cand as any)?.hard_total ?? null,
     humanApproved: Boolean(app.human_approved),
     humanApprovedAt: app.human_approved_at ?? null,
     authorizationMode: app.authorization_mode ?? null,
@@ -204,6 +210,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     BLOCKED_ANSWERS: `${blocked} question${blocked === 1 ? "" : "s"} still need your answer.`,
     REQUIRED_UNANSWERED: `${unansweredRequired} required field${unansweredRequired === 1 ? "" : "s"} are unanswered.`,
     FIELDS_NOT_CONFIDENT: "Not every field has a confident answer yet.",
+    MATERIAL_QUALIFICATION_GAP: "This role's core qualifications are not established by your verified evidence, so it should not be submitted automatically; review it and apply manually if you choose.",
   };
   const warnings = guard.refusals
     .filter((r) => !PRE_APPROVAL.has(r.code))

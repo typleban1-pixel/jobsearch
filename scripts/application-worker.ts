@@ -31,7 +31,7 @@ import { resolve, dirname } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { readSwitches, readPolicy, decide, type Candidate } from "../lib/automation/policy.ts";
-import { authoritativeCandidacy, productionApplications } from "../lib/applications/authoritativeCandidacy.ts";
+import { authoritativeCandidacy, authoritativeCandidacyRows, productionApplications } from "../lib/applications/authoritativeCandidacy.ts";
 import { FIT_FORMULA_VERSION } from "../lib/scoring/fit.ts";
 import { TAXONOMY_VERSION } from "../lib/scoring/requirementClass.ts";
 import { CANDIDACY_MODEL_VERSION } from "../lib/scoring/candidacy.ts";
@@ -103,7 +103,7 @@ console.log(`policy: auto-submit ${JSON.stringify(policy.autoSubmitCandidacy)}, 
 const [jobs, candidacy, allApps, companies, profileRow] = await Promise.all([
   paged<any>("jobs", "id,title,company_id,source,status,eligibility,salary_min,canonical_opening_id"),
   paged<any>("job_candidacy",
-    "id,job_id,verdict,profile_version,formula_version,taxonomy_version,model_version"),
+    "id,job_id,verdict,reason_codes,hard_met,hard_total,profile_version,formula_version,taxonomy_version,model_version"),
   paged<any>("applications", "id,job_id,status,submitted_at,human_approved,authorization_mode,all_fields_confident,resume_id,submit_requested_at,submit_started_at,is_test"),
   paged<any>("companies", "id,name"),
   db.from("profile").select("profile_version").single(),
@@ -124,6 +124,7 @@ const versions = {
   modelVersion: CANDIDACY_MODEL_VERSION,
 };
 const candidacyOf = authoritativeCandidacy(candidacy, versions);
+const candidacyRowOf = authoritativeCandidacyRows(candidacy, versions);
 console.log(`candidacy: profile v${versions.profileVersion}, formula ${versions.formulaVersion}, `
   + `taxonomy ${versions.taxonomyVersion}, model ${versions.modelVersion} `
   + `-> ${candidacyOf.size} authoritative verdicts of ${candidacy.length} rows`);
@@ -179,6 +180,9 @@ for (const job of jobs) {
   const candidate: Candidate = {
     jobId: job.id, companyId: job.company_id, provider: job.source,
     candidacy: candidacyOf.get(job.id) ?? null,
+    candidacyReasonCode: candidacyRowOf.get(job.id)?.reason_codes?.[0] ?? null,
+    hardMet: candidacyRowOf.get(job.id)?.hard_met ?? null,
+    hardTotal: candidacyRowOf.get(job.id)?.hard_total ?? null,
     eligibility: job.eligibility, fit: null,
     baseSalaryMin: job.salary_min ?? null,
     // Gates that only exist once an application does. Unprepared work is
@@ -301,7 +305,11 @@ for (const w of work.slice(0, limit)) {
 
     const real = decide({
       jobId: w.job.id, companyId: w.job.company_id, provider: w.job.source,
-      candidacy: candidacyOf.get(w.job.id) ?? null, eligibility: w.job.eligibility,
+      candidacy: candidacyOf.get(w.job.id) ?? null,
+      candidacyReasonCode: candidacyRowOf.get(w.job.id)?.reason_codes?.[0] ?? null,
+      hardMet: candidacyRowOf.get(w.job.id)?.hard_met ?? null,
+      hardTotal: candidacyRowOf.get(w.job.id)?.hard_total ?? null,
+      eligibility: w.job.eligibility,
       fit: null, baseSalaryMin: w.job.salary_min ?? null,
       allFieldsConfident: Boolean(app.all_fields_confident),
       blockedAnswers: blockedNow ?? 0,

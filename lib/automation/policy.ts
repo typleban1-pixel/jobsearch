@@ -18,6 +18,7 @@
  *    the one after it.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { hasMaterialQualificationGap } from "../applications/revalidate.ts";
 
 export interface Switches {
   globalAutoSubmit: boolean;
@@ -73,6 +74,12 @@ export interface Candidate {
   // "CANDIDATE", which matches none of them, so every job would have
   // been skipped as unscored while looking like a working policy.
   candidacy: "APPLICATION_CANDIDATE" | "STRETCH" | "REJECT" | "MANUAL_REVIEW" | null;
+  /** The newest verdict's first reason code (e.g. OCCUPATIONAL_GAP), for the
+   *  material-gap and autonomous-STRETCH evidence checks. */
+  candidacyReasonCode?: string | null;
+  /** Supported (credit>0) discriminating hard requirements, and the total. */
+  hardMet?: number | null;
+  hardTotal?: number | null;
   eligibility: string;
   fit: number | null;
   /** Employer-published base only. Null means unstated, never zero. */
@@ -92,6 +99,19 @@ export interface Candidate {
  * off" must never be reported as "it did not qualify". Hard exclusions
  * come next. Only then does candidacy get considered.
  */
+/**
+ * Autonomous-STRETCH evidence thresholds. Tuned against the live STRETCH
+ * population (see the autonomous-stretch audit): >=3 positively supported
+ * discriminating hard requirements and >=40% coverage. hardTotal already
+ * counts DISCRIMINATING hard requirements only -- baseline degrees and
+ * junior-seniority targets are excluded, OR-alternatives are collapsed to one,
+ * and credential families collapse -- so a posting with fifteen redundant tool
+ * bullets is not made artificially harder than one with five broad ones. These
+ * gate AUTONOMOUS SUBMISSION only; they never change what STRETCH means.
+ */
+export const AUTONOMOUS_STRETCH_MIN_SUPPORTED = 3;
+export const AUTONOMOUS_STRETCH_MIN_COVERAGE = 0.40;
+
 export function decide(c: Candidate, p: AutomationPolicy, s: Switches): Disposition {
   // HARD EXCLUSIONS FIRST.
   //
@@ -139,6 +159,41 @@ export function decide(c: Candidate, p: AutomationPolicy, s: Switches): Disposit
     return p.reviewCandidacy.includes(c.candidacy)
       ? { action: "REVIEW", why: `${c.candidacy} is prepared but never auto-submitted` }
       : { action: "SKIP", why: `${c.candidacy} is not in any policy list` };
+  }
+
+  // FIX #1 -- material-gap parity with submit-time revalidation.
+  //
+  // A job whose material qualification gap the submit-time guard would refuse
+  // (occupational substance absent, zero hard requirements met, or a declared
+  // NOT_HELD credential) must never enter autonomous preparation: no resume,
+  // no browser, no worker slot, no misleading POLICY_AUTHORIZED, no per-cycle
+  // retry. It is routed to REVIEW; the submit-time guard remains the final,
+  // unchanged safety check.
+  if (hasMaterialQualificationGap({
+    candidacyVerdict: c.candidacy, candidacyReasonCode: c.candidacyReasonCode ?? null,
+    hardMet: c.hardMet ?? null, hardTotal: c.hardTotal ?? null,
+  })) {
+    return { action: "REVIEW", why: "a material qualification gap would be refused at submit; review or apply manually" };
+  }
+
+  // FIX #3 -- autonomous-STRETCH evidence guard.
+  //
+  // STRETCH stays broad for recall (its MEANING is unchanged). But autonomous
+  // submission needs more than plausibility: enough POSITIVELY SUPPORTED
+  // discriminating hard requirements, and meaningful coverage of them. A weak
+  // stretch (Lincoln: 2 of 9, investment-banking substance) remains a visible
+  // STRETCH but is NOT autonomously submittable -- it routes to REVIEW/manual.
+  // APPLICATION_CANDIDATE is exempt: it is the stronger verdict and already
+  // cleared candidacy's own evidence-sufficiency arm. This is an autonomous-
+  // submission gate, NOT a candidacy reclassification.
+  if (c.candidacy === "STRETCH") {
+    const met = c.hardMet ?? 0;
+    const total = c.hardTotal ?? 0;
+    if (met < AUTONOMOUS_STRETCH_MIN_SUPPORTED || total <= 0 || met / total < AUTONOMOUS_STRETCH_MIN_COVERAGE) {
+      return { action: "REVIEW",
+        why: `STRETCH with insufficient qualification evidence for autonomous submission `
+          + `(${met}/${total} discriminating hard requirements met); visible for review/manual apply` };
+    }
   }
 
   // Only now do the switches matter, and only to demote a would-be

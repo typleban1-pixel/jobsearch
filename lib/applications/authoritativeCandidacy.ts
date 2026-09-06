@@ -41,6 +41,10 @@ export interface CandidacyVersionRow {
   formula_version: number;
   taxonomy_version: number;
   model_version: number;
+  /** Optional: carried for the autonomous-submission guards (planner). */
+  reason_codes?: string[] | null;
+  hard_met?: number | null;
+  hard_total?: number | null;
 }
 
 export interface ScoringVersions {
@@ -82,6 +86,28 @@ export function authoritativeCandidacy(
         + `/ model ${v.modelVersion}. job_candidacy_current should make this impossible.`);
     }
     out.set(r.job_id, r.verdict);
+  }
+  return out;
+}
+
+/**
+ * Like authoritativeCandidacy, but returns the whole authoritative ROW per
+ * job (verdict + reason code + hard counts), which the planner needs for the
+ * material-gap and autonomous-STRETCH evidence guards. Same authoritative-
+ * version filter; same throw on two disagreeing authoritative rows.
+ */
+export function authoritativeCandidacyRows(
+  rows: CandidacyVersionRow[],
+  v: ScoringVersions,
+): Map<string, CandidacyVersionRow> {
+  const out = new Map<string, CandidacyVersionRow>();
+  for (const r of rows) {
+    if (!isAuthoritative(r, v)) continue;
+    const seen = out.get(r.job_id);
+    if (seen !== undefined && seen.verdict !== r.verdict) {
+      throw new Error(`job ${r.job_id} has two different authoritative candidacy verdicts (${seen.verdict}, ${r.verdict}).`);
+    }
+    out.set(r.job_id, r);
   }
   return out;
 }

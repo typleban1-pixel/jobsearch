@@ -26,6 +26,7 @@ const OFF: Switches = { globalAutoSubmit: false, byProvider: ON.byProvider };
 const job = (over: Partial<Candidate> = {}): Candidate => ({
   jobId: "j", companyId: "c", provider: "GREENHOUSE",
   candidacy: "APPLICATION_CANDIDATE", eligibility: "ELIGIBLE", fit: 70,
+  candidacyReasonCode: "MEETS_HARD_REQUIREMENTS", hardMet: 5, hardTotal: 8,
   baseSalaryMin: 120_000, allFieldsConfident: true, blockedAnswers: 0,
   resumeClaimsAllGrounded: true, artifactValid: true, submittedToday: 0, ...over,
 });
@@ -144,6 +145,39 @@ check("REJECT never auto-submits under the STRETCH policy",
   decide(job({ candidacy: "REJECT" }), STRETCH_POLICY, ON).action === "SKIP");
 check("MANUAL_REVIEW never auto-submits under the STRETCH policy (routes to REVIEW)",
   decide(job({ candidacy: "MANUAL_REVIEW" }), STRETCH_POLICY, ON).action === "REVIEW");
+
+
+// ============================================================================
+// FIX #1 (material gap) + FIX #3 (autonomous-STRETCH evidence guard).
+// STRETCH stays broad; autonomous SUBMISSION is more selective.
+// ============================================================================
+console.log("\nautonomous-STRETCH evidence guard");
+// material gap -> REVIEW, both verdicts, never SUBMIT (planner parity)
+check("material-gap STRETCH (OCCUPATIONAL_GAP) routes to REVIEW, not SUBMIT",
+  decide(job({ candidacy: "STRETCH", candidacyReasonCode: "OCCUPATIONAL_GAP", hardMet: 2, hardTotal: 6 }), STRETCH_POLICY, ON).action === "REVIEW");
+check("material-gap STRETCH (0 of N hard) routes to REVIEW",
+  decide(job({ candidacy: "STRETCH", candidacyReasonCode: "NO_DIRECT_EVIDENCE", hardMet: 0, hardTotal: 5 }), STRETCH_POLICY, ON).action === "REVIEW");
+check("material-gap APPLICATION_CANDIDATE also routes to REVIEW (Fix #1 applies to both)",
+  decide(job({ candidacy: "APPLICATION_CANDIDATE", candidacyReasonCode: "OCCUPATIONAL_GAP", hardMet: 2, hardTotal: 6 }), STRETCH_POLICY, ON).action === "REVIEW");
+// weak STRETCH -> REVIEW (Lincoln shape: 2/9, no material gap)
+check("weak STRETCH (2/9, no material gap) routes to REVIEW, not autonomous SUBMIT",
+  decide(job({ candidacy: "STRETCH", candidacyReasonCode: "LOW_HARD_RATIO", hardMet: 2, hardTotal: 9 }), STRETCH_POLICY, ON).action === "REVIEW");
+check("STRETCH with too few supported requirements (2/3, <3 supported) routes to REVIEW",
+  decide(job({ candidacy: "STRETCH", candidacyReasonCode: "LOW_HARD_RATIO", hardMet: 2, hardTotal: 3 }), STRETCH_POLICY, ON).action === "REVIEW");
+// sufficient STRETCH -> SUBMIT
+check("sufficiently-supported STRETCH (4/8 = 50%, >=3 supported) auto-submits",
+  decide(job({ candidacy: "STRETCH", candidacyReasonCode: "LOW_HARD_RATIO", hardMet: 4, hardTotal: 8 }), STRETCH_POLICY, ON).action === "SUBMIT");
+check("STRETCH at exactly 3/7 (43% >= 40%, 3 supported) auto-submits",
+  decide(job({ candidacy: "STRETCH", candidacyReasonCode: "LOW_HARD_RATIO", hardMet: 3, hardTotal: 7 }), STRETCH_POLICY, ON).action === "SUBMIT");
+check("STRETCH at 3/8 (37.5% < 40%) routes to REVIEW",
+  decide(job({ candidacy: "STRETCH", candidacyReasonCode: "LOW_HARD_RATIO", hardMet: 3, hardTotal: 8 }), STRETCH_POLICY, ON).action === "REVIEW");
+// APPLICATION_CANDIDATE is exempt from the STRETCH evidence guard
+check("APPLICATION_CANDIDATE with modest coverage (2/4) still auto-submits (exempt from the STRETCH guard)",
+  decide(job({ candidacy: "APPLICATION_CANDIDATE", candidacyReasonCode: "MEETS_HARD_REQUIREMENTS", hardMet: 2, hardTotal: 4 }), STRETCH_POLICY, ON).action === "SUBMIT");
+// stale POLICY_AUTHORIZED cannot bypass: the planner re-decides from candidacy each cycle,
+// so a material-gap or weak STRETCH is re-routed to REVIEW regardless of prior authorization.
+check("a weak STRETCH cannot be auto-submitted even if it was previously prepared",
+  decide(job({ candidacy: "STRETCH", candidacyReasonCode: "LOW_HARD_RATIO", hardMet: 2, hardTotal: 9, allFieldsConfident: true }), STRETCH_POLICY, ON).action === "REVIEW");
 
 console.log(`\n${failures === 0 ? "all passed" : `${failures} FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);
