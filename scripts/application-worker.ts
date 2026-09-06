@@ -32,6 +32,7 @@ import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { readSwitches, readPolicy, decide, type Candidate } from "../lib/automation/policy.ts";
 import { authoritativeCandidacy, authoritativeCandidacyRows, productionApplications } from "../lib/applications/authoritativeCandidacy.ts";
+import { activeApplicationByJob, openingsWorked } from "../lib/applications/applicationLifecycle.ts";
 import { FIT_FORMULA_VERSION } from "../lib/scoring/fit.ts";
 import { TAXONOMY_VERSION } from "../lib/scoring/requirementClass.ts";
 import { CANDIDACY_MODEL_VERSION } from "../lib/scoring/candidacy.ts";
@@ -137,15 +138,11 @@ const apps = productionApplications(allApps);
 if (apps.length !== allApps.length) {
   console.log(`  excluded ${allApps.length - apps.length} test application(s) from the production decision set`);
 }
-const appByJob = new Map(apps.map((a) => [a.job_id, a]));
+const appByJob = activeApplicationByJob(apps);
 
 // Deduplication is by underlying opening, not by job row. The same role
 // reposted under a new id is the same job to the employer reading it.
-const openingsApplied = new Set<string>();
-for (const a of apps) {
-  const j = jobs.find((x) => x.id === a.job_id);
-  if (j?.canonical_opening_id) openingsApplied.add(j.canonical_opening_id);
-}
+const openingsApplied = openingsWorked(apps, (jobId) => jobs.find((x) => x.id === jobId)?.canonical_opening_id ?? null);
 const submittedToday = apps.filter((a) =>
   a.submitted_at && a.submitted_at.slice(0, 10) === new Date().toISOString().slice(0, 10)).length;
 
