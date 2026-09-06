@@ -24,7 +24,7 @@ const NOT_YET_APPROVED_NOISE = new Set([
 export interface BoardRow { app: ApplicationSummary; blocker: Blocker }
 export interface BoardSummary {
   processing: number; needAnswer: number; needReview: number; ready: number;
-  issue: number; stretchManual: number; submittedToday: number; submittedTotal: number;
+  issue: number; stretchManual: number; readyForHuman: number; submittedToday: number; submittedTotal: number;
 }
 
 const ISSUE_CODES = new Set(["AMBIGUOUS_SUBMIT_STATE", "SUBMISSION_FAILED", "REVALIDATION_FAILED", "FORM_NOT_READ"]);
@@ -152,6 +152,7 @@ export async function loadBlockerBoard(db: SupabaseClient): Promise<{ rows: Boar
     issue: open.filter((r) => ISSUE_CODES.has(r.blocker.code)
       || r.blocker.code === "ATS_NOT_AUTOMATED" || r.blocker.code === "AUTHENTICATION_REQUIRED").length,
     stretchManual: open.filter((r) => r.blocker.code === "MANUAL_OPTIONAL_QUALIFICATION_GAP" || r.blocker.code === "NOT_A_MATCH").length,
+    readyForHuman: open.filter((r) => r.blocker.code === "READY_FOR_HUMAN_SUBMIT").length,
     submittedToday,
     submittedTotal: rows.filter((r) => r.app.submittedAt).length,
   };

@@ -74,6 +74,11 @@ export interface ReviewData {
   /** Blocking problems, in plain English. Empty means approval may proceed. */
   warnings: string[];
   canApprove: boolean;
+  /** ASSISTED_SUBMIT provider (Lever): prepared+validated, finished locally by
+   *  a human (captcha + submit); never approved into the autonomous listener. */
+  assisted: boolean;
+  /** The exact local command to run the assisted fill, when ready to finish. */
+  assistedFinishCommand: string | null;
   /** How many employer fields were actually discovered. Zero means the form
    *  was never read, so there is nothing to review or approve here. */
   discoveredFields: number;
@@ -267,6 +272,13 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   const ATS_LABEL: Record<string, string> = { WORKDAY: "Workday", GREENHOUSE: "Greenhouse", LEVER: "Lever", ASHBY: "Ashby" };
   const provider = String(job!.source ?? "");
   const providerLabel = ATS_LABEL[provider] ?? provider;
+  const { data: atsRow } = await db.from("ats_policy").select("capability").eq("provider", provider).maybeSingle();
+  // ASSISTED_SUBMIT (Lever): the system prepares, fills and reads the form
+  // back locally, and a human completes the anti-bot + final submit. It is
+  // never approved into the autonomous submit-listener (which requires a
+  // PRODUCTION provider), so the review page must not offer "Approve" or a
+  // plain "Apply on the employer's site" -- it explains the finish step.
+  const assisted = atsRow?.capability === "ASSISTED_SUBMIT";
   const automatable = provider === "GREENHOUSE" && !app.blocked_reason;
   const applyUrl = (job as any)!.application_form_url ?? job!.url ?? null;
   const formNotRead = discoveredFields === 0;
@@ -278,10 +290,19 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   const qualificationBlocked = !app.human_approved && guard.refusals.some(
     (r) => r.code === "MATERIAL_QUALIFICATION_GAP" || r.code === "CANDIDACY_REFUSES"
       || r.code === "NOT_ELIGIBLE" || r.code === "NO_CURRENT_CANDIDACY" || r.code === "APPROVAL_PREDATES_CANDIDACY");
-  const externalOnly = !app.submitted_at && (formNotRead || Boolean(app.blocked_reason) || !automatable || qualificationBlocked);
+  // An assisted provider whose form IS read and whose guards pass is
+  // "ready to finish", not "external only": the answers and the exact
+  // résumé are prepared; only the local fill + human captcha + submit
+  // remain. It only falls through to the external/apply framing when a
+  // real blocker (qualification gap, unread form) applies.
+  const assistedReady = assisted && !app.submitted_at && !formNotRead && !qualificationBlocked && !app.blocked_reason;
+  const externalOnly = !app.submitted_at && !assistedReady && (formNotRead || Boolean(app.blocked_reason) || !automatable || qualificationBlocked);
   const externalAction = externalOnly && applyUrl
     ? { label: `Apply on ${providerLabel}`, href: applyUrl } : null;
-  const noActionReason = externalOnly
+  const assistedFinishCommand = assistedReady ? `node scripts/fill-lever.ts ${applicationId} --stay-open` : null;
+  const noActionReason = assistedReady
+    ? `Everything the system can safely do is done: answers resolved, the exact tailored résumé validated, and the ${providerLabel} form ready to fill and read back. To finish, run the assisted fill locally, solve ${providerLabel}'s human check, and submit; the system does not perform the captcha or the final submit.`
+    : externalOnly
     ? (formNotRead
         ? `${providerLabel}'s form has not been read by the system, so there is nothing to review or approve here. Apply on the employer's site.`
         : qualificationBlocked
@@ -340,7 +361,11 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     canApprove: warnings.length === 0 && !app.submitted_at && !app.human_approved
       && !app.submit_requested_at && app.submit_outcome !== "AMBIGUOUS"
       // Never "approvable" with no fields: there is nothing to approve.
-      && discoveredFields > 0,
+      && discoveredFields > 0
+      // An assisted (Lever) application is finished locally by a human, never
+      // approved into the autonomous submit-listener; "Approve" would be a lie.
+      && !assisted,
+    assisted, assistedFinishCommand,
     discoveredFields, automatable, applyUrl, providerLabel, externalAction, noActionReason,
     technical: {
       applicationId, jobId: app.job_id,

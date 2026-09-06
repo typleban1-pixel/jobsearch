@@ -112,6 +112,13 @@ const cases: Array<[string, Partial<BlockerFacts>, { code: string; approvePromis
   ["I candidacy refuses", { refusals: ["CANDIDACY_REFUSES"] }, { code: "NOT_A_MATCH", approvePromised: false, hasAction: true }],
   // J. posting changed pre-approval -> re-review, never a bare "approve it".
   ["J posting changed", { refusals: ["POSTING_CHANGED"] }, { code: "REVALIDATION_FAILED", approvePromised: false, hasAction: true }],
+  // K. ASSISTED provider (Lever), prepared, guards clear -> READY_FOR_HUMAN_SUBMIT,
+  //    has an action, and NEVER promises an autonomous approval/submit.
+  ["K lever assisted ready", { provider: "LEVER", providerCapability: "ASSISTED_SUBMIT", providerPaused: true }, { code: "READY_FOR_HUMAN_SUBMIT", approvePromised: false, hasAction: true }],
+  // L. ASSISTED + material qualification gap -> still MANUAL_OPTIONAL, not a handoff.
+  ["L lever assisted + material gap", { provider: "LEVER", providerCapability: "ASSISTED_SUBMIT", providerPaused: true, refusals: ["MATERIAL_QUALIFICATION_GAP"] }, { code: "MANUAL_OPTIONAL_QUALIFICATION_GAP", approvePromised: false, hasAction: true }],
+  // M. ASSISTED + blocked answer (HUMAN_FACT) -> answer first, not a handoff.
+  ["M lever assisted + blocked answer", { provider: "LEVER", providerCapability: "ASSISTED_SUBMIT", providerPaused: true, blockedAnswers: 1 }, { code: "WAITING_FOR_MY_ANSWER", approvePromised: false, hasAction: true }],
 ];
 for (const [name, over, exp] of cases) {
   const b = deriveBlocker({ ...gbase, ...over }, "app1");

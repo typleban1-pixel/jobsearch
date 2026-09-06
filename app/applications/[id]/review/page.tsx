@@ -264,6 +264,17 @@ export default async function ReviewPage(props: {
                 : "This asks the worker on your Mac to submit it. Every check runs again immediately before the application is sent."}
             </p>
           </>
+        ) : r.assisted && r.assistedFinishCommand ? (
+          <>
+            <strong>Ready to finish on {r.providerLabel}</strong>
+            <p className="muted">{r.noActionReason}</p>
+            <p className="muted">Run this locally to open the pre-filled form (it fills every resolved
+              answer and uploads the exact résumé above, then stops at {r.providerLabel}&rsquo;s human check):</p>
+            <pre className="cmd"><code>{r.assistedFinishCommand}</code></pre>
+            <p className="muted">Then solve the {r.providerLabel} check, confirm the values, and click Submit.
+              The assisted run watches for the confirmation page and records it; if it cannot observe the
+              result it will ask you to confirm rather than guess. Nothing is submitted automatically.</p>
+          </>
         ) : r.canApprove ? (
           <>
             <form method="post" action="/api/applications/approve">

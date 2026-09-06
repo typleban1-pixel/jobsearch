@@ -19,6 +19,7 @@ export type BlockerCode =
   | "WAITING_FOR_MY_REVIEW"
   | "MANUAL_OPTIONAL_QUALIFICATION_GAP" // qualification gap: not auto-submittable, manual optional
   | "NOT_A_MATCH"               // candidacy/eligibility no longer supports submitting
+  | "READY_FOR_HUMAN_SUBMIT"    // ASSISTED provider (Lever): prepared+filled; human does captcha+submit
   | "ATS_NOT_AUTOMATED"          // provider capability/pause; handoff to a person
   | "AUTHENTICATION_REQUIRED"
   | "REVALIDATION_FAILED"        // approval no longer matches present facts
@@ -142,7 +143,13 @@ export function deriveBlocker(f: BlockerFacts, id: string): Blocker {
   // "it submits after you approve it" -- approval cannot cause an automated
   // submission there. The unknown/null capability case is left to flow to
   // review, so a missing ats_policy row does not wrongly divert Greenhouse.
-  const notAutomatable = (f.providerCapability != null && f.providerCapability !== "PRODUCTION") || f.providerPaused;
+  // ASSISTED_SUBMIT (Lever) is neither autonomous nor plain external: the
+  // system prepares, fills and reads the form back, and a human completes the
+  // anti-bot / final submit. It flows THROUGH the qualification gates below
+  // (a material-gap Lever job must still route to review/manual, not to a
+  // handoff), then lands on READY_FOR_HUMAN_SUBMIT rather than ATS_NOT_AUTOMATED.
+  const assisted = f.providerCapability === "ASSISTED_SUBMIT";
+  const notAutomatable = !assisted && ((f.providerCapability != null && f.providerCapability !== "PRODUCTION") || f.providerPaused);
   if (notAutomatable) {
     return { code: "ATS_NOT_AUTOMATED", status: "Finish on the employer's site",
       reason: `${f.provider} submission is not automated; apply on the employer's site.`,
@@ -171,6 +178,11 @@ export function deriveBlocker(f: BlockerFacts, id: string): Blocker {
       return { code: "REVALIDATION_FAILED", status: "Posting moved on",
         reason: `The posting changed after this was prepared (${f.refusals.join(", ")}). Re-review to proceed.`,
         action: { label: "Review again", href: `${href}/review` } };
+    }
+    if (assisted) {
+      return { code: "READY_FOR_HUMAN_SUBMIT", status: "Ready to finish on Lever",
+        reason: `Everything the system can safely do is done: answers resolved, the exact tailored résumé validated, and the ${f.provider} form is ready to be filled and read back. Only ${f.provider}'s human check and the final submit remain, which the system does not perform.`,
+        action: { label: `Finish on ${f.provider}`, href: `${href}/review` } };
     }
     return { code: "WAITING_FOR_MY_REVIEW", status: "Needs your review",
       reason: "Every field is resolved. It submits after you approve it (or policy authorizes it).",
