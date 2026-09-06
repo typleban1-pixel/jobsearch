@@ -1083,7 +1083,7 @@ export async function composeTailoredResume(
  * remains here is persistence, and it is the only part a candidate run
  * must not perform.
  */
-async function buildTailoredResume(
+export async function buildTailoredResume(
   db: SupabaseClient, applicationId: string, job: any, version: any, llm: LlmProvider | null,
 ): Promise<TailorOutcome> {
   const c = await composeTailoredResume(db, job, version, llm);
