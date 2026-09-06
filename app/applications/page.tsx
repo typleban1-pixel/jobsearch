@@ -17,7 +17,7 @@ const CLOSED = new Set(["REJECTED", "WITHDRAWN", "ABANDONED"]);
 const PILES: Array<{ label: string; match: (r: BoardRow) => boolean }> = [
   { label: "Needs your answer", match: (r) => r.blocker.code === "WAITING_FOR_MY_ANSWER" },
   { label: "Needs your review", match: (r) => r.blocker.code === "WAITING_FOR_MY_REVIEW" },
-  { label: "Stretch — apply manually if you want", match: (r) => ["MANUAL_OPTIONAL_QUALIFICATION_GAP", "NOT_A_MATCH"].includes(r.blocker.code) },
+  { label: "Not auto-submitted — apply manually if you want", match: (r) => ["MANUAL_OPTIONAL_QUALIFICATION_GAP", "NOT_A_MATCH"].includes(r.blocker.code) },
   { label: "Needs your eyes", match: (r) => ["AMBIGUOUS_SUBMIT_STATE", "SUBMISSION_FAILED", "REVALIDATION_FAILED"].includes(r.blocker.code) },
   { label: "Finish on the employer's site", match: (r) => ["ATS_NOT_AUTOMATED", "AUTHENTICATION_REQUIRED"].includes(r.blocker.code) },
   { label: "Ready — the listener owns these", match: (r) => ["READY_TO_SUBMIT", "ENQUEUED", "SUBMISSION_IN_PROGRESS", "DAILY_CAP_REACHED"].includes(r.blocker.code) },
