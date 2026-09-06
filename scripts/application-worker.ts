@@ -32,7 +32,7 @@ import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { readSwitches, readPolicy, decide, type Candidate } from "../lib/automation/policy.ts";
 import { authoritativeCandidacy, authoritativeCandidacyRows, productionApplications } from "../lib/applications/authoritativeCandidacy.ts";
-import { activeApplicationByJob, openingsWorked } from "../lib/applications/applicationLifecycle.ts";
+import { activeApplicationByJob, openingsWorked, isClosedApplication } from "../lib/applications/applicationLifecycle.ts";
 import { FIT_FORMULA_VERSION } from "../lib/scoring/fit.ts";
 import { TAXONOMY_VERSION } from "../lib/scoring/requirementClass.ts";
 import { CANDIDACY_MODEL_VERSION } from "../lib/scoring/candidacy.ts";
@@ -241,8 +241,12 @@ for (const w of work.slice(0, limit)) {
         continue;                                   // the queue continues
       }
       prepared++;
-      const { data: fresh } = await db.from("applications").select("*").eq("job_id", w.job.id).maybeSingle();
-      app = fresh;
+      // A job can carry several application rows (closed/abandoned history plus
+      // the one just prepared), so .maybeSingle() would error on the multiple.
+      // Take the latest NON-closed row -- the same active-application semantics
+      // selection uses, so a historical closed row never hides the fresh one.
+      const { data: rows } = await db.from("applications").select("*").eq("job_id", w.job.id).order("created_at", { ascending: false });
+      app = (rows ?? []).find((a) => !isClosedApplication(a.status)) ?? null;
     }
     if (!app) {
       failed++; results.push({ company, title: w.job.title, action: w.disposition.action, outcome: "no application row after preparation" });
