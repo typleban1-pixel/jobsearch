@@ -24,6 +24,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { buildTailoredResume } from "../lib/applications/prepare.ts";
+import { isRecruiterFacing } from "../lib/render/languageQuality.ts";
 import { readPolicy, readSwitches } from "../lib/automation/policy.ts";
 import { authoritativeCandidacyRows } from "../lib/applications/authoritativeCandidacy.ts";
 import { FIT_FORMULA_VERSION } from "../lib/scoring/fit.ts";
@@ -38,7 +39,16 @@ const CLOSED = new Set(["REJECTED","WITHDRAWN","ABANDONED"]);
 
 const apps = (await pg<any>("applications","id,job_id,status,resume_id,submitted_at,human_approved,authorization_mode,submit_requested_at,submit_started_at,is_test"))
   .filter(a => !a.is_test && !a.submitted_at && !CLOSED.has(a.status) && a.resume_id);
-const resumes = new Map((await pg<any>("resumes","id,created_at,renderer_version")).map(r => [r.id, r]));
+const resumes = new Map((await pg<any>("resumes","id,created_at,renderer_version,content")).map(r => [r.id, r]));
+// A résumé is "stale" if it predates the fix OR -- regardless of date -- its
+// stored content still carries a line that fails the recruiter-language guard.
+// The content check catches résumés rendered after the FIX date but before the
+// tailored-path guard existed (e.g. a regen through the still-broken builder).
+const hasImplLanguage = (r: any): boolean => {
+  const lines = Array.isArray(r?.content?.lines) ? r.content.lines : [];
+  return lines.some((l: any) => typeof l === "string" && l.trim() && !isRecruiterFacing(l));
+};
+const isStale = (r: any): boolean => !!r && (r.created_at < FIX || hasImplLanguage(r));
 const jobs = new Map((await pg<any>("jobs","id,title,company_id,source,status,eligibility,canonical_opening_id")).map(j => [j.id, j]));
 const cos = new Map((await pg<any>("companies","id,name")).map(c => [c.id, c.name]));
 const { data: pr } = await db.from("profile").select("profile_version").single();
@@ -46,7 +56,7 @@ const rowOf = authoritativeCandidacyRows(await pg<any>("job_candidacy","job_id,v
   { profileVersion: (pr as any).profile_version, formulaVersion: FIT_FORMULA_VERSION, taxonomyVersion: TAXONOMY_VERSION, modelVersion: CANDIDACY_MODEL_VERSION });
 const sw = await readSwitches(db);
 
-const stale = apps.filter(a => { const r = resumes.get(a.resume_id); return r && r.created_at < FIX; });
+const stale = apps.filter(a => isStale(resumes.get(a.resume_id)));
 console.log(`stale open resumes before: ${stale.length}${commit ? "" : "   (dry run — pass --commit to apply)"}\n`);
 
 let regenerated = 0, revoked = 0, skipped = 0; const skipReasons: string[] = [];
