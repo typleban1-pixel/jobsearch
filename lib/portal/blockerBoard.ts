@@ -129,8 +129,12 @@ export async function loadBlockerBoard(db: SupabaseClient): Promise<{ rows: Boar
       lastStopCode: stop ? parseStopDetail(stop)?.code ?? null : null,
       lastStopDetail: stop,
       humanApproved: a.humanApproved,
-      blockedAnswers: a.blocked,
-      requiredUnanswered: a.required - a.accountedFor,
+      // REQUIRED blocked only. a.blocked counts every BLOCKED field including
+      // optional ones (a deferred demographic, an e-sign left for the person),
+      // which must not read as "needs your answer" -- the same required-only
+      // rule the review page uses, so the two surfaces agree.
+      blockedAnswers: Math.max(0, a.required - a.accountedFor),
+      requiredUnanswered: Math.max(0, a.required - a.accountedFor),
       discoveredFields: a.discoveredFields,
       refusals: refusalsByApp.get(a.id) ?? [],
       provider: job?.source ?? "UNKNOWN",

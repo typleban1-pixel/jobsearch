@@ -299,7 +299,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   const externalOnly = !app.submitted_at && !assistedReady && (formNotRead || Boolean(app.blocked_reason) || !automatable || qualificationBlocked);
   const externalAction = externalOnly && applyUrl
     ? { label: `Apply on ${providerLabel}`, href: applyUrl } : null;
-  const assistedFinishCommand = assistedReady ? `node scripts/fill-lever.ts ${applicationId} --stay-open` : null;
+  const assistedFinishCommand = assistedReady ? `node scripts/fill-lever.ts ${applicationId} --finish` : null;
   const noActionReason = assistedReady
     ? `Everything the system can safely do is done: answers resolved, the exact tailored résumé validated, and the ${providerLabel} form ready to fill and read back. To finish, run the assisted fill locally, solve ${providerLabel}'s human check, and submit; the system does not perform the captcha or the final submit.`
     : externalOnly

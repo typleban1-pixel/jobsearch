@@ -24,10 +24,15 @@ import { SubmitGuard } from "../lib/browser/submitGuard.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
 import { startFillRun, recordFillRun } from "../lib/applications/fillRun.ts";
 import { FILL_OUTCOMES, type FillOutcomeName } from "../lib/browser/stopReasons.ts";
+import { watchForHumanSubmit, readLeverSnapshot } from "../lib/browser/leverConfirm.ts";
 
 const applicationId = process.argv[2];
-const stayOpen = process.argv.includes("--stay-open");
-if (!applicationId) { console.error("usage: fill-lever.ts <application_id> [--stay-open]"); process.exit(2); }
+// --finish keeps the window open AFTER the fill, disarms the automated submit
+// guard so the PERSON can submit, and then reconciles the outcome from the
+// page's own confirmation state (never a retry, never an automated click).
+const finish = process.argv.includes("--finish");
+const stayOpen = process.argv.includes("--stay-open") || finish;
+if (!applicationId) { console.error("usage: fill-lever.ts <application_id> [--stay-open] [--finish]"); process.exit(2); }
 
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 const paged = async <T,>(t: string, c: string, f: (q: any) => any = (q) => q): Promise<T[]> => {
@@ -41,10 +46,19 @@ const paged = async <T,>(t: string, c: string, f: (q: any) => any = (q) => q): P
 };
 
 const { data: app } = await db.from("applications")
-  .select("id,job_id,status,human_approved,authorization_mode,all_fields_confident,form_snapshot,form_snapshot_hash,resume_id,approved_artifact_sha256,submitted_at")
+  .select("id,job_id,status,human_approved,authorization_mode,all_fields_confident,form_snapshot,form_snapshot_hash,resume_id,approved_artifact_sha256,submitted_at,submit_click_attempted_at")
   .eq("id", applicationId).single();
 if (!app) { console.error("no such application"); process.exit(1); }
-if (app.submitted_at) { console.error(`already submitted at ${app.submitted_at}`); process.exit(1); }
+if (app.submitted_at) { console.error(`already submitted at ${app.submitted_at}; nothing further attempted.`); process.exit(1); }
+// Exactly-once for the assisted path: a prior --finish that saw a click but
+// could not prove receipt leaves submit_click_attempted_at set. Do not fill or
+// re-open: the outcome is uncertain and must be resolved in the portal (which
+// asks whether the employer received it) before anything is attempted again.
+if (app.submit_click_attempted_at) {
+  console.error(`a submit was already attempted at ${app.submit_click_attempted_at} and receipt was never confirmed. `
+    + `Resolve it in the portal (confirm received / not received) before running this again.`);
+  process.exit(1);
+}
 
 const { data: job } = await db.from("jobs").select("id,title,source,apply_url,company_id").eq("id", app.job_id).single();
 if (job!.source !== "LEVER") { console.error(`this is a ${job!.source} application`); process.exit(1); }
@@ -132,7 +146,43 @@ try {
     submitFound = (await btn.innerText()).trim() || "(unlabelled)";
   } catch (e) { submitFound = `NOT RESOLVED: ${(e as Error).message.slice(0, 120)}`; }
 
-  if (stayOpen) {
+  if (finish && stopReason === "HANDOFF") {
+    // The fill reached a clean, filled form. Hand the submit guard off so the
+    // PERSON can complete Lever's hCaptcha and click Submit; this process
+    // never clicks it. Then watch the form's own state for a proven receipt.
+    await guard!.handoff(page);
+    console.log("\n" + "=".repeat(64));
+    console.log("Application prepared. Solve the Lever check, review, and submit.");
+    console.log("This window will remain open so confirmation can be detected.");
+    console.log("Nothing is submitted by this process; only you can submit.");
+    console.log("=".repeat(64) + "\n");
+    const before = await readLeverSnapshot(page);
+    const { verdict, after } = await watchForHumanSubmit(page, before, { timeoutMs: 30 * 60_000, pollMs: 2500 });
+    await page.screenshot({ path: join(runDir, "12-confirmation.png"), fullPage: true }).catch(() => undefined);
+    const evidenceReference = `fill-run:${runDir.split("/").pop()}`;
+    const nowIso = new Date().toISOString();
+    if (verdict.outcome === "CONFIRMED") {
+      await db.from("applications").update({
+        status: "SUBMITTED", submitted_at: nowIso, submit_click_attempted_at: nowIso,
+        confirmation_reference: evidenceReference, submission_mode: "MANUAL",
+        submit_outcome: "CONFIRMED", submit_outcome_at: nowIso,
+      }).eq("id", applicationId).is("submitted_at", null);
+      await db.from("application_events").insert({ application_id: applicationId, event: "SUBMITTED",
+        actor: "assisted-lever", detail: `Lever confirmed receipt (${verdict.reason}). Evidence ${evidenceReference}. ${after?.url ?? ""}` });
+      console.log(`\n✅ Lever confirmed receipt. Application recorded as submitted. Evidence: ${runDir}`);
+    } else if (verdict.outcome === "AMBIGUOUS") {
+      await db.from("applications").update({
+        submit_click_attempted_at: nowIso, submit_outcome: "AMBIGUOUS", submit_outcome_at: nowIso,
+      }).eq("id", applicationId);
+      await db.from("application_events").insert({ application_id: applicationId, event: "SUBMISSION_UNCERTAIN",
+        actor: "assisted-lever", detail: `${verdict.reason}. Evidence ${evidenceReference}. Not retried; awaiting your confirmation in the portal.` });
+      console.log(`\n⚠️  Submission could not be confirmed (${verdict.reason}). Do not retry yet. `
+        + `Check the portal: it will ask whether Lever received it. Evidence: ${runDir}`);
+    } else {
+      console.log(`\nNo submission detected (${verdict.reason}). The application is still prepared; nothing was recorded.`);
+    }
+    stopDetail = `${stopDetail} | assisted-finish: ${verdict.outcome} (${verdict.reason})`;
+  } else if (stayOpen) {
     console.log("\nthe form is open. Nothing will be submitted by this process.");
     await page.waitForTimeout(15 * 60_000);
   }
