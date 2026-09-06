@@ -48,7 +48,7 @@ const at = (model: number) => (concepts: ScorableConcept[], requirements: Requir
 const m3 = at(3); const m4 = at(4);
 
 console.log("\n0. the version itself:");
-check("the current model is 5", CANDIDACY_MODEL_VERSION === 5, String(CANDIDACY_MODEL_VERSION));
+check("the current model is 6", CANDIDACY_MODEL_VERSION === 6, String(CANDIDACY_MODEL_VERSION));
 check("model 3 remains executable", m3([MET({ concept: "x" })], reqs()).modelVersion === 3);
 check("and reports itself as 3, so a stored row is attributable",
   m3([MET({ concept: "x" })], reqs()).modelVersion === 3);

@@ -32,7 +32,7 @@ const run = (concepts: ScorableConcept[], requirements: RequirementRow[], title 
   assessCandidacy({ jobTitle: title, fit: fitOf(concepts), requirements, credentialDeclarations: NOT_HELD, modelVersion });
 
 // ---- 1. the experience object -----------------------------------------
-check("the current model is 5", CANDIDACY_MODEL_VERSION === 5, String(CANDIDACY_MODEL_VERSION));
+check("the current model is 6", CANDIDACY_MODEL_VERSION === 6, String(CANDIDACY_MODEL_VERSION));
 check("model 3 is still executable, not merely described",
   run([], reqs()).modelVersion === 3);
 for (const t of ["fast-paced environment experience", "fast-paced work environment experience", "remote team experience"])

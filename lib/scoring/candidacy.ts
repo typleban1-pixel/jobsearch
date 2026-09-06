@@ -22,7 +22,7 @@
  */
 import type { FitBreakdown, ScorableConcept } from "./fit.ts";
 
-export const CANDIDACY_MODEL_VERSION = 5;
+export const CANDIDACY_MODEL_VERSION = 6;
 
 /**
  * What each model version decides, so a stored verdict can be read back.
@@ -36,11 +36,21 @@ export const CANDIDACY_MODEL_VERSION = 5;
  *      APPLICATION_CANDIDATE resting on fewer than three discriminating
  *      hard requirements routes to MANUAL_REVIEW (thin extraction must not
  *      manufacture autonomous confidence). Never affects REJECT/STRETCH.
+ *   6  identical to 5, plus a zero-adjacency guard: a posting rich enough
+ *      to judge whose discriminating requirements are affirmatively unmet
+ *      with NO direct discriminating match and NO transferable adjacency
+ *      anywhere becomes REJECT instead of a STRETCH resting on a bare
+ *      baseline degree. Since STRETCH is an autonomous submission tier, a
+ *      genuine occupational mismatch (an algorithmic trader, a specialist
+ *      SWE) must not sit in it. Recall is preserved: unknown, missing
+ *      extraction and ANY transferable foothold all keep a job out of this
+ *      arm, and thin postings (< 3 discriminating requirements) can never
+ *      reach it.
  *
  * Passing modelVersion: 3 reproduces model 3 exactly, which is how the
  * historical behavior stays executable rather than merely described.
  */
-export const CANDIDACY_MODEL_VERSIONS = [3, 4, 5] as const;
+export const CANDIDACY_MODEL_VERSIONS = [3, 4, 5, 6] as const;
 
 export type Verdict = "APPLICATION_CANDIDATE" | "STRETCH" | "REJECT" | "MANUAL_REVIEW";
 
@@ -58,6 +68,7 @@ export type ReasonCode =
   | "UNRESOLVED_ROLE_DEFINING_REQUIREMENT"
   | "NO_DIRECT_BUT_TRANSFERABLE"
   | "OCCUPATIONAL_ADJACENT_ONLY"
+  | "ZERO_ADJACENCY_MISMATCH"
   | "INSUFFICIENT_EVIDENCE";
 
 /**
@@ -392,6 +403,33 @@ export function assessCandidacy(input: CandidacyInput): CandidacyResult {
       + (overqualifiedFor.length ? `; note: targets a more junior level (${overqualifiedFor.join(", ")})` : ""));
   }
   if (unresolvedBlocks) return unresolvedOut();
+
+  // Zero-adjacency occupational mismatch (model >= 6). STRETCH is an
+  // AUTONOMOUS submission tier, so it must not hold a role whose defining
+  // substance is affirmatively absent with nothing to lean on. This fires
+  // ONLY when the posting is rich enough to judge -- scorable, with at least
+  // MIN_DISCRIMINATING discriminating hard requirements -- AND the profile
+  // meets none of them (hardMet 0), has no DIRECT discriminating match
+  // (a bare baseline degree does not count; hardDirectMet excludes baseline),
+  // has no TRANSFERABLE adjacency anywhere, and several requirements resolve
+  // affirmatively ABSENT rather than UNKNOWN. Recall is deliberately
+  // preserved: an unknown requirement (already routed to MANUAL_REVIEW by the
+  // unresolved-core arm above), a thin posting (< MIN_DISCRIMINATING), or any
+  // single transferable foothold all keep a job OUT of this arm and in
+  // STRETCH. Material uncertainty is a person's call, not a reject; only
+  // affirmative, adjacency-free absence rejects here.
+  const MIN_DISCRIMINATING = 3;
+  const hardDirectMet = ratioSet.filter((c) => c.resolution === "DIRECT" && (c.credit ?? 0) > 0).length;
+  const affirmativelyAbsent = ratioSet.filter((c) => c.resolution === "ABSENT").length;
+  if (model >= 6 && input.fit.scorable && hardTotal >= MIN_DISCRIMINATING
+      && hardMet === 0 && hardDirectMet === 0 && transferableMatches === 0
+      && affirmativelyAbsent >= MIN_DISCRIMINATING) {
+    return out("REJECT", "ZERO_ADJACENCY_MISMATCH",
+      `the role's discriminating requirements are affirmatively unmet with no direct or transferable adjacency: `
+      + `0/${hardTotal} hard requirements met, ${transferableMatches} transferable, `
+      + `${affirmativelyAbsent} requirement(s) absent (${occAbsent.map((c) => c.concept).slice(0, 4).join(", ") || "no occupational overlap"})`);
+  }
+
   if (occAbsent.length) return out("STRETCH", "OCCUPATIONAL_GAP",
     `the occupational substance is not established: ${occAbsent.map((c) => c.concept).join(", ")}`);
 
@@ -431,7 +469,6 @@ export function assessCandidacy(input: CandidacyInput): CandidacyResult {
   // STRETCH (reached through a gap or a low ratio below) is unaffected;
   // this guards only the would-be top of the ladder.
   const hardDirect = ratioSet.filter((c) => c.resolution === "DIRECT" && (c.credit ?? 0) > 0).length;
-  const MIN_DISCRIMINATING = 3;
   // model >= 5 only: frozen model 3 and 4 read-back is unchanged.
   if (model >= 5 && hardMet / hardTotal >= 0.5 && hardTotal < MIN_DISCRIMINATING) {
     return out("MANUAL_REVIEW", "INSUFFICIENT_EVIDENCE",
