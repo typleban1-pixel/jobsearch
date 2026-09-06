@@ -44,3 +44,4 @@ tsconfig.tsbuildinfo
 # Ad-hoc local REPL helper.
 .jsq.mjs
 .workday-auth/
+.pipeline-plausible-ids.txt

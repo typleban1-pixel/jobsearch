@@ -181,13 +181,20 @@ steps.push(await run("eligibility", ["scripts/eligibility.ts", "--commit"]));
 //    answer. This must never run BEFORE the full gate.
 steps.push(await run("eligibility-refresh", ["scripts/eligibility-refresh.ts", "--commit"]));
 
-// Extraction, self-gated. A routine scan pays only for new or changed
-// description hashes -- unchanged jobs reuse their extraction by
-// selection, and identical descriptions collapse to one call -- so the
-// steady-state cost is cents. The ceiling is for the day a bulk ingest
-// floods the pool: above $25 expected, the step extracts nothing, says
-// so, and leaves the spend for a person to approve.
-steps.push(await run("extract", ["scripts/extract.ts", "--limit", "99999", "--commit", "--max-expected-dollars=25"], 60 * 60_000));
+// Extraction, self-gated AND prefiltered. Two cheap deterministic gates
+// run before any paid call: eligibility (location/salary/dealbreakers,
+// already applied) and now plausibility -- a title clearly outside this
+// person's functions or above his level never reaches a model. The
+// plausible-but-unextracted set is written to an ids file and only those
+// jobs extract; unchanged descriptions reuse by hash, identical ones
+// collapse to one call, so steady-state cost is cents. The ceiling is for
+// the day an ingest floods even the plausible pool: above the cap the step
+// extracts nothing, says so, and leaves the spend for a person. The broad
+// "extract every eligible+uncertain job" pass stays a manual choice
+// (scripts/extract.ts with no ids file), never an unattended one.
+const plausibleIds = ".pipeline-plausible-ids.txt";
+steps.push(await run("prefilter", ["scripts/select-plausible.ts", "--out", plausibleIds]));
+steps.push(await run("extract", ["scripts/extract.ts", "--ids-file", plausibleIds, "--limit", "99999", "--commit", "--max-expected-dollars=6"], 60 * 60_000));
 // Free and deterministic. Jobs without requirements score as unscorable
 // rather than being skipped, which is the honest representation.
 steps.push(await run("score", ["scripts/score.ts", "--commit"]));
