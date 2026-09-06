@@ -51,7 +51,7 @@ export async function loadBlockerBoard(db: SupabaseClient): Promise<{ rows: Boar
     page<any>(db, "job_candidacy", "job_id,verdict,created_at,profile_version,formula_version,taxonomy_version,model_version,reason_codes,hard_met,hard_total", scoped("job_id", jobIds), "job_id"),
     db.from("profile").select("profile_version").single(),
     page<any>(db, "resumes", "id,artifact_sha256", scoped("id", apps.map((a) => a.resumeId).filter(Boolean) as string[])),
-    page<any>(db, "applications", "id,eligibility_snapshot,approved_artifact_sha256,approved_answers_sha256,authorization_mode,human_approved_at,all_fields_confident", scoped("id", apps.map((a) => a.id))),
+    page<any>(db, "applications", "id,approved_artifact_sha256,approved_answers_sha256,authorization_mode,human_approved_at,all_fields_confident", scoped("id", apps.map((a) => a.id))),
   ]);
   const versionsNow = {
     profileVersion: (profileRow as any)?.data?.profile_version ?? -1,
