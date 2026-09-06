@@ -213,6 +213,12 @@ if (kind === "daily") {
   // Reconcile before the worker looks at anything: a stale
   // BLOCKED_NEEDS_INPUT hides an application that is actually ready.
   steps.push(await run("repair-status", ["scripts/repair-application-status.ts", "--write"]));
+  // Withdraw machine authorizations the CURRENT policy would no longer
+  // grant. A policy that tightens (a new material-gap guard, a higher
+  // evidence bar) leaves earlier POLICY_AUTHORIZED applications reading as
+  // authorized until this re-decides them and drops the failing ones to
+  // review. Never touches a human approval; hardcodes no job.
+  steps.push(await run("reconcile-auth", ["scripts/reconcile-authorizations.ts", "--commit"]));
   // Opt-out, so validating discovery and scoring does not have to spend
   // model budget preparing applications as a side effect. The default is
   // unchanged: the scheduled run still prepares.
