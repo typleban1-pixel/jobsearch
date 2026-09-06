@@ -32,7 +32,7 @@ const run = (concepts: ScorableConcept[], requirements: RequirementRow[], title 
   assessCandidacy({ jobTitle: title, fit: fitOf(concepts), requirements, credentialDeclarations: NOT_HELD, modelVersion });
 
 // ---- 1. the experience object -----------------------------------------
-check("the current model is 4", CANDIDACY_MODEL_VERSION === 4, String(CANDIDACY_MODEL_VERSION));
+check("the current model is 5", CANDIDACY_MODEL_VERSION === 5, String(CANDIDACY_MODEL_VERSION));
 check("model 3 is still executable, not merely described",
   run([], reqs()).modelVersion === 3);
 for (const t of ["fast-paced environment experience", "fast-paced work environment experience", "remote team experience"])
@@ -118,8 +118,10 @@ for (const t of ["logistics, supply chain management, consulting", "customer suc
 // ---- 4. the gate conditions --------------------------------------------
 {
   const r = run([C({ concept: "operations", credit: 1, resolution: "DIRECT", requirementIds: ["a"] }),
+                 C({ concept: "process improvement", credit: 1, resolution: "DIRECT", requirementIds: ["c"] }),
+                 C({ concept: "vendor management", credit: 1, resolution: "DIRECT", requirementIds: ["d"] }),
                  C({ concept: "salesforce", hardness: "PREFERRED", weight: 1, requirementIds: ["b"] })],
-    reqs(["a", "SKILL", "operations"], ["b", "TOOL", "salesforce"]));
+    reqs(["a", "SKILL", "operations"], ["c", "SKILL", "process improvement"], ["d", "SKILL", "vendor management"], ["b", "TOOL", "salesforce"]));
   check("a missing PREFERRED tool does not block candidacy", r.verdict === "APPLICATION_CANDIDATE", `${r.verdict}: ${r.reason}`);
 }
 {
@@ -204,8 +206,9 @@ check("only CANDIDATE and STRETCH may prepare",
 // The 50% threshold itself is untouched.
 {
   const r = run([C({ concept: "supply chain", credit: 1, resolution: "DIRECT", requirementIds: ["a"] }),
-                 C({ concept: "logistics", credit: 1, resolution: "DIRECT", requirementIds: ["b"] })],
-    reqs(["a", "DOMAIN", "supply chain"], ["b", "DOMAIN", "logistics"]), "Operations Manager");
+                 C({ concept: "logistics", credit: 1, resolution: "DIRECT", requirementIds: ["b"] }),
+                 C({ concept: "process improvement", credit: 1, resolution: "DIRECT", requirementIds: ["c"] })],
+    reqs(["a", "DOMAIN", "supply chain"], ["b", "DOMAIN", "logistics"], ["c", "SKILL", "process improvement"]), "Operations Manager");
   check("a posting with real hard requirements met still passes",
     r.hardTotal > 0 && r.verdict === "APPLICATION_CANDIDATE", `${r.verdict} ${r.hardMet}/${r.hardTotal}`);
 }
@@ -223,6 +226,32 @@ check("only CANDIDATE and STRETCH may prepare",
     r.reasonCodes[0] === "POSTING_NOT_ASSESSED", r.reasonCodes.join(","));
   check("and it claims no evidence comparison",
     r.directMatches === 0 && r.hardTotal === 0, `${r.directMatches}/${r.hardTotal}`);
+}
+
+
+// ---- evidence sufficiency (model 5): thin extraction must not manufacture
+//      autonomous confidence, and must never become a REJECT ------------
+{
+  // 2 discriminating hard requirements, one met -> would be 1/2 = 0.5.
+  // Model 5 routes it to MANUAL_REVIEW (too thin), not APPLICATION_CANDIDATE.
+  const thin = [C({ concept: "excel", credit: 1, resolution: "DIRECT", requirementIds: ["a"] }),
+                C({ concept: "microsoft word", requirementIds: ["b"] })];
+  const rs = reqs(["a", "TOOL", "excel"], ["b", "TOOL", "microsoft word"]);
+  const r = run(thin, rs, "Capital Markets Internship", 5);
+  check("a thin would-be candidate (2 hard, 1 met) is MANUAL_REVIEW, not APPLICATION_CANDIDATE",
+    r.verdict === "MANUAL_REVIEW" && r.reasonCodes[0] === "INSUFFICIENT_EVIDENCE", `${r.verdict}/${r.reasonCodes[0]}`);
+  check("and thin extraction never becomes a REJECT", r.verdict !== "REJECT", r.verdict);
+  // Frozen model 4 is unchanged: the guard is model 5 only.
+  const m4 = assessCandidacy({ jobTitle: "Capital Markets Internship", fit: fitOf(thin), requirements: rs, credentialDeclarations: {}, modelVersion: 4 });
+  check("frozen model 4 still calls the same thin posting a candidate", m4.verdict === "APPLICATION_CANDIDATE", m4.verdict);
+  // Three discriminating hard requirements, >=50% met -> still a candidate.
+  const rich = [C({ concept: "excel", credit: 1, resolution: "DIRECT", requirementIds: ["a"] }),
+                C({ concept: "process improvement", credit: 1, resolution: "DIRECT", requirementIds: ["b"] }),
+                C({ concept: "salesforce", requirementIds: ["c"] })];
+  const rr = reqs(["a", "TOOL", "excel"], ["b", "SKILL", "process improvement"], ["c", "TOOL", "salesforce"]);
+  const r2 = run(rich, rr, "Operations Analyst", 5);
+  check("a sufficiently-rich posting (3 hard, 2 met) is still APPLICATION_CANDIDATE",
+    r2.verdict === "APPLICATION_CANDIDATE", `${r2.verdict} ${r2.hardMet}/${r2.hardTotal}`);
 }
 
 console.log(`\n${pass + fails.length} cases, ${pass} passed`);

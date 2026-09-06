@@ -22,7 +22,7 @@
  */
 import type { FitBreakdown, ScorableConcept } from "./fit.ts";
 
-export const CANDIDACY_MODEL_VERSION = 4;
+export const CANDIDACY_MODEL_VERSION = 5;
 
 /**
  * What each model version decides, so a stored verdict can be read back.
@@ -32,11 +32,15 @@ export const CANDIDACY_MODEL_VERSION = 4;
  *   4  identical to 3, plus one arm: an unresolved role-defining or
  *      occupational HARD requirement routes to MANUAL_REVIEW instead of
  *      letting the remaining known requirements stand in for it.
+ *   5  identical to 4, plus an evidence-sufficiency guard: a would-be
+ *      APPLICATION_CANDIDATE resting on fewer than three discriminating
+ *      hard requirements routes to MANUAL_REVIEW (thin extraction must not
+ *      manufacture autonomous confidence). Never affects REJECT/STRETCH.
  *
  * Passing modelVersion: 3 reproduces model 3 exactly, which is how the
  * historical behavior stays executable rather than merely described.
  */
-export const CANDIDACY_MODEL_VERSIONS = [3, 4] as const;
+export const CANDIDACY_MODEL_VERSIONS = [3, 4, 5] as const;
 
 export type Verdict = "APPLICATION_CANDIDATE" | "STRETCH" | "REJECT" | "MANUAL_REVIEW";
 
@@ -53,7 +57,8 @@ export type ReasonCode =
   | "MEETS_HARD_REQUIREMENTS"
   | "UNRESOLVED_ROLE_DEFINING_REQUIREMENT"
   | "NO_DIRECT_BUT_TRANSFERABLE"
-  | "OCCUPATIONAL_ADJACENT_ONLY";
+  | "OCCUPATIONAL_ADJACENT_ONLY"
+  | "INSUFFICIENT_EVIDENCE";
 
 /**
  * What kind of demand a HARD requirement is.
@@ -408,8 +413,35 @@ export function assessCandidacy(input: CandidacyInput): CandidacyResult {
     return out("STRETCH", "OCCUPATIONAL_ADJACENT_ONLY",
       "the occupational substance is adjacent (transferable) rather than directly established: "
       + occConcepts.map((c) => c.concept).join(", "));
+  // Evidence sufficiency for autonomous confidence.
+  //
+  // A posting that states only one or two DISCRIMINATING hard requirements
+  // has not given enough to be confident, however well that handful maps.
+  // A capital-markets internship whose real substance (current-student
+  // status, the finance discipline) never survived extraction reduced to
+  // "Microsoft Word and Excel"; matching Excel made it 1/2 and a strong
+  // candidate. Thin extraction must not manufacture confidence.
+  //
+  // Too-thin evidence is INSUFFICIENT, not disqualifying: it routes to
+  // MANUAL_REVIEW (a person decides), never to REJECT. MANUAL_REVIEW is
+  // the honest destination because, under the autonomous policy, both
+  // APPLICATION_CANDIDATE and STRETCH are submission-eligible -- so a
+  // stretch would auto-apply, and "we cannot confidently auto-apply on
+  // this little" is exactly what MANUAL_REVIEW means. A genuine adjacent
+  // STRETCH (reached through a gap or a low ratio below) is unaffected;
+  // this guards only the would-be top of the ladder.
+  const hardDirect = ratioSet.filter((c) => c.resolution === "DIRECT" && (c.credit ?? 0) > 0).length;
+  const MIN_DISCRIMINATING = 3;
+  // model >= 5 only: frozen model 3 and 4 read-back is unchanged.
+  if (model >= 5 && hardMet / hardTotal >= 0.5 && hardTotal < MIN_DISCRIMINATING) {
+    return out("MANUAL_REVIEW", "INSUFFICIENT_EVIDENCE",
+      `meets ${hardMet}/${hardTotal} hard requirement(s), but the posting states too few discriminating `
+      + `requirements (${hardTotal} < ${MIN_DISCRIMINATING}) to establish qualification confidently; a person decides `
+      + "rather than an autonomous application resting on so little.");
+  }
+
   return hardMet / hardTotal >= 0.5
-    ? out("APPLICATION_CANDIDATE", "MEETS_HARD_REQUIREMENTS", `no role-defining or occupational gap; ${hardMet}/${hardTotal} hard requirements met`)
+    ? out("APPLICATION_CANDIDATE", "MEETS_HARD_REQUIREMENTS", `no role-defining or occupational gap; ${hardMet}/${hardTotal} hard requirements met (${hardDirect} direct)`)
     : out("STRETCH", "LOW_HARD_RATIO", `no role-defining or occupational gap, but only ${hardMet}/${hardTotal} hard requirements met`);
 }
 
