@@ -5,7 +5,8 @@
  * prose reaches the résumé.
  *   node scripts/rentpup-resume-selftest.ts
  */
-import { renderResumeHtml, type ResumeDoc } from "../lib/render/resumePdf.ts";
+import { renderResumeHtml } from "../lib/render/resumePdf.ts";
+import type { ResumeDoc } from "../lib/render/resume.ts";
 import { isRecruiterFacing } from "../lib/render/languageQuality.ts";
 let bad = 0;
 const ok = (c: boolean, w: string, got?: unknown) => { console.log(`  ${c ? "PASS" : "FAIL"}  ${w}${c ? "" : "  got=" + JSON.stringify(got)}`); if (!c) bad++; };
