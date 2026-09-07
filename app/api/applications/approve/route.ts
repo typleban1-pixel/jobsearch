@@ -78,7 +78,7 @@ export async function POST(request: Request): Promise<Response> {
     authorizationMode: "HUMAN_APPROVED",
     allFieldsConfident: Boolean(app.all_fields_confident),
     blockedAnswers: rows.filter((a: any) => a.confidence_state === "BLOCKED").length,
-    requiredUnanswered: rows.filter((a: any) => a.is_required && !a.answer_text).length,
+    requiredUnanswered: rows.filter((a: any) => a.is_required && a.answer_text == null).length,
     jobVersionIsCurrent: Boolean(version?.is_current),
     storedArtifactSha256: resume?.artifact_sha256 ?? null,
     approvedArtifactSha256: resume?.artifact_sha256 ?? null,

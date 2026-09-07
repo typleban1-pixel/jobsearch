@@ -25,7 +25,7 @@ if (!app) { console.error("no such application"); process.exit(1); }
 if (app.submitted_at) { console.error(`already submitted at ${app.submitted_at}`); process.exit(1); }
 const { data: job } = await db.from("jobs").select("title,url,external_id,company_id").eq("id", app.job_id).single();
 const { data: co } = await db.from("companies").select("name").eq("id", job!.company_id).single();
-const { data: resume } = await db.from("resumes").select("label,artifact_sha256,artifact_bytes").eq("id", app.resume_id).single();
+const { data: resume } = await db.from("resumes").select("label,artifact_sha256,artifact_bytes,content").eq("id", app.resume_id).single();
 
 console.log(`${co!.name} — ${job!.title}`);
 console.log(`  application ${ID}`);
@@ -49,11 +49,16 @@ const read = async () => await page.evaluate(() => {
 
 // ---- revalidation: is this still the application that was approved? --
 const before = await read();
-const MUST_CONTAIN = ["Cleveland, OH", "Highland Heights, OH", "Bowling Green, KY", "Elyria, OH",
-  "Genius One, Inc.", "Anytime Picture LLC", "Holley Performance", "Lorain County Community College",
-  "Western Governors University, Leavitt School of Health", "Ty Pleban - Resume.pdf",
-  "Digital Marketing, Product & Operations Specialist", "Videographer & Editor",
-  "Video Production Lab Instructor"];
+// What the Review page must show before Submit is clicked: the values the
+// approved résumé put on the form -- every employer, title, location and
+// institution -- and the résumé's own filename. Read from the bound résumé,
+// never from a list written for an earlier application.
+const doc: any = (resume as any).content ?? {};
+const MUST_CONTAIN: string[] = [...new Set<string>([
+  ...(doc.roles ?? []).flatMap((r: any) => [r.employer, r.title, r.location]),
+  ...(doc.education ?? []).map((e: any) => e.institution),
+  "Ty Pleban - Resume.pdf",
+].map((v: any) => String(v ?? "").trim()).filter((v: string) => v.length > 2))];
 const missing = MUST_CONTAIN.filter((w) => !before.text.includes(w));
 const onReview = /step 7 of 7 Review/i.test(before.step);
 console.log(`\n  on Review: ${onReview}`);

@@ -161,7 +161,10 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   // "All required questions answered".
   const blocked = requiredBlocked(answers as any);
   const optionalBlocked = answers.filter((a: any) => !(a.is_required ?? true) && a.confidence_state === "BLOCKED").length;
-  const unansweredRequired = answers.filter((a: any) => a.is_required && !a.answer_text).length;
+  // An empty string is a deliberately unticked option checkbox (the
+  // Workday runner records the two statements not chosen as ""), not a
+  // missing answer; only null is unanswered. Same rule as the fill.
+  const unansweredRequired = answers.filter((a: any) => a.is_required && a.answer_text == null).length;
   // Zero discovered fields is not low confidence -- there is nothing to be
   // confident ABOUT. The all_fields_confident flag defaults false and cannot
   // be recomputed with no answer rows, so an unprepared or unautomatable
