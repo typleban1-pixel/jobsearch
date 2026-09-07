@@ -269,6 +269,13 @@ async function advance(): Promise<string | null> {
     const now = await stepOf();
     if (now.heading && now.heading !== before) return now.heading;
   }
+  // The page said no. Its own error text is the reason, so record it
+  // rather than "nothing advanced".
+  const errors: string[] = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-automation-id="errorMessage"], [data-automation-id="errorHeading"], [role="alert"]')]
+      .filter((e) => e.getClientRects().length > 0)
+      .map((e) => ((e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()).filter(Boolean)).catch(() => []);
+  for (const e of [...new Set(errors)].slice(0, 6)) console.log(`  page error: ${e.slice(0, 200)}`);
   return null;
 }
 
@@ -295,6 +302,7 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
     (raw.fields ?? []).map((f: any) => [String(f.selector ?? f.key ?? ""), String(f.htmlType ?? "text")]));
   const live = collapseRadioGroups((raw.fields ?? []).map((f: any) => ({
     label: String(f.label ?? ""), htmlType: String(f.htmlType ?? "text"), name: f.name ?? null,
+    group: f.groupLabel ?? null,
     selector: String(f.selector ?? f.key ?? ""), required: Boolean(f.required), value: null,
   }))).map((r: any) => ({ ...r, htmlType: typeBySelector.get(r.key) ?? "text" }));
   // An unlabelled control is not a question. The page header's language

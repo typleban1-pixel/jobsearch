@@ -39,6 +39,25 @@ console.log("\n1. the live case:");
   check("required propagates from the options", g.required === true);
 }
 
+console.log("\n1b. the group's own question, from its legend:");
+{
+  const legend = "Have you previously worked for this organization? If Yes, please answer the questions below.*";
+  const page: RawControl[] = [
+    { ...radio("candidateIsPreviousWorker", "Yes"), group: legend },
+    { ...radio("candidateIsPreviousWorker", "No"), group: legend },
+  ];
+  const g = collapseRadioGroups(page).find((x) => x.groupName === "candidateIsPreviousWorker")!;
+  check("the legend is the question, without the required marker",
+    g.question === "Have you previously worked for this organization? If Yes, please answer the questions below.", g.question);
+  check("the required marker makes the group required", g.required === true);
+  const bare = collapseRadioGroups([radio("candidateIsPreviousWorker", "Yes"), radio("candidateIsPreviousWorker", "No")])
+    .find((x) => x.groupName === "candidateIsPreviousWorker")!;
+  check("without a legend the humanised name stands in, as before", bare.question === humanise("candidateIsPreviousWorker"), bare.question);
+  const optionAsGroup = collapseRadioGroups([{ ...radio("g", "Yes"), group: "Yes" }, { ...radio("g", "No"), group: "Yes" }])
+    .find((x) => x.groupName === "g")!;
+  check("a 'legend' that is just an option label is not the question", optionAsGroup.question === humanise("g"), optionAsGroup.question);
+}
+
 console.log("\n2. THE BUG: two groups on one page:");
 {
   // Both offer Yes/No. A label-based selector matches four inputs.

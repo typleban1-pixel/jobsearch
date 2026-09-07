@@ -25,6 +25,8 @@ export interface RawControl {
   htmlType: string;
   /** The DOM `name` attribute, shared by every option in a group. */
   name?: string | null;
+  /** The fieldset legend or group aria-label: the question the group asks. */
+  group?: string | null;
   selector?: string;
   required?: boolean;
   value?: string | null;
@@ -81,10 +83,17 @@ export function collapseRadioGroups(controls: RawControl[]): FieldRecord[] {
     // options -- and when there is none, the name itself, which is at
     // least stable and traceable. "Yes" is never the question.
     const optionLabels = opts.map((o) => o.value ?? o.label).filter(Boolean) as string[];
+    // The employer's wording when the DOM exposes it. Northern Trust's
+    // legend reads "Have you previously worked for this organization? ...*"
+    // where the name only says candidateIsPreviousWorker; the legend is
+    // what the intent catalog can recognise and what a person can read.
+    // A trailing asterisk is the form's own required marker.
+    const legend = opts.map((o) => (o.group ?? "").trim()).find((g) => g && !optionLabels.some((l) => l.toLowerCase() === g.toLowerCase()));
+    const starred = Boolean(legend && /\*\s*$/.test(legend));
     out.push({
       key: radioGroupKey(name),
-      question: humanise(name),
-      required: opts.some((o) => o.required),
+      question: legend ? legend.replace(/\s*\*\s*$/, "") : humanise(name),
+      required: opts.some((o) => o.required) || starred,
       options: [...new Set(optionLabels)],
       groupName: name,
     });

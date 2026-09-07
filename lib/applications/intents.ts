@@ -255,7 +255,10 @@ export const INTENTS: Intent[] = [
   { key: "criminal_history", description: "Criminal history", category: "D_SENSITIVE",
     patterns: [/\b(convict|criminal|felony|misdemeanor|background check consent)\b/i] },
   { key: "previously_employed_here", description: "Previously employed by this company", category: "D_SENSITIVE",
-    patterns: [/\b(?:previously|ever) (?:been )?(?:employed|worked)\b|\bformer employee\b|\b(?:are you|were you) (?:a )?(?:current(?:ly)?|an?) [\w' ]{0,24}employee\b|\bever been an employee\b/i] },
+    // Every pattern in the list must match (see hits), so the alternatives
+    // live in one expression. The last two are Workday's own name for the
+    // control ("Candidate Is Previous Worker") and its legend.
+    patterns: [/\b(?:previously|ever) (?:been )?(?:employed|worked)\b|\bformer employee\b|\b(?:are you|were you) (?:a )?(?:current(?:ly)?|an?) [\w' ]{0,24}employee\b|\bever been an employee\b|\bprevious(?:ly)? worker\b|\bworked for this (?:organi[sz]ation|company|employer)\b/i] },
   { key: "referral_source", description: "How you heard about the role", category: "D_SENSITIVE",
     patterns: [/\bhow did you (?:\w+\s+){0,2}(?:hear|learn|find)\b|\bhow (?:did|do) you (?:\w+\s+){0,2}(?:find|learn|hear)\b|\bwhere (?:have|did) you (?:\w+\s+){0,2}learn(?:ed)? about\b|\bhow you heard about\b|\breferr?(?:al|ed by)\b|\bsource\b/i] },
 ];

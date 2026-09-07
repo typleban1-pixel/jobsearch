@@ -247,6 +247,12 @@ try {
   check("Phone Device Type is its own question",
     matchIntent("Phone Device Type", "phoneType").intent?.key === "phone_device_type",
     String(matchIntent("Phone Device Type", "phoneType").intent?.key));
+  check("Workday's previous-worker group is the prior-employment question, by name",
+    matchIntent("Candidate Is Previous Worker", "radio-group:candidateIsPreviousWorker").intent?.key === "previously_employed_here",
+    String(matchIntent("Candidate Is Previous Worker", "radio-group:candidateIsPreviousWorker").intent?.key));
+  check("and by its legend",
+    matchIntent("Have you previously worked for this organization? If Yes, please answer the questions below.", "x").intent?.key === "previously_employed_here",
+    String(matchIntent("Have you previously worked for this organization? If Yes, please answer the questions below.", "x").intent?.key));
   check("Phone Number is still the number",
     matchIntent("Phone Number", "phoneNumber").intent?.key === "phone",
     String(matchIntent("Phone Number", "phoneNumber").intent?.key));

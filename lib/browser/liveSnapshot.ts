@@ -160,6 +160,17 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
       if (grp) return grp.getAttribute("aria-label") || grp.id || "group";
       return null;
     };
+    // The question the group asks, in the employer's words: the fieldset's
+    // legend or the group's aria-label. groupOf is the group's identity and
+    // may be an id; this is what a person reads above the options.
+    const groupLabelOf = (el: Element): string | null => {
+      const fs = el.closest("fieldset");
+      const legend = fs?.querySelector("legend")?.textContent?.replace(/\s+/g, " ").trim();
+      if (legend) return legend.slice(0, 300);
+      const grp = el.closest("[role='group'], [role='radiogroup']");
+      const aria = grp?.getAttribute("aria-label")?.trim();
+      return aria ? aria.slice(0, 300) : null;
+    };
 
     const fields: any[] = [];
     const helpers: Array<{ label: string; why: string }> = [];
@@ -366,7 +377,7 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
           : (el.getAttribute("type") ?? el.tagName).toLowerCase(),
         required: el.hasAttribute("required") || el.getAttribute("aria-required") === "true",
         options, selector, selectorKind, unlabelled: label === "",
-        groupKey: groupOf(el),
+        groupKey: groupOf(el), groupLabel: groupLabelOf(el),
         associated: [
           ...(el.getAttribute("aria-controls") ?? "").split(/\s+/),
           ...(el.getAttribute("aria-describedby") ?? "").split(/\s+/),
