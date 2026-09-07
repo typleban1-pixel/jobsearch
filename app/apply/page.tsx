@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { currentSession } from "../../lib/portal/session.ts";
+import { withSession } from "../../lib/portal/session.ts";
 import { loadApplyBoard, type ApplyRow } from "../../lib/portal/applyBoard.ts";
 import { loadReview, type ReviewData } from "../../lib/portal/reviewData.ts";
 import { matchLabel } from "../../lib/portal/matchScore.ts";
@@ -76,9 +76,9 @@ function Section({ title, rows, tone, reviews }: {
 }
 
 export default async function ApplyPage() {
-  const session = await currentSession();
-  if (!session) redirect("/login");
-  const board = await loadApplyBoard(session.client);
+  const loaded = await withSession((db) => loadApplyBoard(db));
+  if (!loaded) redirect("/login");
+  const { session, result: board } = loaded;
 
   // Load the review once for each row that can be reviewed inline. The
   // board is exception-driven and near-empty when healthy, so this is a

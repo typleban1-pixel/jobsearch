@@ -67,8 +67,10 @@ export default async function ApplicationReview(props: { params: Promise<{ id: s
   if (!session) redirect("/login");
   const detail = await loadApplication(session.client, id);
   if (!detail) notFound();
-  const fillRuns = await loadFillRuns(session.client, id).catch(() => [] as any[]);
-  const events = await loadEvents(session.client, id).catch(() => [] as any[]);
+  const [fillRuns, events] = await Promise.all([
+    loadFillRuns(session.client, id).catch(() => [] as any[]),
+    loadEvents(session.client, id).catch(() => [] as any[]),
+  ]);
   const latestRun = fillRuns[0];
   // Screenshots live on the machine that ran the fill, never in Supabase.
   // The deployed portal therefore has none, and asking is cheaper than

@@ -72,7 +72,11 @@ export async function loadMatchScores(db: SupabaseClient, jobIds: string[]): Pro
   const out = new Map<string, MatchScoreResult>();
   if (!jobIds.length) return out;
   const [allScores, cand, jobRows, profileHas] = await Promise.all([
-    byIds<any>(db, "job_scores", "id,job_id,uncertainty_score,scorable,fit_breakdown,is_current", "job_id", jobIds),
+    // Current scores only. Unfiltered, this pulled every historical score
+    // row for these jobs -- 1,586 rows and 5.6MB of fit_breakdown for 62
+    // jobs on the /apply board -- to keep about 62 of them.
+    byIds<any>(db, "job_scores", "id,job_id,uncertainty_score,scorable,fit_breakdown,is_current", "job_id", jobIds,
+      (q) => q.or("is_current.is.null,is_current.eq.true")),
     byIds<any>(db, "job_candidacy",
       "job_id,hard_met,hard_total,core_gaps,gating_gaps,unresolved_core,transferable_matches,created_at", "job_id", jobIds),
     byIds<any>(db, "jobs", "id,salary_min,salary_max,eligibility", "id", jobIds),
@@ -137,15 +141,16 @@ export async function loadMatchScores(db: SupabaseClient, jobIds: string[]): Pro
  * head-only counts.
  */
 export async function loadUniverseCounts(
-  db: SupabaseClient, ranked: number,
+  db: SupabaseClient, rankedCount: number | PromiseLike<number>,
 ): Promise<{ openTotal: number; ranked: number; awaiting: number; excludedByGates: number }> {
   const count = async (refine: (q: any) => any): Promise<number> => {
     const { count: n } = await refine(db.from("jobs").select("id", { count: "exact", head: true }));
     return n ?? 0;
   };
-  const [openTotal, excludedByGates] = await Promise.all([
+  const [openTotal, excludedByGates, ranked] = await Promise.all([
     count((q) => q.eq("status", "OPEN")),
     count((q) => q.eq("status", "OPEN").eq("eligibility", "INELIGIBLE")),
+    rankedCount,
   ]);
   // Open, not ranked yet, and not ruled out by a gate. Clamped because
   // the three counts are taken independently and a job can change state
@@ -295,11 +300,14 @@ const GATE_KINDS = new Set(["HARD_REQUIREMENT_MISSING"]);
  * a different set on each load, and Match Scores drifted between page
  * views. Order is (column, id) so paging is stable across non-unique keys.
  */
-async function byIds<T>(db: SupabaseClient, table: string, columns: string, column: string, ids: string[], size = 120): Promise<T[]> {
+async function byIds<T>(
+  db: SupabaseClient, table: string, columns: string, column: string, ids: string[],
+  refine: (q: any) => any = (q) => q, size = 120,
+): Promise<T[]> {
   const batch = async (slice: string[]): Promise<T[]> => {
     const rows: T[] = [];
     for (let from = 0; ; from += 1000) {
-      const { data, error } = await db.from(table).select(columns).in(column, slice)
+      const { data, error } = await refine(db.from(table).select(columns).in(column, slice))
         .order(column, { ascending: true }).order("id", { ascending: true }).range(from, from + 999);
       if (error) throw new Error(`${table}: ${error.message}`);
       rows.push(...((data ?? []) as T[]));

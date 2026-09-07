@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { currentSession } from "../../lib/portal/session.ts";
+import { withSession } from "../../lib/portal/session.ts";
 import { loadBlockerBoard, type BoardRow } from "../../lib/portal/blockerBoard.ts";
 
 export const dynamic = "force-dynamic";
@@ -27,9 +27,9 @@ const PILES: Array<{ label: string; match: (r: BoardRow) => boolean }> = [
 ];
 
 export default async function Applications() {
-  const session = await currentSession();
-  if (!session) redirect("/login");
-  const { rows, summary } = await loadBlockerBoard(session.client);
+  const loaded = await withSession((db) => loadBlockerBoard(db));
+  if (!loaded) redirect("/login");
+  const { rows, summary } = loaded.result;
   const open = rows.filter((r) => !CLOSED.has(r.app.status));
   const closed = rows.filter((r) => CLOSED.has(r.app.status));
   const seen = new Set<string>();

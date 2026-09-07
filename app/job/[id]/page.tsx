@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { redirect } from "next/navigation";
 import { loadJobCardById } from "../../../lib/portal/db.ts";
-import { currentSession } from "../../../lib/portal/session.ts";
+import { withSession } from "../../../lib/portal/session.ts";
 import {
   describeArrangement, describeFreshness, describeLocations, describeSalary, uncertaintyBand,
 } from "../../../lib/portal/present.ts";
@@ -14,18 +14,18 @@ const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
 export default async function JobDetail(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
-  const session = await currentSession();
-  if (!session) redirect("/login");
-  const db = session.client;
-
   // One card, read from the precomputed summary, with its rank-of-N counts
-  // and sibling variants -- six small requests. This page used to rebuild
-  // EVERY ranked card (~53k rows, 8-15s) to display one job and find its
-  // position; the position is now a count of what sorts above it.
-  const [detail, descRes] = await Promise.all([
+  // and sibling variants -- six small requests, issued alongside the session
+  // check. This page used to rebuild EVERY ranked card (~53k rows, 8-15s) to
+  // display one job and find its position; the position is now a count of
+  // what sorts above it.
+  const loaded = await withSession((db) => Promise.all([
     loadJobCardById(db, id),
     db.from("job_descriptions").select("description_text").eq("job_id", id).maybeSingle(),
-  ]);
+  ]));
+  if (!loaded) redirect("/login");
+  const db = loaded.session.client;
+  const [detail, descRes] = loaded.result;
   if (!detail) notFound();
   const { card, siblings, matchRank, fitRank, evidenceRank, total } = detail;
   const desc = descRes.data;

@@ -113,21 +113,31 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
   const appIds = apps.map((a) => a.id);
   const scopedIn = (col: string, ids: string[]) => (q: any) => q.in(col, ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
 
-  const [jobs, answers, candidacy, versions, profileRow, matchScores] = await Promise.all([
+  const liveAppIds = apps.filter((a) => !a.submitted_at).map((a) => a.id);
+  const [jobs, answerRows, answerText, candidacy, versions, profileRow, matchScores, blockedGroups] = await Promise.all([
     // The company name rides along on the job row (an embedded relation),
     // which removes a serial round trip that ran after this whole wave.
     page(db, "jobs", "id,title,company_id,source,status,eligibility,canonical_opening_id,application_form_url,url,companies(name)",
       scopedIn("id", jobIds)),
-    page(db, "application_answers", "application_id,confidence_state,is_required,answer_text,field_key",
+    // Every row's state, but the answer text only for applications that
+    // have not been submitted: that is the set the submit guard's answer
+    // hash (currentAnswersSha256, below) is computed for. A submitted
+    // application's answers are history and were most of a 6MB read.
+    page(db, "application_answers", "id,application_id,confidence_state,is_required,field_key",
       scopedIn("application_id", appIds)),
+    page(db, "application_answers", "id,answer_text", scopedIn("application_id", liveAppIds)),
     page(db, "job_candidacy",
       "job_id,verdict,created_at,profile_version,formula_version,taxonomy_version,model_version,reason_codes,hard_met,hard_total",
       scopedIn("job_id", jobIds), "job_id"),
     versionIds.length ? page(db, "job_versions", "id,is_current", scopedIn("id", versionIds)) : Promise.resolve([]),
     db.from("profile").select("profile_version").single(),
     loadMatchScores(db, jobIds),
+    // Independent of everything above; it used to run after all of it.
+    loadBlockedGroups(db),
   ]);
   const liveProfile = (profileRow as any)?.data ?? null;
+  const textById = new Map(answerText.map((r: any) => [r.id, r.answer_text]));
+  const answers = answerRows.map((r: any) => ({ ...r, answer_text: textById.get(r.id) ?? null }));
 
   const jobById = new Map(jobs.map((j: any) => [j.id, j]));
   // From the embedded relation on each job row; PostgREST returns a to-one
@@ -302,8 +312,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
   board.recentlySubmitted.sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)));
   board.recentlySubmitted = board.recentlySubmitted.slice(0, 5);
 
-  const groups = await loadBlockedGroups(db);
-  board.blocked = summarize(groups);
+  board.blocked = summarize(blockedGroups);
   return board;
 }
 

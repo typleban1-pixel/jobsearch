@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadJobCardPage, loadUniverseCounts, type InterestTab } from "../../lib/portal/db.ts";
-import { currentSession } from "../../lib/portal/session.ts";
+import { withSession } from "../../lib/portal/session.ts";
 import { JobCardView } from "../JobCardView.tsx";
 import { JobsQueue } from "./JobsQueue.tsx";
 import { PrimaryNav } from "../PrimaryNav.tsx";
@@ -30,8 +30,9 @@ const PER_PAGE = 50;
  * "being evaluated" backlog.
  */
 async function UniverseLine({ db }: { db: SupabaseClient }) {
-  const { count } = await db.from("job_card_summary").select("job_id", { count: "exact", head: true });
-  const universe = await loadUniverseCounts(db, count ?? 0);
+  // All three counts in one wave; only the arithmetic waits on all of them.
+  const ranked = db.from("job_card_summary").select("job_id", { count: "exact", head: true }).then((r) => r.count ?? 0);
+  const universe = await loadUniverseCounts(db, ranked);
   return (
     <p className="universe">
       <b>{nf.format(universe.ranked)}</b> ranked for you
@@ -53,23 +54,23 @@ export default async function Page(props: { searchParams: Promise<Record<string,
   const interest = (TABS.find((t) => t.key === one("interest"))?.key ?? "active") as InterestTab;
   const requestedPage = Math.max(1, Number(one("p") ?? 1) || 1);
 
-  const session = await currentSession();
-  if (!session) redirect("/login");
-  const db = session.client;
-
   // The list is one bounded query against the precomputed job_card_summary
   // (see lib/portal/db.ts): the actionable gate, the tab, the search and the
   // Match Score ordering are applied in the database, and only this page's
   // 50 cards come back. This replaced rebuilding every ranked card from ~53k
   // rows on each request. If the summary has not been built yet, say so
-  // rather than fail.
-  let result: Awaited<ReturnType<typeof loadJobCardPage>> | null = null;
-  let notReady: string | null = null;
-  try {
-    result = await loadJobCardPage(db, { interest, q, page: requestedPage, perPage: PER_PAGE });
-  } catch (e) {
-    notReady = e instanceof Error ? e.message : String(e);
-  }
+  // rather than fail. The read is issued alongside the session check rather
+  // than after it (see withSession).
+  const loaded = await withSession(async (db) => {
+    try {
+      return { result: await loadJobCardPage(db, { interest, q, page: requestedPage, perPage: PER_PAGE }), notReady: null as string | null };
+    } catch (e) {
+      return { result: null, notReady: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  if (!loaded) redirect("/login");
+  const db = loaded.session.client;
+  const { result, notReady } = loaded.result;
 
   const withParams = (over: Record<string, string | number | undefined>) => {
     const p = new URLSearchParams();

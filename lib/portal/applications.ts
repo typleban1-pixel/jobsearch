@@ -88,22 +88,29 @@ export async function loadApplications(db: SupabaseClient, opts: { id?: string }
     (q) => (opts.id ? q.eq("is_test", false).eq("id", opts.id) : q.eq("is_test", false)), "created_at");
   if (!apps.length) return [];
 
-  const answers = await paged<any>(db, "application_answers", ANSWER_COLS,
-    (q) => q.in("application_id", apps.map((a) => a.id)));
+  // Everything keyed by the applications, in one wave. The summary only
+  // counts answers (blocked, required, discovered), so it reads the three
+  // columns those counts need and never the answer text -- that was 770KB
+  // of question and answer prose per board view. The company name rides on
+  // the job row as an embedded relation instead of a fourth serial read.
+  const [answers, jobs, versions] = await Promise.all([
+    paged<any>(db, "application_answers", "application_id,is_required,confidence_state",
+      (q) => q.in("application_id", apps.map((a) => a.id))),
+    paged<any>(db, "jobs", "id,title,company_id,companies(name)",
+      (q) => q.in("id", [...new Set(apps.map((a) => a.job_id))])),
+    // A frozen version that is no longer the posting's current one means
+    // the employer edited the job after this application was prepared.
+    paged<any>(db, "job_versions", "id,is_current",
+      (q) => q.in("id", apps.map((a) => a.job_version_id).filter(Boolean))),
+  ]);
   const byApp = new Map<string, any[]>();
   for (const a of answers) byApp.set(a.application_id, [...(byApp.get(a.application_id) ?? []), a]);
-
-  const jobs = await paged<any>(db, "jobs", "id,title,company_id",
-    (q) => q.in("id", [...new Set(apps.map((a) => a.job_id))]));
   const jobById = new Map(jobs.map((j) => [j.id, j]));
-  const companies = await paged<any>(db, "companies", "id,name",
-    (q) => q.in("id", [...new Set(jobs.map((j) => j.company_id))]));
-  const companyById = new Map(companies.map((c) => [c.id, c.name as string]));
-
-  // A frozen version that is no longer the posting's current one means
-  // the employer edited the job after this application was prepared.
-  const versions = await paged<any>(db, "job_versions", "id,is_current",
-    (q) => q.in("id", apps.map((a) => a.job_version_id).filter(Boolean)));
+  const companyById = new Map<string, string>();
+  for (const j of jobs) {
+    const c = Array.isArray(j.companies) ? j.companies[0] : j.companies;
+    if (j.company_id && c?.name) companyById.set(j.company_id, c.name);
+  }
   const currentVersion = new Map(versions.map((v) => [v.id, v.is_current as boolean]));
 
   return apps.map((a) => {

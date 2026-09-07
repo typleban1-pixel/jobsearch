@@ -132,13 +132,18 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
       .eq("application_id", applicationId),
     db.from("job_versions").select("id,is_current").eq("id", app.job_version_id).maybeSingle(),
   ]);
-  const [{ data: company }, { data: resume }, { data: candidacyRows }, { data: desc }, { data: reqs }] =
+  const [{ data: company }, { data: resume }, { count: artifactRows }, { data: candidacyRows }, { data: desc }, { data: reqs }] =
     await Promise.all([
       db.from("companies").select("name").eq("id", job!.company_id).single(),
       app.resume_id
-        ? db.from("resumes").select("id,artifact_sha256,content_sha256,renderer_version,grounding_version,artifact_pdf,content")
+        ? db.from("resumes").select("id,artifact_sha256,content_sha256,renderer_version,grounding_version,content")
             .eq("id", app.resume_id).maybeSingle()
         : Promise.resolve({ data: null } as any),
+      // Whether the PDF exists, asked as a count so its bytes never travel
+      // to a page that only needs to know it is there.
+      app.resume_id
+        ? db.from("resumes").select("id", { count: "exact", head: true }).eq("id", app.resume_id).not("artifact_pdf", "is", null)
+        : Promise.resolve({ count: 0 } as any),
       db.from("job_candidacy").select("verdict,reason,reason_codes,hard_met,hard_total,created_at,core_gaps,occupational,direct_matches")
         .eq("job_id", app.job_id).order("created_at", { ascending: false }).limit(1),
       db.from("job_descriptions").select("description_text").eq("job_id", app.job_id).maybeSingle(),
@@ -226,7 +231,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     .map((r) => SAID[r.code] ?? r.detail);
 
   const contentLines = Array.isArray((resume?.content as any)?.lines) ? (resume!.content as any).lines.length : 0;
-  const hasArtifact = Boolean(resume?.artifact_pdf && resume?.artifact_sha256);
+  const hasArtifact = Boolean((artifactRows ?? 0) > 0 && resume?.artifact_sha256);
 
   const resumeChecks: ReviewCheck[] = [
     { label: "Tailored resume created", state: resume ? "PASS" : "FAIL" },
