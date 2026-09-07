@@ -18,7 +18,8 @@
 
 export function isDemographicField(label: string): boolean {
   const t = String(label ?? "");
-  return /\bgender\b|gender identity|\brace\b|ethnicit|\bveteran\b|\bdisabilit/i.test(t)
+  // "Veterans Status" is Workday's label; the plural has to count.
+  return /\bgender\b|gender identity|\brace\b|ethnicit|\bveterans?\b|\bdisabilit/i.test(t)
     // "How do you identify?" is Greenhouse's phrasing for gender/race.
     || /how do you identify/i.test(t);
 }
