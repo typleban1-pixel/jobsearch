@@ -316,7 +316,13 @@ export async function snapshotLive(frame: Frame): Promise<LiveSnapshot> {
         }
       }
 
-      const key = name || id || testid || label;
+      // A radio option is not the same control as its siblings: the
+      // options of one group share a name, and keying on the name alone
+      // kept the first ("Yes") and dropped the rest, so Northern Trust's
+      // previous-worker group arrived offering only Yes. Each option is
+      // its own field here; collapseRadioGroups folds them by name.
+      const isRadio = el.tagName.toLowerCase() === "input" && (el.getAttribute("type") ?? "").toLowerCase() === "radio";
+      const key = isRadio && name ? `${name}=${(el as HTMLInputElement).value}` : (name || id || testid || label);
       if (!key || seen.has(key)) continue;
       seen.add(key);
 
