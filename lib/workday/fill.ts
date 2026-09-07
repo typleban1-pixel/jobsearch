@@ -19,6 +19,7 @@
  * missing selector, a CAPTCHA, a page that navigated: none of these are
  * conditions to work around.
  */
+import { matchOptionLabel } from "./optionMatch.ts";
 import type { Page } from "playwright";
 
 export interface FillTarget {
@@ -201,7 +202,9 @@ export async function selectListboxOption(
     : (await button.first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
 
   const already = await readCurrent();
-  if (already && already.toLowerCase() === wanted.trim().toLowerCase() && !isInput) {
+  // Pre-filled the tenant's way ("United States of America" for "US") is
+  // already answered; reopening it and failing to find "US" was not.
+  if (already && !isInput && matchOptionLabel([already], wanted).ok) {
     return { status: "ALREADY", readBack: already };
   }
 
@@ -232,48 +235,17 @@ export async function selectListboxOption(
   }
   if (!labels.length) return { status: "FAILED", why: "the dropdown opened no options" };
 
-  const want = wanted.trim().toLowerCase();
-  let hits = labels.filter((l) => l.toLowerCase() === want);
-
-  /**
-   * The same choice, worded the tenant's way.
-   *
-   * Workday qualifies EEO options by country -- "White (United States of
-   * America)" -- and renders a two-way question as Yes/No while the
-   * stored answer is spelled out, so "Not Hispanic or Latino" met a
-   * control offering only "Yes" and "No". Both are the same answer
-   * written differently, and neither is a different answer.
-   */
-  const unqualify = (l: string) => l.replace(/\s*\((?:[^()]*)\)\s*$/, "").trim().toLowerCase();
-  if (!hits.length) {
-    hits = labels.filter((l) => unqualify(l) === want);
-  }
-  if (!hits.length) {
-    const yesNo = labels.filter((l) => /^(yes|no)$/i.test(l.trim()));
-    // Only where the control genuinely offers just Yes and No.
-    if (yesNo.length === 2) {
-      const negative = /^(not\b|no\b|i am not\b|i do not\b|i don't\b|decline)/i.test(wanted.trim());
-      const positive = /^(yes\b|i am\b|i do\b)/i.test(wanted.trim());
-      if (negative) hits = labels.filter((l) => /^no$/i.test(l.trim()));
-      else if (positive) hits = labels.filter((l) => /^yes$/i.test(l.trim()));
-    }
-  }
-  if (!hits.length) {
-    const { normalizeCountryName, normalizeRegionName } = await import("../browser/geography.ts");
-    const wc = normalizeCountryName(wanted);
-    hits = labels.filter((l) => normalizeCountryName(l) === wc);
-    if (!hits.length) {
-      const wr = normalizeRegionName(wanted);
-      hits = labels.filter((l) => normalizeRegionName(l) === wr);
-    }
-  }
-  if (hits.length !== 1) {
+  // The same choice, worded the tenant's way -- see optionMatch.ts for
+  // the tiers and why each is safe. One label or none, never a guess.
+  const m = matchOptionLabel(labels, wanted);
+  if (!m.ok) {
     await page.keyboard.press("Escape").catch(() => undefined);
     return { status: "FAILED",
-      why: hits.length > 1
-        ? `${hits.length} options equal ${JSON.stringify(wanted)}; which is meant cannot be decided here`
-        : `no option equals ${JSON.stringify(wanted)}. Offered: ${labels.slice(0, 12).join(" | ")}${labels.length > 12 ? " ..." : ""}` };
+      why: m.hits.length > 1
+        ? `${m.hits.length} options equal ${JSON.stringify(wanted)}; which is meant cannot be decided here`
+        : `no option equals ${JSON.stringify(wanted)}. Offered: ${m.labels.slice(0, 12).join(" | ")}${m.labels.length > 12 ? " ..." : ""}` };
   }
+  const hits = [m.label];
 
   await page.locator(`${OPTIONS}:visible`).filter({ hasText: new RegExp(`^\\s*${hits[0]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`) })
     .first().click({ timeout: 10_000 })
@@ -353,7 +325,7 @@ export async function selectPromptPath(
     await item.click({ timeout: 10_000 }).catch(() => undefined);
     await page.waitForTimeout(1200);
     walked.push(step.label);
-    if (remaining[0]?.toLowerCase() === step.label.toLowerCase()) remaining = remaining.slice(1);
+    if (step.viaPath) remaining = remaining.slice(1);
 
     // Checked after EVERY click, not only where a selection was
     // predicted. Workday's own markup called the second-level entry a

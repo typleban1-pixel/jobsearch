@@ -19,6 +19,38 @@ ok(classifyOption(LEVEL2[0]!) === "LEAF", "Careers Web Site is selectable");
 ok(classifyOption({ label: "x", instanceId: null, hasSideCharm: false }) === "BRANCH",
    "a node with no instance id is never treated as selectable");
 
+// ---- 1b. the same answer in the tenant's wording ----------------------
+{
+  const s = nextStep(LEVEL1, ["Company website"]);
+  ok(s.action === "DESCEND" && s.label === "Northern Trust Web Site" && s.viaPath,
+     "the generic sourcing answer opens the employer's own web-site category");
+  const s2 = nextStep(LEVEL2, []);
+  ok(s2.action === "SELECT" && s2.label === "Careers Web Site" && !s2.viaPath, "and the single leaf below it is chosen");
+  const fair = nextStep([branch("Career Fair"), branch("Referral")], ["Company website"]);
+  ok(fair.action === "STOP", "with no web-site option offered, the generic answer is not forced onto a specific channel");
+  const jb = nextStep(LEVEL1, ["Job Board"]);
+  ok(jb.action === "DESCEND" && jb.label === "Job Board", "an exact label still wins, unchanged");
+}
+// ---- 1c. listbox labels, matched the same way --------------------------
+{
+  const { matchOptionLabel } = await import("../lib/workday/optionMatch.ts");
+  const us = matchOptionLabel(["United States of America (+1)", "United States of America (+1)", "Canada (+1)"], "US");
+  ok(us.ok && us.label === "United States of America (+1)", "US matches the country however it is qualified, and a duplicate reading is one option");
+  const usa = matchOptionLabel(["United States of America", "United Kingdom"], "US");
+  ok(usa.ok && usa.label === "United States of America", "US matches United States of America");
+  const oh = matchOptionLabel(["Ohio", "Oklahoma"], "OH");
+  ok(oh.ok && oh.label === "Ohio", "a state abbreviation matches its name");
+  const web = matchOptionLabel(LEVEL1.map((o) => o.label), "Company website");
+  ok(web.ok && web.label === "Northern Trust Web Site", "the generic sourcing answer picks the employer's web site");
+  const none = matchOptionLabel(["Career Fair", "Referral", "University Recruiting"], "Company website");
+  ok(!none.ok, "and refuses when only specific channels are offered");
+  const eeo = matchOptionLabel(["Yes", "No"], "Not Hispanic or Latino");
+  ok(eeo.ok && eeo.label === "No", "a spelled-out negative answers a Yes/No control as No");
+  const amb = matchOptionLabel(["Ohio", "Ohio (North)", "Ohio (South)"], "Ohio");
+  ok(amb.ok && amb.label === "Ohio", "an exact label wins over qualified variants");
+  const two = matchOptionLabel(["Fax", "Landline", "Mobile"], "216-555-0100");
+  ok(!two.ok && two.hits.length === 0, "a value that is none of the options matches nothing");
+}
 // ---- 2. the path decides ---------------------------------------------
 {
   const s = nextStep(LEVEL1, ["Northern Trust Web Site", "Careers Web Site"]);

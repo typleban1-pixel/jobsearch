@@ -14,6 +14,7 @@
  * employer's own, which is why it is used instead of guessing from the
  * label.
  */
+import { matchOptionLabel } from "./optionMatch.ts";
 
 export type OptionNode = {
   label: string;
@@ -69,6 +70,13 @@ export function chooseOption(options: OptionNode[], wanted: string): Choice {
   if (hits.length > 1) {
     return { ok: false, why: `${hits.length} options are labelled ${JSON.stringify(wanted)}`, offered: options.map((o) => o.label) };
   }
+  // The same answer in the tenant's wording (see optionMatch.ts): still
+  // exactly one label, never a guess among several.
+  const m = matchOptionLabel(options.map((o) => o.label), wanted);
+  if (m.ok) {
+    const same = options.filter((o) => o.label.trim() === m.label);
+    if (same.length === 1) return { ok: true, label: same[0]!.label, kind: classifyOption(same[0]!) };
+  }
   return { ok: false, why: `no option is labelled ${JSON.stringify(wanted)}`, offered: options.map((o) => o.label) };
 }
 
@@ -82,8 +90,8 @@ export function chooseOption(options: OptionNode[], wanted: string): Choice {
  * meant.
  */
 export type Step =
-  | { action: "SELECT"; label: string }
-  | { action: "DESCEND"; label: string }
+  | { action: "SELECT"; label: string; viaPath: boolean }
+  | { action: "DESCEND"; label: string; viaPath: boolean }
   | { action: "STOP"; why: string; offered: string[] };
 
 export function nextStep(options: OptionNode[], remaining: string[]): Step {
@@ -91,10 +99,12 @@ export function nextStep(options: OptionNode[], remaining: string[]): Step {
   if (remaining.length) {
     const c = chooseOption(options, remaining[0]!);
     if (!c.ok) return { action: "STOP", why: c.why, offered: c.offered };
-    return c.kind === "LEAF" ? { action: "SELECT", label: c.label } : { action: "DESCEND", label: c.label };
+    // viaPath: this step consumed the path's next name, whether the label
+    // matched it exactly or in the tenant's wording.
+    return c.kind === "LEAF" ? { action: "SELECT", label: c.label, viaPath: true } : { action: "DESCEND", label: c.label, viaPath: true };
   }
   const leaves = options.filter((o) => classifyOption(o) === "LEAF");
-  if (leaves.length === 1) return { action: "SELECT", label: leaves[0]!.label };
+  if (leaves.length === 1) return { action: "SELECT", label: leaves[0]!.label, viaPath: false };
   return { action: "STOP",
     why: leaves.length
       ? `${leaves.length} selectable options here and the answer does not say which`

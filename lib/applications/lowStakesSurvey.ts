@@ -82,7 +82,10 @@ export const GENERIC_SURVEY_FREETEXT = "Company website";
 const OPTION_PREFERENCE: RegExp[] = [
   /company\s*website/i,
   /company\s*careers?/i,
-  /careers?\s*(?:page|site|website)/i,
+  /careers?\s*(?:page|site|website|web\s*site)/i,
+  // The employer names its own site: "Northern Trust Web Site". A
+  // generic web presence, not a specific channel.
+  /\bweb\s*site\b|\bwebsite\b/i,
   /\binternet\b|\bonline\b/i,
   /web\s*search|search engine|\bgoogle\b/i,
   /career\s*platform|job\s*board|\blinkedin\b|\bindeed\b|\bglassdoor\b|\bbuiltin\b|\bziprecruiter\b/i,
