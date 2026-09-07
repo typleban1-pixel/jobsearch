@@ -109,3 +109,11 @@ process.exit(bad?1:0);
   const d = resolveEeoOption("Not Hispanic or Latino", FEDERAL, "Race");
   ok(d.kind === "DECLINE", "an ethnicity answer that names no race category on a race control declines rather than picking one");
 }
+
+{
+  const ALEPH = ["Asian or Asian American", "Black or African American", "Hispanic or Latino", "White or European descent", "Prefer not to say"];
+  const c = resolveEeoOption("White", ALEPH, "How would you describe your ethnic or cultural background?");
+  ok(c.kind === "SYNONYM" && (c as any).option === "White or European descent", "a compound category whose first name is the answer is that category");
+  const d = resolveEeoOption("European", ALEPH, "How would you describe your ethnic or cultural background?");
+  ok(d.kind === "DECLINE", "the second name of a compound category is not matched (only the category's own name)");
+}

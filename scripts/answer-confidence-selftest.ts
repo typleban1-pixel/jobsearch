@@ -153,6 +153,23 @@ console.log("\nsensitive answers are given only from an explicit stored response
   check("a banked demographic answer offered under its standard synonym is used",
     synonym.confidence === "HUMAN_CONFIRMED" && synonym.answer === "Man", `${synonym.confidence} "${synonym.answer}"`);
   const wrongOptions = resolveField(f("Gender", { type: "select", options: ["Agender", "Bigender"] }), ctx);
+  // A question that merely CONTAINS "based in the United States" is not a
+  // question about where he is based. A first where-based rule answered
+  // this sponsorship question "Yes"; it must resolve as sponsorship, or block.
+  const sponsorCtx = withBank("requires_sponsorship", "No", "USER_RESPONSE");
+  const sponsor = resolveField(f("If you are based in the United States, will you now or in the future require sponsorship for employment visa status (e.g., H-1B visa status)?",
+    { type: "select", options: ["Yes", "No"] }), sponsorCtx);
+  check("a sponsorship question mentioning where you are based resolves as sponsorship, from the bank",
+    sponsor.intentKey === "requires_sponsorship" && sponsor.answer === "No", `${sponsor.intentKey} "${sponsor.answer}"`);
+  const sponsorNoBank = resolveField(f("If you are based in the United States, will you now or in the future require sponsorship for employment visa status?",
+    { type: "select", options: ["Yes", "No"] }), ctx);
+  check("...and with nothing banked it blocks rather than answering from the residence country",
+    sponsorNoBank.confidence === "BLOCKED" && sponsorNoBank.answer === null, `${sponsorNoBank.confidence} "${sponsorNoBank.answer}"`);
+  const based = resolveField(f("Are you based in North America or South America?", { type: "select", options: ["Yes", "No"], required: true }), ctx);
+  check("a bare where-are-you-based question answers from the profile country", based.answer === "Yes" && based.confidence === "DERIVED", `${based.confidence} "${based.answer}"`);
+  const basedRelocate = resolveField(f("Are you based in the US and willing to relocate?", { type: "select", options: ["Yes", "No"], required: true }), ctx);
+  check("a where-based question that also asks something else blocks", basedRelocate.confidence === "BLOCKED", `${basedRelocate.confidence} "${basedRelocate.answer}"`);
+
   check("a banked answer the control does not offer, with no standard synonym, blocks rather than approximating",
     wrongOptions.confidence === "BLOCKED" && wrongOptions.answer === null, `${wrongOptions.confidence} "${wrongOptions.answer}"`);
 }

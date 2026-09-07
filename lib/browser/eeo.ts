@@ -117,6 +117,11 @@ export function resolveEeoOption(answer: string, options: string[], fieldLabel?:
   const bare = (o: string) => norm(o).replace(/\s*\((?:not )?hispanic or latino\)$/, "").trim();
   const bareExact = opts.filter((o) => bare(o) === want);
   if (bareExact.length === 1) return { kind: "EXACT", option: bareExact[0]! };
+  // A compound category whose FIRST name is the answer: "White or European
+  // descent", "Black or African American", "Hispanic/Latino". The answer
+  // names the category; the employer added a second name for it.
+  const compound = opts.filter((o) => bare(o).split(/\s+or\s+|\s*\/\s*/)[0]!.trim() === want && /\s+or\s+|\//.test(bare(o)));
+  if (compound.length === 1) return { kind: "SYNONYM", option: compound[0]! };
 
   // A synonym of the answer that the control actually offers, taken in
   // preference order so the plainest equivalent wins.

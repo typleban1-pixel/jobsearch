@@ -593,7 +593,54 @@ export function resolveField(field: FormField, ctx: ResolveContext): ResolvedFie
   if (result.confidence !== "BLOCKED" || result.refused) return result;
   const learned = ctx.learned ? answerFromHumanFeedback(field, ctx, result) : result;
   if (learned.confidence !== "BLOCKED" || learned.refused) return learned;
+  const based = resolveWhereBased(field, ctx, learned);
+  if (based.confidence !== "BLOCKED") return based;
   return declineVoluntarySelfId(field, learned);
+}
+
+/**
+ * "Are you based in North America or South America?"
+ *
+ * Only a question that asks WHERE the applicant is based and nothing else.
+ * "If you are based in the United States, will you require sponsorship?"
+ * also contains "based" and "United States", and a first version of this
+ * rule answered it "Yes" -- a false statement about visa sponsorship, the
+ * exact conflation the rest of this file exists to prevent. So the wording
+ * must be the whole question, nothing may name sponsorship, authorization,
+ * relocation, willingness or work, and this runs only after the truth and
+ * feedback paths have both declined.
+ */
+const WHERE_BASED = /^\s*(?:are you|where are you|do you|are you currently)\s+(?:currently\s+)?(?:based|located|residing|living|reside|live)\b[^?]*\??\s*$/i;
+const NOT_WHERE_BASED = /\b(?:sponsor|authori[sz]|eligib|relocat|willing|require|visa|work|commut|travel|remote|onsite|on-site|hybrid|office|if\b)/i;
+function resolveWhereBased(field: FormField, ctx: ResolveContext, blockedResult: ResolvedField): ResolvedField {
+  if (!WHERE_BASED.test(field.label) || NOT_WHERE_BASED.test(field.label)) return blockedResult;
+  const opts = field.options ?? [];
+  if (opts.length < 2) return blockedResult;
+  const region = regionOfCountry(ctx.profile?.country);
+  if (!region) return blockedResult;
+  const country = normalizeCountryName(String(ctx.profile?.country ?? ""));
+  const lower = (o: string) => o.trim().toLowerCase();
+  // The regions offered as options: the one the profile is in.
+  const hit = opts.filter((o) => lower(o) === region.toLowerCase()
+    || lower(o).startsWith(region.toLowerCase() + " ") || lower(o).startsWith(region.toLowerCase() + ","));
+  if (hit.length === 1) {
+    return { field, intentKey: "region_of_residence", matchedBy: `the profile's country (${ctx.profile.country}) lies in ${region}`,
+      answer: hit[0]!, confidence: "DERIVED", blockKind: null, blockedReason: null,
+      evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+  }
+  // Yes / No: yes exactly when the profile's region or country is one the
+  // question names.
+  const yes = opts.find((o) => /^yes\b/i.test(o.trim())), no = opts.find((o) => /^no\b/i.test(o.trim()));
+  if (yes && no && opts.length <= 3) {
+    const named = WHERE_BASED_REGIONS.filter((r) => new RegExp(`\\b${r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(field.label));
+    if (!named.length) return blockedResult;
+    const inside = named.some((r) => r.toLowerCase() === region.toLowerCase() || normalizeCountryName(r) === country);
+    return { field, intentKey: "region_of_residence",
+      matchedBy: `the question names ${named.join(" / ")}; the profile's country (${ctx.profile.country}) is ${inside ? "" : "not "}among them`,
+      answer: inside ? yes : no, confidence: "DERIVED", blockKind: null, blockedReason: null,
+      evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+  }
+  return blockedResult;
 }
 
 /**
@@ -772,40 +819,6 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
       refused: false };
   }
 
-  // "Are you based in North America or South America?" A continent or
-  // world region offered as an option is answered from the profile's
-  // country, by a fixed table, for a question about where the applicant
-  // is based. Nothing is inferred beyond the country already on record.
-  if (/\b(?:based|located|reside|live|residing|living)\b/i.test(field.label) && (field.options?.length ?? 0) >= 2) {
-    const region = regionOfCountry(ctx.profile?.country);
-    const country = normalizeCountryName(String(ctx.profile?.country ?? ""));
-    if (region) {
-      const opts = field.options ?? [];
-      const lower = (o: string) => o.trim().toLowerCase();
-      // The regions offered as options: pick the one the profile is in.
-      const hit = opts.filter((o) => lower(o) === region.toLowerCase()
-        || lower(o).startsWith(region.toLowerCase() + " ") || lower(o).startsWith(region.toLowerCase() + ","));
-      if (hit.length === 1) {
-        return { field, intentKey: "region_of_residence", matchedBy: `the profile's country (${ctx.profile.country}) lies in ${region}`,
-          answer: hit[0]!, confidence: "DERIVED", blockKind: null, blockedReason: null,
-          evidenceIds: [ctx.profileRowId], considered: [], refused: false };
-      }
-      // "Are you based in North America or South America?" with Yes / No:
-      // yes exactly when the profile's region or country is one the
-      // question names.
-      const yes = opts.find((o) => /^yes\b/i.test(o.trim())), no = opts.find((o) => /^no\b/i.test(o.trim()));
-      if (yes && no && opts.length <= 3) {
-        const named = WHERE_BASED_REGIONS.filter((r) => new RegExp(`\\b${r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(field.label));
-        if (named.length) {
-          const inside = named.some((r) => r.toLowerCase() === region.toLowerCase() || normalizeCountryName(r) === country);
-          return { field, intentKey: "region_of_residence",
-            matchedBy: `the question names ${named.join(" / ")}; the profile's country (${ctx.profile.country}) is ${inside ? "" : "not "}among them`,
-            answer: inside ? yes : no, confidence: "DERIVED", blockKind: null, blockedReason: null,
-            evidenceIds: [ctx.profileRowId], considered: [], refused: false };
-        }
-      }
-    }
-  }
 
   const m = matchIntent(field.label, field.key);
 
