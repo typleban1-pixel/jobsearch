@@ -615,6 +615,9 @@ export function composeResume(rows: FrozenRow[], name: NameParts, displayName: s
       // documentation evidence can never become a bullet, and takes the most
       // recruiter-facing verified claims first.
       const PREFERRED = [
+        // Ty's own wording (2026-09-07): what he built and how, then what it does.
+        /from concept through launch/i,
+        /monitor public records and regulatory changes/i,
         /automatically checks .*data sources on a recurring/i,   // recurring public-record monitoring, no owner action
         /recognizes deadlines, identifies changes/i,             // deadlines + change detection + activity against the property
         /direct-mail measurement and attribution system/i,       // a built system, product/business framing
@@ -624,7 +627,10 @@ export function composeResume(rows: FrozenRow[], name: NameParts, displayName: s
       // Concise AND recruiter-facing: a résumé bullet is a clause, not a
       // paragraph, so a claim far longer than a normal bullet is skipped even
       // when it carries no implementation vocabulary.
-      const CONCISE = 170;
+      // 220, not 170: Ty's own first-person line for RentPup runs to two
+      // rendered lines and is a single clause; it was being skipped for
+      // length while implementation prose half its size got through.
+      const CONCISE = 220;
       const recruiterClaims = claims.filter((c) =>
         isRecruiterFacing(c.line.text) && c.line.text.replace(/\s+/g, " ").trim().length <= CONCISE);
       const showcase: typeof claims = [];

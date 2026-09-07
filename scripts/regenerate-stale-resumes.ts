@@ -48,6 +48,10 @@ const hasImplLanguage = (r: any): boolean => {
   const lines = Array.isArray(r?.content?.lines) ? r.content.lines : [];
   return lines.some((l: any) => typeof l === "string" && l.trim() && !isRecruiterFacing(l));
 };
+// --force <application_id>: regenerate that one application's résumé whether
+// or not it is stale -- the master changed, and its tailored copy should too.
+const forceId = process.argv[process.argv.indexOf("--force") + 1];
+const forced = process.argv.includes("--force") && forceId && !forceId.startsWith("--") ? forceId : null;
 const isStale = (r: any): boolean => !!r && (r.created_at < FIX || hasImplLanguage(r));
 const jobs = new Map((await pg<any>("jobs","id,title,company_id,source,status,eligibility,canonical_opening_id")).map(j => [j.id, j]));
 const cos = new Map((await pg<any>("companies","id,name")).map(c => [c.id, c.name]));
@@ -56,7 +60,7 @@ const rowOf = authoritativeCandidacyRows(await pg<any>("job_candidacy","job_id,v
   { profileVersion: (pr as any).profile_version, formulaVersion: FIT_FORMULA_VERSION, taxonomyVersion: TAXONOMY_VERSION, modelVersion: CANDIDACY_MODEL_VERSION });
 const sw = await readSwitches(db);
 
-const stale = apps.filter(a => isStale(resumes.get(a.resume_id)));
+const stale = apps.filter(a => (forced ? a.id === forced : isStale(resumes.get(a.resume_id))));
 console.log(`stale open resumes before: ${stale.length}${commit ? "" : "   (dry run — pass --commit to apply)"}\n`);
 
 let regenerated = 0, revoked = 0, skipped = 0; const skipReasons: string[] = [];
