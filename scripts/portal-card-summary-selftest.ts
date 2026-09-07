@@ -28,8 +28,13 @@ const ids = (cards: { id: string }[]) => cards.map((c) => c.id);
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 const all = await loadJobCards(db);
+// The Jobs page no longer lists an opening that has been applied to (it
+// lives on Submitted), on every tab. The live reference applies the same
+// rule: a card whose opening carries a submitted application is out.
+const SENT = new Set(["SUBMITTED", "ACKNOWLEDGED", "IN_PROCESS", "INTERVIEWING", "OFFER"]);
+const listed = all.filter((c) => !SENT.has(c.applicationStatus ?? ""));
 const live = (interest: InterestTab, q = "") =>
-  sortCards(applyFilters(all, { ...DEFAULT_FILTERS, q, interest, candidacy: "actionable" }), "match");
+  sortCards(applyFilters(listed, { ...DEFAULT_FILTERS, q, interest, candidacy: "actionable" }), "match");
 
 for (const tab of ["active", "saved", "dismissed", "all"] as InterestTab[]) {
   const old = live(tab);

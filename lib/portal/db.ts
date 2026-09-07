@@ -663,6 +663,11 @@ export async function loadJobCardPage(
     else if (state === "NOT_INTERESTED") dismissed.push(opening);
   }
   const withInterest = [...saved, ...dismissed];
+  // An opening you have already applied to is finished business for this
+  // page: it lives on Submitted. Excluded on every tab, so a repost of the
+  // same requisition never reads as a fresh chance either.
+  const submitted: string[] = [];
+  for (const [opening, app] of overlays.applicationByOpening) if (app.submitted_at) submitted.push(opening);
 
   const empty = (ranked: number): JobCardPage =>
     ({ cards: [], total: 0, ranked, page: 1, pageCount: 1, perPage, startIndex: 0 });
@@ -682,6 +687,7 @@ export async function loadJobCardPage(
     let qb = db.from("job_card_summary").select(select, { count: "exact", head })
       // actionable: REJECT hidden; a job with no verdict stays visible.
       .or("candidacy_verdict.is.null,candidacy_verdict.neq.REJECT");
+    if (submitted.length) qb = qb.not("opening_id", "in", inList(submitted));
     if (opts.interest === "active" && withInterest.length) qb = qb.not("opening_id", "in", inList(withInterest));
     if (opts.interest === "saved") qb = qb.in("opening_id", saved);
     if (opts.interest === "dismissed") qb = qb.in("opening_id", dismissed);
