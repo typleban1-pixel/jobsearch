@@ -186,8 +186,15 @@ const matchByJob = new Map<string, { score: number; provisional: boolean }>();
   }
 }
 
+// "Not interested" is a decision, made on Jobs or on the questions page, and
+// the worker honours it: an opening the person set aside is never prepared
+// again, whatever candidacy says about it.
+const { data: interestRows } = await db.from("job_interest").select("canonical_opening_id").eq("state", "NOT_INTERESTED");
+const dismissed = new Set(((interestRows ?? []) as any[]).map((r) => r.canonical_opening_id));
+
 for (const job of jobs) {
   if (job.status !== "OPEN") continue;
+  if (job.canonical_opening_id && dismissed.has(job.canonical_opening_id)) continue;
   const existing = appByJob.get(job.id);
   if (existing?.submitted_at) continue;
   if (!existing && job.canonical_opening_id && openingsApplied.has(job.canonical_opening_id)) continue;

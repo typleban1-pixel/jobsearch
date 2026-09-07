@@ -881,3 +881,7 @@ a.statebadge:hover, a.statebadge:focus-visible { border-color: currentColor; }
 .qapp h2 { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; align-items: baseline; }
 .qapp-listing { font-size: 0.85rem; font-weight: 400; color: var(--accent); text-decoration: none; }
 .qapp-listing:hover, .qapp-listing:focus-visible { text-decoration: underline; }
+.qapp-remove { margin-left: auto; }
+.qapp-remove-btn { background: transparent; border: none; padding: 0; font: inherit; font-size: 0.85rem; font-weight: 400;
+  color: var(--ink-faint); cursor: pointer; text-decoration: none; }
+.qapp-remove-btn:hover, .qapp-remove-btn:focus-visible { color: var(--bad); text-decoration: underline; }

@@ -224,6 +224,16 @@ export function QuestionsForm({ data }: { data: FormData }) {
               <a className="qapp-listing" href={g.jobUrl} target="_blank" rel="noopener noreferrer"
                 aria-label={`View the job listing for ${g.application} (opens in a new tab)`}>View job listing ↗</a>
             )}
+            {g.applicationId && (
+              // Removes the application and marks the opening not interested;
+              // nothing about it is prepared, asked or sent again.
+              <form method="post" action="/api/applications/abandon" className="qapp-remove">
+                <input type="hidden" name="applicationId" value={g.applicationId} />
+                <input type="hidden" name="returnTo" value="/apply/questions" />
+                <button type="submit" className="qapp-remove-btn"
+                  aria-label={`Not interested: remove the ${g.application} application`}>Not interested · remove</button>
+              </form>
+            )}
           </h2>
           <ul className="qitems">{g.items.map(renderControl)}</ul>
         </section>
