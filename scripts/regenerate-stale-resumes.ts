@@ -52,7 +52,12 @@ const hasImplLanguage = (r: any): boolean => {
 // or not it is stale -- the master changed, and its tailored copy should too.
 const forceId = process.argv[process.argv.indexOf("--force") + 1];
 const forced = process.argv.includes("--force") && forceId && !forceId.startsWith("--") ? forceId : null;
-const isStale = (r: any): boolean => !!r && (r.created_at < FIX || hasImplLanguage(r));
+// A résumé older than the current master was composed from a superseded
+// truth profile; the master changed for a reason and its tailored copies
+// should follow. Submitted applications are never touched (filtered above).
+const { data: masterRow } = await db.from("resumes").select("created_at").eq("is_master", true).single();
+const MASTER_AT = String(masterRow?.created_at ?? "");
+const isStale = (r: any): boolean => !!r && (r.created_at < FIX || r.created_at < MASTER_AT || hasImplLanguage(r));
 const jobs = new Map((await pg<any>("jobs","id,title,company_id,source,status,eligibility,canonical_opening_id")).map(j => [j.id, j]));
 const cos = new Map((await pg<any>("companies","id,name")).map(c => [c.id, c.name]));
 const { data: pr } = await db.from("profile").select("profile_version").single();
