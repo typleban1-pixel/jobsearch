@@ -439,6 +439,24 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
     // another's terms.
     const acc = classifyAcceptance(`${a.question_text} ${a.field_key}`);
     const held = await heldValues(a.field_key);
+    // A control inside a numbered block -- "Education 2", "Work
+    // Experience 4" -- belongs to the experience fill whatever its key.
+    const block: string | null = await page.locator(`${a.field_key}:visible`).first().evaluate((el: any) => {
+      let n: any = el;
+      for (let i = 0; i < 14 && n; i++) {
+        const heads = [...n.querySelectorAll(":scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > div > h2, :scope > div > h3, :scope > div > h4, :scope > div > h5")]
+          .map((x: any) => String(x.innerText ?? "").trim());
+        const h = heads.find((t: string) => /^(Work Experience|Education) \d+$/i.test(t));
+        if (h) return h;
+        n = n.parentElement;
+      }
+      return null;
+    }).catch(() => null);
+    if (block && held.length === 1) {
+      if (held[0]!.length) { filled++; console.log(`   held ${String(a.question_text).slice(0, 40).padEnd(42)} answered on the page (${block})`); }
+      else console.log(`   --   ${String(a.question_text).slice(0, 40).padEnd(42)} left blank by the experience fill (${block}); not written here`);
+      continue;
+    }
     if (held.length > 1) {
       // A repeated section. Filled block by block by workday-experience-fill,
       // never by this loop, which cannot know which block a single stored
