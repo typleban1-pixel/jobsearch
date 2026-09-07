@@ -885,3 +885,9 @@ a.statebadge:hover, a.statebadge:focus-visible { border-color: currentColor; }
 .qapp-remove-btn { background: transparent; border: none; padding: 0; font: inherit; font-size: 0.85rem; font-weight: 400;
   color: var(--ink-faint); cursor: pointer; text-decoration: none; }
 .qapp-remove-btn:hover, .qapp-remove-btn:focus-visible { color: var(--bad); text-decoration: underline; }
+/* Applications: the match score beside the title, out of 100. */
+.approw-title { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
+.approw-match { font-size: 0.85rem; font-weight: 600; color: var(--accent); background: var(--accent-soft);
+  border-radius: 999px; padding: 0.1rem 0.55rem; font-variant-numeric: tabular-nums; }
+.approw-match .of { font-weight: 400; color: var(--ink-soft); }
+.approw-match.provisional { color: var(--ink-soft); background: var(--bg); border: 1px solid var(--line); }

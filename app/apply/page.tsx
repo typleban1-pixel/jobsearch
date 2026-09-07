@@ -3,6 +3,7 @@ import { withSession } from "../../lib/portal/session.ts";
 import { loadApplyBoard, type ApplyRow } from "../../lib/portal/applyBoard.ts";
 import { loadReview, type ReviewData } from "../../lib/portal/reviewData.ts";
 import { STATE_LABEL } from "../../lib/portal/presentationState.ts";
+import { matchLabel } from "../../lib/portal/matchScore.ts";
 import { PrimaryNav } from "../PrimaryNav.tsx";
 import { StateBadge } from "../StateBadge.tsx";
 import { InlineReview } from "./InlineReview.tsx";
@@ -58,7 +59,15 @@ function Row({ row, review }: { row: ApplyRow; review?: ReviewData | null }) {
     <li className={`approw state-${p.state.toLowerCase()}`} id={`application-${row.applicationId}`}>
       <div className="approw-main">
         <p className="approw-company">{row.company}</p>
-        <p className="approw-title">{row.title}</p>
+        <p className="approw-title">
+          {row.title}
+          {row.match && (
+            <span className={`approw-match${row.match.provisional ? " provisional" : ""}`}
+              title={`${matchLabel(row.match.score, row.match.provisional)}${row.match.note ? ` — ${row.match.note}` : ""}`}>
+              {row.match.provisional ? "~" : ""}{row.match.score}<span className="of">/100</span>
+            </span>
+          )}
+        </p>
         <p className="approw-state">
           <StateBadge state={p.state} />
           <span className="approw-summary">{p.summary}</span>
