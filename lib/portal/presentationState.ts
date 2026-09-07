@@ -45,6 +45,9 @@ export interface ApplicationFacts {
   submitRunning?: boolean;
   /** How the last request ended. */
   submitOutcome?: "CONFIRMED" | "SAFE_STOP" | "AMBIGUOUS" | "DECLINED" | null;
+  /** The provider's adapter capability and pause state, when known. Unknown leaves the READY paths as they were. */
+  providerCapability?: string | null;
+  providerPaused?: boolean;
   /**
    * Where the employer actually takes applications.
    *
@@ -250,8 +253,9 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
     // Workday, or one that is paused): the last step is the person's. Not
     // "Ready", which is for work running without them, and never "Submit
     // application", which only produced a declined request.
+    const capabilityKnown = f.providerCapability !== undefined && f.providerCapability !== null;
     const workerCanSubmit = f.providerCapability === "PRODUCTION" && !f.providerPaused;
-    if (!workerCanSubmit) {
+    if (capabilityKnown && !workerCanSubmit) {
       const ats = ATS_LABEL[f.provider] ?? f.provider;
       return { state: "NEEDS_YOU",
         summary: `Approved. ${ats} is finished by you: open the employer's form, attach the approved resume, and use the reviewed answers. Nothing is submitted for you.`,

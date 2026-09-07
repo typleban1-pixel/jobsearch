@@ -115,7 +115,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
   const scopedIn = (col: string, ids: string[]) => (q: any) => q.in(col, ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
 
   const liveAppIds = apps.filter((a) => !a.submitted_at).map((a) => a.id);
-  const [jobs, answerRows, answerText, candidacy, versions, profileRow, matchScores, blockedGroups] = await Promise.all([
+  const [jobs, answerRows, answerText, candidacy, versions, profileRow, matchScores, blockedGroups, atsRes] = await Promise.all([
     // The company name rides along on the job row (an embedded relation),
     // which removes a serial round trip that ran after this whole wave.
     page(db, "jobs", "id,title,company_id,source,status,eligibility,canonical_opening_id,application_form_url,url,companies(name)",
@@ -135,7 +135,9 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
     loadMatchScores(db, jobIds),
     // Independent of everything above; it used to run after all of it.
     loadBlockedGroups(db),
+    db.from("ats_policy").select("provider,paused,capability"),
   ]);
+  const policyByProvider = new Map(((atsRes.data ?? []) as any[]).map((p) => [p.provider, p]));
   const liveProfile = (profileRow as any)?.data ?? null;
   const textById = new Map(answerText.map((r: any) => [r.id, r.answer_text]));
   const answers = answerRows.map((r: any) => ({ ...r, answer_text: textById.get(r.id) ?? null }));
@@ -276,6 +278,8 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       submittedAt: a.submitted_at ?? null,
       confirmationReceived: Boolean(a.confirmation_email_received || a.confirmation_reference),
       provider: j.source,
+      providerCapability: policyByProvider.get(j.source)?.capability ?? null,
+      providerPaused: Boolean(policyByProvider.get(j.source)?.paused),
       refusals,
       handoff: isEmployerFormHandoff(a.blocked_reason),
       applyUrl: j.application_form_url ?? j.url ?? null,
