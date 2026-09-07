@@ -9,6 +9,8 @@ import { AutoRefreshApply } from "./AutoRefreshApply.tsx";
 import { ReprepareButton } from "./ReprepareButton.tsx";
 import { ReprepareBanner } from "./ReprepareBanner.tsx";
 
+import Link from "next/link";
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -55,7 +57,7 @@ function Row({ row, review }: { row: ApplyRow; review?: ReviewData | null }) {
         // navigating; the employer's form stays as a secondary escape hatch.
         ? <ReprepareButton applicationId={row.applicationId} title={row.title}
             label={p.action?.label ?? "Continue"} secondary={p.secondaryAction} />
-        : p.action && <a className="btn-primary" href={p.action.href}>{p.action.label}</a>}
+        : p.action && <Link className="btn-primary" href={p.action.href}>{p.action.label}</Link>}
     </li>
   );
 }
@@ -111,13 +113,13 @@ export default async function ApplyPage() {
         <a className="summary" href="#ready">
           <strong>{readyCount}</strong><span>ready</span>
         </a>
-        <a className="summary" href="/submitted">
+        <Link className="summary" href="/submitted">
           <strong>{submittedToday}</strong><span>submitted today</span>
-        </a>
+        </Link>
       </div>
 
       {board.blocked.answersNeeded > 0 && (
-        <a className="answerscallout" href="/apply/questions">
+        <Link className="answerscallout" href="/apply/questions">
           <strong>{board.blocked.answersNeeded} answer{board.blocked.answersNeeded === 1 ? "" : "s"} needed</strong>
           <span>
             {/* The distinction that matters: the work is the questions,
@@ -126,7 +128,7 @@ export default async function ApplyPage() {
               ? `${board.blocked.blockedFields} field${board.blocked.blockedFields === 1 ? "" : "s"} across ${board.blocked.applications} application${board.blocked.applications === 1 ? "" : "s"}`
               : `These answers apply to ${board.blocked.blockedFields} fields across ${board.blocked.applications} applications.`}
           </span>
-        </a>
+        </Link>
       )}
 
       {needCount === 0 && readyCount === 0 ? (

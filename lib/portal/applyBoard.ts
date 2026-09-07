@@ -114,7 +114,9 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
   const scopedIn = (col: string, ids: string[]) => (q: any) => q.in(col, ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
 
   const [jobs, answers, candidacy, versions, profileRow, matchScores] = await Promise.all([
-    page(db, "jobs", "id,title,company_id,source,status,eligibility,canonical_opening_id,application_form_url,url",
+    // The company name rides along on the job row (an embedded relation),
+    // which removes a serial round trip that ran after this whole wave.
+    page(db, "jobs", "id,title,company_id,source,status,eligibility,canonical_opening_id,application_form_url,url,companies(name)",
       scopedIn("id", jobIds)),
     page(db, "application_answers", "application_id,confidence_state,is_required,answer_text,field_key",
       scopedIn("application_id", appIds)),
@@ -125,12 +127,17 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
     db.from("profile").select("profile_version").single(),
     loadMatchScores(db, jobIds),
   ]);
-  const companyIds = [...new Set(jobs.map((j) => j.company_id).filter(Boolean))];
-  const companies = await page(db, "companies", "id,name", scopedIn("id", companyIds));
   const liveProfile = (profileRow as any)?.data ?? null;
 
   const jobById = new Map(jobs.map((j: any) => [j.id, j]));
-  const nameById = new Map(companies.map((c: any) => [c.id, c.name]));
+  // From the embedded relation on each job row; PostgREST returns a to-one
+  // embed as an object (an array only if the FK were ambiguous), so both
+  // shapes are read. Keyed by company_id, as before.
+  const nameById = new Map<string, string>();
+  for (const j of jobs as any[]) {
+    const c = Array.isArray(j.companies) ? j.companies[0] : j.companies;
+    if (j.company_id && c?.name) nameById.set(j.company_id, c.name);
+  }
   const versionCurrent = new Map(versions.map((v: any) => [v.id, v.is_current]));
 
   // The CURRENT verdict, not the newest row.

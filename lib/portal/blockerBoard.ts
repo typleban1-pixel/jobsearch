@@ -31,14 +31,16 @@ const ISSUE_CODES = new Set(["AMBIGUOUS_SUBMIT_STATE", "SUBMISSION_FAILED", "REV
 const CLOSED = new Set(["REJECTED", "WITHDRAWN", "ABANDONED"]);
 
 export async function loadBlockerBoard(db: SupabaseClient): Promise<{ rows: BoardRow[]; summary: BoardSummary }> {
-  const apps = await loadApplications(db);
-
-  const { data: jobRows } = await db.from("jobs").select("id,status,source,apply_url,application_form_url,url,eligibility,canonical_opening_id")
-    .in("id", [...new Set(apps.map((a) => a.jobId))]);
-  const jobById = new Map((jobRows ?? []).map((j: any) => [j.id, j]));
-  const { data: ats } = await db.from("ats_policy").select("provider,paused,capability");
+  // Two waves, not seven serial round trips. Wave 1: the applications and
+  // the two policy tables, which do not depend on them. Wave 2 (below):
+  // everything keyed by the applications' ids, issued together.
+  const [apps, atsRes, polRes] = await Promise.all([
+    loadApplications(db),
+    db.from("ats_policy").select("provider,paused,capability"),
+    db.from("automation_policy").select("max_applications_per_day").limit(1).maybeSingle(),
+  ]);
+  const ats = atsRes.data, pol = polRes.data;
   const atsByProvider = new Map((ats ?? []).map((p: any) => [p.provider, p]));
-  const { data: pol } = await db.from("automation_policy").select("max_applications_per_day").limit(1).maybeSingle();
 
   // The submit guard's refusals, computed exactly as the /apply board and the
   // /review page compute them, so no surface can disagree about whether this
@@ -47,12 +49,24 @@ export async function loadBlockerBoard(db: SupabaseClient): Promise<{ rows: Boar
   // the review page (and the submit path) refuse on qualification grounds.
   const jobIds = [...new Set(apps.map((a) => a.jobId).filter(Boolean))];
   const scoped = (col: string, ids: string[]) => (q: any) => q.in(col, ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
-  const [candidacy, profileRow, resumeRows, extraApp] = await Promise.all([
+  const appIds = apps.map((a) => a.id);
+  const [candidacy, profileRow, resumeRows, extraApp, jobRes, stopsRes, outcomesRes] = await Promise.all([
     page<any>(db, "job_candidacy", "job_id,verdict,created_at,profile_version,formula_version,taxonomy_version,model_version,reason_codes,hard_met,hard_total", scoped("job_id", jobIds), "job_id"),
     db.from("profile").select("profile_version").single(),
     page<any>(db, "resumes", "id,artifact_sha256", scoped("id", apps.map((a) => a.resumeId).filter(Boolean) as string[])),
-    page<any>(db, "applications", "id,approved_artifact_sha256,approved_answers_sha256,authorization_mode,human_approved_at,all_fields_confident", scoped("id", apps.map((a) => a.id))),
+    page<any>(db, "applications", "id,approved_artifact_sha256,approved_answers_sha256,authorization_mode,human_approved_at,all_fields_confident", scoped("id", appIds)),
+    db.from("jobs").select("id,status,source,apply_url,application_form_url,url,eligibility,canonical_opening_id")
+      .in("id", jobIds.length ? jobIds : ["00000000-0000-0000-0000-000000000000"]),
+    // The last recorded stop per application, newest first. Was a serial
+    // round trip after everything else; it only needs the application ids.
+    db.from("application_events").select("application_id,detail,occurred_at").eq("event", STOP_EVENT)
+      .in("application_id", appIds.length ? appIds : ["00000000-0000-0000-0000-000000000000"])
+      .order("occurred_at", { ascending: false }),
+    // submit_outcome is not on the summary; read it in the same wave.
+    db.from("applications").select("id,submit_outcome")
+      .in("id", appIds.length ? appIds : ["00000000-0000-0000-0000-000000000000"]),
   ]);
+  const jobById = new Map(((jobRes.data ?? []) as any[]).map((j: any) => [j.id, j]));
   const versionsNow = {
     profileVersion: (profileRow as any)?.data?.profile_version ?? -1,
     formulaVersion: FIT_FORMULA_VERSION, taxonomyVersion: TAXONOMY_VERSION, modelVersion: CANDIDACY_MODEL_VERSION,
@@ -106,16 +120,11 @@ export async function loadBlockerBoard(db: SupabaseClient): Promise<{ rows: Boar
 
   // The last recorded stop, for applications whose most recent attempt
   // stopped safely. One query, newest first, first per application.
-  const { data: stops } = await db.from("application_events")
-    .select("application_id,detail,occurred_at").eq("event", STOP_EVENT)
-    .in("application_id", apps.map((a) => a.id)).order("occurred_at", { ascending: false });
+  // Both were fetched in the parallel wave above; first row seen per
+  // application is its latest stop (the query is newest-first).
   const lastStop = new Map<string, string>();
-  for (const s of stops ?? []) if (!lastStop.has(s.application_id)) lastStop.set(s.application_id, s.detail);
-
-  // submit_outcome is not on the summary; read it in one sweep.
-  const { data: outcomes } = await db.from("applications").select("id,submit_outcome")
-    .in("id", apps.map((a) => a.id));
-  const outcomeById = new Map((outcomes ?? []).map((o: any) => [o.id, o.submit_outcome]));
+  for (const s of (stopsRes.data ?? []) as any[]) if (!lastStop.has(s.application_id)) lastStop.set(s.application_id, s.detail);
+  const outcomeById = new Map(((outcomesRes.data ?? []) as any[]).map((o: any) => [o.id, o.submit_outcome]));
 
   const rows: BoardRow[] = apps.map((a) => {
     const job = jobById.get(a.jobId);

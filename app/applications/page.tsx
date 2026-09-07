@@ -71,7 +71,7 @@ export default async function Applications() {
                     </td>
                     <td>
                       {blocker.action
-                        ? <a className="btn-primary" href={blocker.action.href}>{blocker.action.label}</a>
+                        ? <Link className="btn-primary" href={blocker.action.href}>{blocker.action.label}</Link>
                         : <span className="muted">no action needed</span>}
                     </td>
                   </tr>
