@@ -355,7 +355,16 @@ export function composeResume(rows: FrozenRow[], name: NameParts, displayName: s
     // One supports is printed once, under the consolidated entry built
     // below, because splitting it across two headings made the reader
     // reassemble one body of work from two halves.
-    linesOf(g1now, []),
+    // The current Genius One period: the AI contact-analysis system, in
+    // Ty's own words (2026-09-07), recorded on the employment record as
+    // accomplishments. The contact figure is the approved audience
+    // metric, cited so its scope guard travels with it.
+    linesOf(g1now, [
+      { text: "Built an AI system that analyzes how approximately 180,000 contacts behave and what they buy, identifying who is about to buy, who is slipping away, who is price-shopping, and who is worth holding onto.",
+        sources: [g1now.row_id, metric("Email audience size worked with at Genius One").row_id] },
+      { text: "Use the same behavioral and purchase signals to forecast product demand, since current campaign activity indicates what will be needed on hand later, and to decide which marketing tests are worth running before running them.",
+        sources: [g1now.row_id] },
+    ]),
     // The current Anytime Picture period contributes no bullets, on
     // purpose.
     //
@@ -618,6 +627,7 @@ export function composeResume(rows: FrozenRow[], name: NameParts, displayName: s
         // Ty's own wording (2026-09-07): what he built and how, then what it does.
         /from concept through launch/i,
         /monitor public records and regulatory changes/i,
+        /points outreach toward the right prospects/i,
         /automatically checks .*data sources on a recurring/i,   // recurring public-record monitoring, no owner action
         /recognizes deadlines, identifies changes/i,             // deadlines + change detection + activity against the property
         /direct-mail measurement and attribution system/i,       // a built system, product/business framing
@@ -634,15 +644,19 @@ export function composeResume(rows: FrozenRow[], name: NameParts, displayName: s
       const recruiterClaims = claims.filter((c) =>
         isRecruiterFacing(c.line.text) && c.line.text.replace(/\s+/g, " ").trim().length <= CONCISE);
       const showcase: typeof claims = [];
+      // Three, not two: the tailored path selects from this pool per posting,
+      // and a business-development posting wants the prospecting line while
+      // an operations posting wants the monitoring one.
+      const SHOWCASE = 3;
       for (const rx of PREFERRED) {
-        if (showcase.length >= 2) break;
+        if (showcase.length >= SHOWCASE) break;
         const found = recruiterClaims.find((c) => rx.test(c.line.text) && !showcase.includes(c));
         if (found) showcase.push(found);
       }
       // Fill to at most two, from any remaining concise recruiter-facing
       // claim; never an implementation-prose or paragraph-length one. The
       // traction line leads, so the section is never empty even if none match.
-      for (const c of recruiterClaims) { if (showcase.length >= 2) break; if (!showcase.includes(c)) showcase.push(c); }
+      for (const c of recruiterClaims) { if (showcase.length >= SHOWCASE) break; if (!showcase.includes(c)) showcase.push(c); }
 
       // The traction facts lead, because they are what changed: this is
       // no longer only something he built, it is something in use.
