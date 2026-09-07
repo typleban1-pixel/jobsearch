@@ -31,24 +31,22 @@ interface Stored { recruiterName?: string | null; recruiterEmail?: string | null
 export async function composeDraftFor(
   db: SupabaseClient, applicationId: string, recruiter: { name?: string | null; email?: string | null } = {},
 ): Promise<{ draft: OutreachDraft; company: string; title: string } | null> {
-  const { data: app } = await db.from("applications").select("id,job_id,resume_id,submitted_at").eq("id", applicationId).maybeSingle();
+  const { data: app } = await db.from("applications").select("id,job_id,submitted_at").eq("id", applicationId).maybeSingle();
   if (!app) return null;
-  const [{ data: job }, { data: card }, { data: resume }, { data: profile }, { data: desc }] = await Promise.all([
+  const [{ data: job }, { data: profile }, { data: desc }, { data: reqs }] = await Promise.all([
     db.from("jobs").select("title,company_id,companies(name)").eq("id", app.job_id).single(),
-    db.from("job_card_summary").select("card").eq("job_id", app.job_id).maybeSingle(),
-    app.resume_id ? db.from("resumes").select("content").eq("id", app.resume_id).maybeSingle() : Promise.resolve({ data: null } as any),
     db.from("profile").select("legal_first_name,legal_last_name,preferred_name,phone,linkedin_url").single(),
     db.from("job_descriptions").select("description_text").eq("job_id", app.job_id).maybeSingle(),
+    db.from("job_requirements").select("raw_text").eq("job_id", app.job_id),
   ]);
   const companies = (job as any)?.companies;
   const company = (Array.isArray(companies) ? companies[0] : companies)?.name ?? "the company";
   const title = (job as any)?.title ?? "the role";
-  const requirements: string[] = ((card as any)?.card?.directConcepts ?? []) as string[];
-  const resumeLines: string[] = (((resume as any)?.content?.lines ?? []) as unknown[]).map((l) => typeof l === "string" ? l : String((l as any)?.text ?? "")).filter(Boolean);
+  const requirementText = ((reqs ?? []) as any[]).map((r) => r.raw_text).filter(Boolean).join("\n");
   const draft = composeOutreach({
-    company, title, appliedOn: app.submitted_at ?? null,
-    recruiterName: recruiter.name ?? null, requirements, resumeLines,
-    postingText: `${title}\n${(desc as any)?.description_text ?? ""}`,
+    company, title,
+    recruiterName: recruiter.name ?? null,
+    postingText: `${title}\n${(desc as any)?.description_text ?? ""}\n${requirementText}`,
     profile: { preferredName: profile?.preferred_name ?? null, firstName: profile?.legal_first_name ?? "", lastName: profile?.legal_last_name ?? "",
       phone: profile?.phone ?? null, linkedin: profile?.linkedin_url ?? null },
   });

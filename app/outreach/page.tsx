@@ -10,10 +10,10 @@ export const dynamic = "force-dynamic";
 /**
  * Follow-up notes to recruiters, one per application you chose to write to.
  *
- * Each note is composed from approved material (compose.ts): the posting as
- * recorded, the requirements the scorer matched, lines from that
- * application's own tailored résumé in the first person, one proof point
- * with a number. Copy it, tweak a line if you like, mark it sent.
+ * Each note is the person's own email as the pattern (compose.ts), with the
+ * role, company, what the posting emphasises and the employer's field
+ * filled from the posting as recorded. Copy it, attach the résumé, tweak a
+ * line if you like, mark it sent.
  */
 export default async function OutreachPage() {
   const loaded = await withSession((db) => loadOutreach(db));
@@ -30,7 +30,7 @@ export default async function OutreachPage() {
       {notes.length === 0 && (
         <section className="caughtup">
           <h2>No notes yet.</h2>
-          <p>Open an application you like on <Link href="/apply">Applications</Link> and press <b>Send a note</b>. The note is written from your approved résumé and the posting, and lands here for you to copy.</p>
+          <p>Open an application you like on <Link href="/apply">Applications</Link> and press <b>Send a note</b>. The note follows your own email word for word, with the role, company and what the posting emphasises filled in, and lands here for you to copy.</p>
         </section>
       )}
       {open.map((n) => <OutreachCard key={n.applicationId} r={n} />)}

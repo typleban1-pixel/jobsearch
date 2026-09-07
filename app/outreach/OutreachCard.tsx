@@ -5,9 +5,10 @@ import type { OutreachRecord } from "../../lib/outreach/draft.ts";
 /**
  * One follow-up note: read it, copy it, tweak a line, mark it sent.
  *
- * The text is the composer's, from approved material; edits are the
+ * The text is the composer's, from the person's own pattern; edits are the
  * person's and are saved as such. Copy puts subject and body on the
- * clipboard exactly as shown.
+ * clipboard exactly as shown. The note says the résumé is attached, so the
+ * card links the PDF that was submitted with this application.
  */
 export function OutreachCard({ r }: { r: OutreachRecord }) {
   const [subject, setSubject] = useState(r.subject);
@@ -33,6 +34,7 @@ export function OutreachCard({ r }: { r: OutreachRecord }) {
             : <span className="statebadge s-ready">Ready to send</span>}
           {r.jobUrl && <a href={r.jobUrl} target="_blank" rel="noopener noreferrer" className="qapp-listing">View job listing ↗</a>}
           <a href={`/applications/${r.applicationId}/review`} className="qapp-listing">Review application</a>
+          <a href={`/applications/${r.applicationId}/resume.pdf`} target="_blank" rel="noopener noreferrer" className="qapp-listing">R&eacute;sum&eacute; PDF to attach ↗</a>
         </div>
       </header>
 
