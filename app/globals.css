@@ -876,3 +876,8 @@ a.statebadge:hover, a.statebadge:focus-visible { border-color: currentColor; }
   .approw-action .btn-primary, .approw-action .btn-quiet { text-align: center; }
   .stepstatus { margin-left: 0; flex-basis: 100%; }
 }
+
+/* Questions page: the listing itself, beside each application's heading. */
+.qapp h2 { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; align-items: baseline; }
+.qapp-listing { font-size: 0.85rem; font-weight: 400; color: var(--accent); text-decoration: none; }
+.qapp-listing:hover, .qapp-listing:focus-visible { text-decoration: underline; }

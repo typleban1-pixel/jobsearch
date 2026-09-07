@@ -15,6 +15,7 @@ export interface FormItem {
   applications: string[];            // labels this control resolves
   applicationId: string | null;      // set for single items, null for shared/reusable
   applyUrl?: string | null;          // employer's own form, for a file upload completed there
+  jobUrl?: string | null;            // the job listing itself
   /** For a follow-up question: the question it follows and how that was answered. */
   context?: string | null;
   /** An agreement or acknowledgement: given to one employer, never reused for another. */
@@ -24,7 +25,7 @@ export interface FormItem {
 /** A file upload cannot be answered by typing; it is never accepted here. */
 const isFile = (it: FormItem) => it.type === "file";
 export interface FormData {
-  perApplication: { application: string; applicationId?: string | null; items: FormItem[] }[];
+  perApplication: { application: string; applicationId?: string | null; jobUrl?: string | null; items: FormItem[] }[];
   shared: FormItem[];
   total: number;
 }
@@ -217,7 +218,13 @@ export function QuestionsForm({ data }: { data: FormData }) {
 
       {data.perApplication.map((g) => (
         <section key={g.application} className="qapp" id={g.applicationId ? `app-${g.applicationId}` : undefined}>
-          <h2>{g.application}</h2>
+          <h2>
+            {g.application}
+            {g.jobUrl && (
+              <a className="qapp-listing" href={g.jobUrl} target="_blank" rel="noopener noreferrer"
+                aria-label={`View the job listing for ${g.application} (opens in a new tab)`}>View job listing ↗</a>
+            )}
+          </h2>
           <ul className="qitems">{g.items.map(renderControl)}</ul>
         </section>
       ))}

@@ -389,6 +389,7 @@ export async function loadBlockedGroups(db: SupabaseClient): Promise<QuestionGro
       // Where a file upload is actually completed: the employer's own form.
       // Same canonical target the board's handoff uses (form URL, else posting).
       applyUrl: job?.application_form_url ?? job?.url ?? null,
+      jobUrl: job?.url ?? job?.application_form_url ?? null,
       follows,
     });
   }

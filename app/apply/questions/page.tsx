@@ -83,7 +83,7 @@ export default async function ConsolidatedQuestions() {
         controlId, reuseAnswerIds: [], question: f.questionText || f.label || question,
         blockedReason: f.blockedReason ?? g.blockedReason, required: f.required,
         options: f.options, type: f.type, applications: [f.applicationLabel], applicationId: f.applicationId,
-        applyUrl: f.applyUrl ?? null, context: contextOf(f), consent: isConsent(f),
+        applyUrl: f.applyUrl ?? null, jobUrl: f.jobUrl ?? null, context: contextOf(f), consent: isConsent(f),
       };
       const list = byApplication.get(f.applicationLabel) ?? [];
       list.push(item); byApplication.set(f.applicationLabel, list);
@@ -95,7 +95,8 @@ export default async function ConsolidatedQuestions() {
     perApplication: [...byApplication.entries()]
       // The application's id anchors its block (#app-{id}), so a link from
       // its card or review lands on exactly these questions.
-      .map(([application, items]) => ({ application, applicationId: items[0]?.applicationId ?? null, items }))
+      .map(([application, items]) => ({ application, applicationId: items[0]?.applicationId ?? null,
+        jobUrl: items.find((i) => i.jobUrl)?.jobUrl ?? null, items }))
       .sort((a, b) => a.application.localeCompare(b.application)),
     shared, total,
   };
