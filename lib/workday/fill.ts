@@ -284,7 +284,12 @@ export async function selectPromptPath(
 
   const path = parseOptionPath(answer);
   const already = await committed();
-  if (already.some((a) => a.toLowerCase() === (path[path.length - 1] ?? answer).trim().toLowerCase())) {
+  // Committed the tenant's way is committed: "United States of America
+  // (+1)" already holds "US". Reopening a prompt that has a selection
+  // lands the click on the selected chip and reads an empty level, which
+  // was reported as the level offering nothing.
+  const holds = (items: string[]) => items.length > 0 && matchOptionLabel(items, path[path.length - 1] ?? answer).ok;
+  if (holds(already)) {
     return { status: "ALREADY", readBack: already.join(", ") };
   }
 
@@ -315,6 +320,11 @@ export async function selectPromptPath(
     const step = nextStep(options as any, remaining);
     if (step.action === "STOP") {
       await page.keyboard.press("Escape").catch(() => undefined);
+      // Nothing to choose from, but the control holds the answer: a
+      // selection made by an earlier pass, or by the tenant's own default.
+      if (!options.length && holds(await committed())) {
+        return { status: "ALREADY", readBack: (await committed()).join(", ") };
+      }
       return { status: "FAILED",
         why: `${step.why}${walked.length ? ` (after ${formatOptionPath(walked)})` : ""}. `
           + `This level offers: ${step.offered.join(" | ")}` };
