@@ -405,6 +405,21 @@ if (process.argv.includes("--live")) {
     (events ?? []).length === 0, `${(events ?? []).length} events`);
 }
 
+// An answer about one employer is reused for that employer only.
+{
+  const { classifyFeedback } = await import("../lib/feedback/classify.ts");
+  const base: any = { applicationId: "a", jobId: "j", canonicalOpeningId: null, employer: "Home Chef", provider: "GREENHOUSE",
+    questionRaw: "Have you previously been employed by Home Chef, either directly or through a staffing agency?", questionNormalized: "",
+    providerFieldKey: null, intentBefore: "previously_employed_here", confidenceBefore: "BLOCKED", whyStopped: "x",
+    proposedAnswer: null, humanAnswer: "No", intentConfirmed: null, reuseRequested: true, conditions: {}, occurredAt: new Date().toISOString() };
+  const c = classifyFeedback(base);
+  console.log(c.scope === "EMPLOYER" && c.classification === "CONTEXTUAL_ANSWER"
+    ? "  ok   a previously-employed-here answer is scoped to the employer, never banked by intent"
+    : `  FAIL previously-employed-here scoped ${c.scope} ${c.classification}`);
+  const none = classifyFeedback({ ...base, employer: null });
+  console.log(none.scope === "NONE" ? "  ok   and with no employer recorded it is not reused" : `  FAIL no-employer scope ${none.scope}`);
+}
+
 console.log(`${pass + fails.length} cases, ${pass} passed`);
 for (const f of fails) console.log(f);
 if (fails.length) { console.log(`\n${fails.length} FAILED`); process.exit(1); }

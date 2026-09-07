@@ -56,6 +56,18 @@ export const PERSONAL_FACT_INTENTS: Record<string, string> = {
  * say no. Salary, availability, travel and desired location behave the
  * same way. These may never be promoted to profile facts.
  */
+/**
+ * Questions whose answer is about THIS employer, not about the person.
+ *
+ * "Have you previously been employed by Home Chef?" answered No is true of
+ * Home Chef and says nothing about Lorain County Community College, which
+ * did employ him. Banked by intent, that No would answer every employer's
+ * version of the question. These are reused only for the same employer.
+ */
+export const EMPLOYER_INTENTS = new Set([
+  "previously_employed_here", "relatives_at_company",
+]);
+
 export const CONTEXTUAL_INTENTS = new Set([
   "can_commute", "commute_confirmation", "onsite_schedule", "hybrid_schedule",
   "desired_work_location", "salary_expectation", "start_date", "availability",
@@ -133,6 +145,17 @@ export function classifyFeedback(ev: FeedbackEvent): Classification {
     };
   }
 
+  // 2b. About this employer. Reusable for this employer and no other.
+  if (intent && EMPLOYER_INTENTS.has(intent)) {
+    return {
+      classification: "CONTEXTUAL_ANSWER",
+      scope: ev.employer ? "EMPLOYER" : "NONE",
+      because: ev.employer
+        ? `the answer is about ${ev.employer} and holds only for ${ev.employer}`
+        : "the answer is about one employer and no employer was recorded, so it cannot be reused",
+      profileField: null, conditions: {},
+    };
+  }
   // 3. A fact about the person. The semantics have to be unambiguous,
   //    which here means the intent is on the written list.
   if (intent && PERSONAL_FACT_INTENTS[intent]) {
