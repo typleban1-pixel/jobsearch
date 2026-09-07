@@ -179,6 +179,7 @@ the form filled.
 | A picker that offers nothing equal to the answer | `READBACK_MISMATCH` |
 | An option without a unique selector | `SELECTOR_AMBIGUOUS` |
 | A video or recording upload | blocked; not automatable |
+| Ashby's spam filter refuses the click ("flagged as possible spam") | one retry as the page asks, then the person decides; never worked around |
 | Visible CAPTCHA | `CAPTCHA` |
 
 ### Proof
@@ -186,5 +187,7 @@ the form filled.
 Rehearsed to HANDOFF on 2026-09-07 with no guard hits: Fieldguide (location
 picker, pick-many, three EEO groups, radio group), Modern Treasury,
 Roboflow, Verse Medical (pronoun radio group, three button groups), Ashby's
-own form (textareas, city picker, self-ID). The acceptance bar set by the
-user: five applications submitted by the program.
+own form (textareas, city picker, self-ID). Live: Fieldguide and Modern Treasury submitted by the program on 2026-09-07,
+each confirmed by the employer's own page; Aleph refused twice by Ashby's
+spam filter after three same-day rehearsals on its form. The acceptance bar
+set by the user: five applications submitted by the program.
