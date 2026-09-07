@@ -436,6 +436,27 @@ console.log("\ninstitution spellings are narrow");
     same(institutionSpellings("Boston College, MA"), ["Boston College, MA"]));
 }
 
+console.log("\na discipline is answered from the field of study, or as Other, never as a near miss");
+{
+  const { resolveField } = await import("../lib/applications/answer.ts");
+  const ctx: any = { profileRowId: "p", profile: {}, bank: new Map(),
+    education: [{ rowId: "e1", institution: "Western Governors University, Leavitt School of Health",
+      credential: "Bachelor of Science", fieldOfStudy: "Health Science", end: "2025-05-01" }] };
+  const disc = (options?: string[]) => resolveField(field("discipline--0", "Discipline", options ? "select" : "text", options), ctx);
+  const exact = disc(["Computer Science", "Health Science", "Other"]);
+  check("the offered spelling is chosen", exact.answer === "Health Science" && exact.confidence === "VERIFIED", JSON.stringify(exact.answer));
+  const plural = disc(["Health Sciences", "Other"]);
+  check("a plural of the same field is the same field", plural.answer === "Health Sciences", JSON.stringify(plural.answer));
+  const other = disc(["Applied Health Services", "Health Services", "Computer Science", "Other"]);
+  check("with no match, Other is chosen rather than a neighbouring discipline", other.answer === "Other", JSON.stringify(other.answer));
+  const none = disc(["Applied Health Services", "Health Services", "Computer Science"]);
+  check("and with no Other either, it blocks for a person", none.confidence === "BLOCKED", JSON.stringify(none));
+  const free = disc();
+  check("a free-text discipline takes the record as written", free.answer === "Health Science", JSON.stringify(free.answer));
+  const major = resolveField(field("major", "What was your major?", "text"), ctx);
+  check("a 'major' question is the same intent", major.answer === "Health Science", JSON.stringify(major));
+}
+
 await browser.close();
 server.close();
 console.log(failures === 0 ? "\nall passed" : `\n${failures} FAILED`);

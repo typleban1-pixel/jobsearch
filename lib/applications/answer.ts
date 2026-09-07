@@ -279,6 +279,27 @@ export function institutionSpellings(value: string): string[] {
 }
 
 /**
+ * The spellings of one verified field of study a discipline picker might
+ * offer, in the order they may be chosen.
+ *
+ * Greenhouse's education section asks for a Discipline from its own closed
+ * list. The list is not the world's: "Health Science" is not on Beyond
+ * Finance's, though "Other" is. So: the record itself; its singular or
+ * plural; then "Other", which is the true answer when the field studied
+ * is not among the ones offered. Never a different discipline -- "Health
+ * Services" is not what was studied, and a near miss is a false claim.
+ * The fill records which spelling was entered.
+ */
+export function disciplineSpellings(value: string): string[] {
+  const v = value.trim();
+  const out = [v];
+  if (/s$/i.test(v)) out.push(v.replace(/s$/i, ""));
+  else out.push(`${v}s`);
+  out.push("Other");
+  return [...new Set(out)];
+}
+
+/**
  * The part of an option a person actually chooses.
  *
  * EEO forms glue the federal definition onto the label with no
@@ -750,7 +771,7 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
       evidenceIds: [ctx.profileRowId], considered: [], refused: false };
   }
 
-  if (intent.key === "education_school" || intent.key === "education_degree") {
+  if (intent.key === "education_school" || intent.key === "education_degree" || intent.key === "education_discipline") {
     return resolveEducation(field, ctx, intent.key, matchedBy);
   }
 
@@ -1044,6 +1065,17 @@ function resolveEducation(field: FormField, ctx: ResolveContext, key: string, ma
     // list offers that and not the school within it.
     let first: { ok: false; why: string } | null = null;
     for (const spelling of institutionSpellings(top.institution)) {
+      const fit = fitOption(field, spelling);
+      if (fit.ok) return { field, intentKey: key, matchedBy, answer: fit.value, confidence: "VERIFIED",
+        blockKind: null, blockedReason: null, evidenceIds: [top.rowId], considered: [], refused: false };
+      first ??= fit;
+    }
+    return blocked(field, key, matchedBy, "AMBIGUOUS", first!.why);
+  }
+  if (key === "education_discipline") {
+    if (!top.fieldOfStudy) return blocked(field, key, matchedBy, "UNKNOWN", "the most recent education record has no field of study recorded");
+    let first: { ok: false; why: string } | null = null;
+    for (const spelling of disciplineSpellings(top.fieldOfStudy)) {
       const fit = fitOption(field, spelling);
       if (fit.ok) return { field, intentKey: key, matchedBy, answer: fit.value, confidence: "VERIFIED",
         blockKind: null, blockedReason: null, evidenceIds: [top.rowId], considered: [], refused: false };

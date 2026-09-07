@@ -38,7 +38,7 @@ import {
 } from "./ashbyForm.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
 import { hashSnapshot } from "../applications/formSnapshot.ts";
-import { resolveField, equivalents, institutionSpellings, type FormField, type ResolveContext } from "../applications/answer.ts";
+import { resolveField, equivalents, institutionSpellings, disciplineSpellings, type FormField, type ResolveContext } from "../applications/answer.ts";
 
 export const FILL_VERSION = 1;
 
@@ -158,6 +158,16 @@ async function committedValue(frame: FormContext["frame"], selector: string): Pr
  */
 const institutionField = (f: { key: string; label?: string | null }): boolean =>
   /^school--\d+$/.test(f.key) || /\b(school|university|college|institution|alma mater)\b/i.test(f.label ?? "");
+
+/** A control that asks what was studied: Greenhouse's discipline--N, or a label that says so. */
+const disciplineField = (f: { key: string; label?: string | null }): boolean =>
+  /^discipline--\d+$/.test(f.key) || /\b(discipline|field of study|major|area of study|concentration)\b/i.test(f.label ?? "");
+
+/** Every spelling this control may offer for the answer (see equivalents, institutionSpellings, disciplineSpellings). */
+function spellingsFor(f: { key: string; label?: string | null }, value: string): string[] {
+  const extra = institutionField(f) ? institutionSpellings(value) : disciplineField(f) ? disciplineSpellings(value) : [];
+  return [...new Set([...equivalents(value), ...extra])];
+}
 
 /** Greenhouse's school list, searched for one institution. */
 async function greenhouseSchoolOptions(provider: string, boardToken: string | null, institution: string): Promise<string[]> {
@@ -589,9 +599,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
           // (see institutionSpellings): "Western Governors University,
           // Leavitt School of Health" is entered as "Western Governors
           // University" when that is what the board lists.
-          const spellings = institutionField(f)
-            ? [...new Set([...equivalents(value), ...institutionSpellings(value)])]
-            : equivalents(value);
+          const spellings = spellingsFor(f, value);
           if (options) {
             for (const spelling of spellings) {
               const hit = exactOptions(options, spelling);
@@ -639,7 +647,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
               if (hits.length === 1) {
                 if (term !== asked) {
                   inspections.push({ field: f.label || f.key, optionsFound: 1, sample: hits,
-                    resolvedAs: `${JSON.stringify(asked)} is not offered; entered as its institution ${JSON.stringify(hits[0])}` });
+                    resolvedAs: `${JSON.stringify(asked)} is not offered; entered as ${JSON.stringify(hits[0])}` });
                 }
                 options = hits; value = hits[0]!; resolved = true;
                 break;
