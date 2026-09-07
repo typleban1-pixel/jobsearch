@@ -127,6 +127,12 @@ export async function POST(request: Request): Promise<Response> {
     // whose adapter is not PRODUCTION -- which is why this cannot
     // submit Workday.
     submit_requested_at: workerCanSubmit ? now : null,
+    // "Approve anyway": the choice to apply despite the qualification gap
+    // is recorded where the submit guard reads it, and cleared with the
+    // approval whenever the résumé or the authorization is reset.
+    ...(gapOnly && acceptGap
+      ? { policy_snapshot: { qualification_gap_accepted_at: now, by: "person", refusals: check.refusals } }
+      : {}),
   }).eq("id", applicationId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

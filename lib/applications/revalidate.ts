@@ -48,6 +48,15 @@ export interface SubmitFacts {
   /** Hash of the answers as they stood when approved. Null before approval. */
   approvedAnswersSha256: string | null;
   readbackPassed: boolean;
+  /**
+   * When the person, approving, chose to apply despite a material
+   * qualification gap ("Approve anyway"). Recorded on the application
+   * (policy_snapshot.qualification_gap_accepted_at) and cleared with the
+   * approval. Honoured only for a HUMAN approval given after the current
+   * verdict was computed: a gap accepted against old facts is not accepted
+   * against new ones.
+   */
+  qualificationGapAcceptedAt?: string | null;
 }
 
 export interface Refusal { code: string; detail: string }
@@ -105,6 +114,13 @@ export function hasMaterialQualificationGap(
   return false;
 }
 
+/** The person accepted the gap, as a person, against the verdict that stands now. */
+export function gapAccepted(f: SubmitFacts): boolean {
+  if (!f.humanApproved || !f.qualificationGapAcceptedAt) return false;
+  if (f.authorizationMode && f.authorizationMode !== "HUMAN_APPROVED") return false;
+  return !f.candidacyComputedAt || f.qualificationGapAcceptedAt >= f.candidacyComputedAt;
+}
+
 export function revalidateBeforeSubmit(f: SubmitFacts): { ok: boolean; refusals: Refusal[] } {
   const refusals: Refusal[] = [];
   const no = (code: string, detail: string) => refusals.push({ code, detail });
@@ -116,7 +132,7 @@ export function revalidateBeforeSubmit(f: SubmitFacts): { ok: boolean; refusals:
     no("NO_CURRENT_CANDIDACY", "this job has no candidacy verdict to check the approval against");
   } else if (!SUBMITTABLE.has(f.candidacyVerdict)) {
     no("CANDIDACY_REFUSES", `candidacy is now ${f.candidacyVerdict}`);
-  } else if (hasMaterialQualificationGap(f)) {
+  } else if (hasMaterialQualificationGap(f) && !gapAccepted(f)) {
     // Form-ready is not qualified. A stale review-screen approval cannot
     // authorize a job the current evidence says he meets none of.
     no("MATERIAL_QUALIFICATION_GAP",

@@ -102,7 +102,7 @@ async function stopAt(
 
 // ---- nothing proceeds unless the package is exactly as approved ------
 const { data: app } = await db.from("applications")
-  .select("id,job_id,job_version_id,status,human_approved,human_approved_at,authorization_mode,all_fields_confident,form_snapshot,form_snapshot_hash,resume_id,approved_artifact_sha256,approved_content_sha256,approved_answers_sha256,submitted_at,submit_click_attempted_at")
+  .select("id,job_id,job_version_id,status,human_approved,human_approved_at,authorization_mode,all_fields_confident,form_snapshot,form_snapshot_hash,resume_id,approved_artifact_sha256,approved_content_sha256,approved_answers_sha256,submitted_at,submit_click_attempted_at,policy_snapshot")
   .eq("id", applicationId).single();
 if (!app) { console.error("no such application"); process.exit(1); }
 if (app.submitted_at) await stopAt("ALREADY_SUBMITTED", "preflight",
@@ -209,6 +209,7 @@ if (!version?.is_current) await stopAt("STALE_JOB_VERSION", "preflight",
     currentAnswersSha256: answerSetHash(answers2 as any),
     approvedAnswersSha256: (app as any).approved_answers_sha256 ?? null,
     readbackPassed: true,
+    qualificationGapAcceptedAt: (app as any).policy_snapshot?.qualification_gap_accepted_at ?? null,
   });
   if (!check.ok) {
     for (const r of check.refusals) console.error(`  ${r.code}: ${r.detail}`);

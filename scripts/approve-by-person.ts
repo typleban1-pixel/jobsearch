@@ -80,6 +80,10 @@ const { error } = await db.from("applications").update({
   approved_artifact_sha256: resume.artifact_sha256, approved_content_sha256: resume.content_sha256 ?? null,
   approved_answers_sha256: currentAnswers,
   status: app.status === "AWAITING_REVIEW" ? "READY_TO_SUBMIT" : app.status,
+  // The accepted gap, where the submit guard reads it.
+  ...(gapOnly && acceptGap
+    ? { policy_snapshot: { qualification_gap_accepted_at: now, by: "person", refusals: check.refusals } }
+    : {}),
 }).eq("id", id);
 if (error) { console.error(`could not record the approval: ${error.message}`); process.exit(1); }
 await db.from("application_events").insert({

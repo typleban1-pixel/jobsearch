@@ -54,7 +54,7 @@ export async function loadBlockerBoard(db: SupabaseClient): Promise<{ rows: Boar
     page<any>(db, "job_candidacy", "job_id,verdict,created_at,profile_version,formula_version,taxonomy_version,model_version,reason_codes,hard_met,hard_total", scoped("job_id", jobIds), "job_id"),
     db.from("profile").select("profile_version").single(),
     page<any>(db, "resumes", "id,artifact_sha256", scoped("id", apps.map((a) => a.resumeId).filter(Boolean) as string[])),
-    page<any>(db, "applications", "id,approved_artifact_sha256,approved_answers_sha256,authorization_mode,human_approved_at,all_fields_confident", scoped("id", appIds)),
+    page<any>(db, "applications", "id,approved_artifact_sha256,approved_answers_sha256,authorization_mode,human_approved_at,all_fields_confident,policy_snapshot", scoped("id", appIds)),
     db.from("jobs").select("id,status,source,apply_url,application_form_url,url,eligibility,canonical_opening_id")
       .in("id", jobIds.length ? jobIds : ["00000000-0000-0000-0000-000000000000"]),
     // The last recorded stop per application, newest first. Was a serial
@@ -108,6 +108,7 @@ export async function loadBlockerBoard(db: SupabaseClient): Promise<{ rows: Boar
       otherSubmittedOnOpening: Boolean(j.canonical_opening_id && submittedOpenings.has(j.canonical_opening_id)),
       currentAnswersSha256: x.approved_answers_sha256 ?? "x", approvedAnswersSha256: x.approved_answers_sha256 ?? "x",
       readbackPassed: true,
+      qualificationGapAcceptedAt: (x as any).policy_snapshot?.qualification_gap_accepted_at ?? null,
     }).refusals.map((r) => r.code)
       .filter((c) => !NOT_YET_APPROVED_NOISE.has(c) || a.humanApproved);
     refusalsByApp.set(a.id, codes);

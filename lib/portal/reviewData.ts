@@ -216,6 +216,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     currentAnswersSha256: answerSetHash(answers as any),
     approvedAnswersSha256: app.approved_answers_sha256 ?? null,
     readbackPassed: true,
+    qualificationGapAcceptedAt: (app as any).policy_snapshot?.qualification_gap_accepted_at ?? null,
   });
 
   // Only the conditions a person must know about before approving. The

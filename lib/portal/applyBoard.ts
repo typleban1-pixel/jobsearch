@@ -107,7 +107,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
     "id,job_id,job_version_id,status,human_approved,human_approved_at,all_fields_confident," +
     "submitted_at,confirmation_email_received,confirmation_reference,blocked_reason," +
     "approved_artifact_sha256,approved_answers_sha256,resume_id,is_test," +
-    "submit_requested_at,submit_started_at,submit_outcome,prepare_started_at",
+    "submit_requested_at,submit_started_at,submit_outcome,prepare_started_at,policy_snapshot",
     (q) => q.or("is_test.is.null,is_test.eq.false"));
   const jobIds = [...new Set(apps.map((a) => a.job_id).filter(Boolean))];
   const versionIds = [...new Set(apps.map((a) => a.job_version_id).filter(Boolean))];
@@ -258,6 +258,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       currentAnswersSha256: answerSetHash(mine as any),
       approvedAnswersSha256: a.approved_answers_sha256 ?? null,
       readbackPassed: true,
+      qualificationGapAcceptedAt: (a as any).policy_snapshot?.qualification_gap_accepted_at ?? null,
     }).refusals.map((r) => r.code)
       // Refusals that only mean something once an approval exists.
       //
