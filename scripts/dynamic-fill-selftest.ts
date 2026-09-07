@@ -386,6 +386,56 @@ console.log("\nan education record the board does not offer is skipped, not appr
   check("no empty extra row is left behind on a fresh render", rows === 1, String(rows));
 }
 
+console.log("\na school within a university is entered as the university when only that is offered");
+{
+  // Greenhouse's list knows "Western Governors University" and nothing
+  // below it. The profile's record names the school within it.
+  const LEAVITT = "Western Governors University, Leavitt School of Health";
+  const o = await run("education", {
+    storedFields: [field("first_name", "First Name", "text"),
+                   field("school--0", "School", "select", ["Western Governors University", "Ohio State University"]),
+                   field("degree--0", "Degree", "select", ["Associate's Degree", "Bachelor's Degree"])],
+    answers: [answer("first_name", "First Name", "Tyler"),
+              answer("school--0", "School", "Ohio State University"),
+              answer("degree--0", "Degree", "Associate's Degree")],
+    educationRecords: [
+      { institution: "Ohio State University", degree: "Associate's Degree" },
+      { institution: LEAVITT, degree: "Bachelor's Degree" },
+    ],
+    degreeOptions: ["Associate's Degree", "Bachelor's Degree"],
+    // The board answers the university's name and nothing for the school within it.
+    schoolOptionsFor: async (i) => (i === "Western Governors University" || i === "Ohio State University" ? [i] : []),
+  });
+  check("the run reaches handoff", o.reason === "HANDOFF", `${o.reason}: ${o.message}`);
+  const schools = o.filled.filter((f: any) => f.field === "School").map((f: any) => f.value);
+  check("both records are entered", schools.length === 2, JSON.stringify(schools));
+  check("the second as the university the board lists", schools.includes("Western Governors University"), JSON.stringify(schools));
+  check("and the substitution is recorded, not silent",
+    o.inspections.some((i: any) => /Leavitt/.test(i.resolvedAs) && /entered as its institution/.test(i.resolvedAs)),
+    JSON.stringify(o.inspections.map((i: any) => i.resolvedAs)));
+  check("nothing is left blank", o.leftBlank.length === 0, JSON.stringify(o.leftBlank));
+}
+
+console.log("\ninstitution spellings are narrow");
+{
+  const { institutionSpellings } = await import("../lib/applications/answer.ts");
+  const same = (a: string[], b: string[]) => JSON.stringify(a) === JSON.stringify(b);
+  check("a school within a university offers the university second",
+    same(institutionSpellings("Western Governors University, Leavitt School of Health"),
+      ["Western Governors University, Leavitt School of Health", "Western Governors University"]));
+  check("a dash separator works the same",
+    same(institutionSpellings("Ohio State University - Fisher College of Business"),
+      ["Ohio State University - Fisher College of Business", "Ohio State University"]));
+  check("a hyphenated campus name is not split",
+    same(institutionSpellings("University of Illinois Urbana-Champaign"), ["University of Illinois Urbana-Champaign"]));
+  check("a plain institution has one spelling",
+    same(institutionSpellings("Lorain County Community College"), ["Lorain County Community College"]));
+  check("a place is not an institution",
+    same(institutionSpellings("Cleveland, OH"), ["Cleveland, OH"]));
+  check("a state after the name is not a school within it",
+    same(institutionSpellings("Boston College, MA"), ["Boston College, MA"]));
+}
+
 await browser.close();
 server.close();
 console.log(failures === 0 ? "\nall passed" : `\n${failures} FAILED`);

@@ -38,7 +38,7 @@ import {
 } from "./ashbyForm.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
 import { hashSnapshot } from "../applications/formSnapshot.ts";
-import { resolveField, equivalents, type FormField, type ResolveContext } from "../applications/answer.ts";
+import { resolveField, equivalents, institutionSpellings, type FormField, type ResolveContext } from "../applications/answer.ts";
 
 export const FILL_VERSION = 1;
 
@@ -150,6 +150,14 @@ async function committedValue(frame: FormContext["frame"], selector: string): Pr
     return single ? (single.textContent ?? "").replace(/\s+/g, " ").trim() : null;
   }, selector);
 }
+
+/**
+ * A control that asks which institution someone attended. Greenhouse keys
+ * its education rows school--N; elsewhere the label says so. Only such a
+ * field is offered the institution-level spelling of a school record.
+ */
+const institutionField = (f: { key: string; label?: string | null }): boolean =>
+  /^school--\d+$/.test(f.key) || /\b(school|university|college|institution|alma mater)\b/i.test(f.label ?? "");
 
 /** Greenhouse's school list, searched for one institution. */
 async function greenhouseSchoolOptions(provider: string, boardToken: string | null, institution: string): Promise<string[]> {
@@ -577,8 +585,15 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
           // it is absent. "Not Hispanic or Latino" is offered here as
           // "No"; searching a closed Yes/No list for the long spelling
           // matches nothing and reported the control as offering none.
+          // For a school field, the institution itself is one more spelling
+          // (see institutionSpellings): "Western Governors University,
+          // Leavitt School of Health" is entered as "Western Governors
+          // University" when that is what the board lists.
+          const spellings = institutionField(f)
+            ? [...new Set([...equivalents(value), ...institutionSpellings(value)])]
+            : equivalents(value);
           if (options) {
-            for (const spelling of equivalents(value)) {
+            for (const spelling of spellings) {
               const hit = exactOptions(options, spelling);
               if (hit.length === 1) { options = hit; value = hit[0]!; break; }
             }
@@ -601,24 +616,39 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
           }
 
           if (!options || exactOptions(options, value).length !== 1) {
-            const filtered = await readFilteredOptions(
-              page, ctx.frame, guard, await control(ctx, f), f.label || f.key, value);
-            if (filtered.options.length) {
-              const hits = exactOptions(filtered.options, value);
+            // Each spelling is a search of its own: the type-ahead returns
+            // nothing at all for a string it does not know, so a later
+            // spelling can only be tried by asking again.
+            const asked = value;
+            let resolved = false;
+            let lastOffered: string[] = [];
+            for (const term of spellings) {
+              const filtered = await readFilteredOptions(
+                page, ctx.frame, guard, await control(ctx, f), f.label || f.key, term);
+              if (!filtered.options.length) continue;
+              lastOffered = filtered.options;
+              const hits = exactOptions(filtered.options, term);
               inspections.push({ field: f.label || f.key, optionsFound: filtered.options.length,
                 sample: filtered.options.slice(0, 3),
-                resolvedAs: `searched for ${JSON.stringify(value)}, ${hits.length} exact match(es)` });
-              if (hits.length === 1) {
-                options = hits;
-              } else if (hits.length > 1) {
+                resolvedAs: `searched for ${JSON.stringify(term)}, ${hits.length} exact match(es)` });
+              if (hits.length > 1) {
                 throw new Stop("READBACK_MISMATCH",
-                  `"${f.label || f.key}": searching for ${JSON.stringify(value)} returned ${hits.length} identical options, `
+                  `"${f.label || f.key}": searching for ${JSON.stringify(term)} returned ${hits.length} identical options, `
                   + "so which one is meant cannot be decided here");
-              } else {
-                throw new Stop("READBACK_MISMATCH",
-                  `"${f.label || f.key}": searching for ${JSON.stringify(value)} returned no exact match `
-                  + `(offers ${filtered.options.slice(0, 6).join(", ")}${filtered.options.length > 6 ? ", ..." : ""})`);
               }
+              if (hits.length === 1) {
+                if (term !== asked) {
+                  inspections.push({ field: f.label || f.key, optionsFound: 1, sample: hits,
+                    resolvedAs: `${JSON.stringify(asked)} is not offered; entered as its institution ${JSON.stringify(hits[0])}` });
+                }
+                options = hits; value = hits[0]!; resolved = true;
+                break;
+              }
+            }
+            if (!resolved && lastOffered.length) {
+              throw new Stop("READBACK_MISMATCH",
+                `"${f.label || f.key}": searching for ${JSON.stringify(asked)} returned no exact match `
+                + `(offers ${lastOffered.slice(0, 6).join(", ")}${lastOffered.length > 6 ? ", ..." : ""})`);
             }
           }
         }
@@ -1380,15 +1410,29 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         // entered never creates an empty row.
         const lookup = input.schoolOptionsFor
           ?? ((i: string) => greenhouseSchoolOptions(provider, boardToken, i));
-        const schools = await lookup(rec.institution);
-        const schoolHit = exactOptions(schools, rec.institution);
+        // The full record, then the institution itself (institutionSpellings).
+        let schoolHit: string[] = [];
+        let results = 0;
+        for (const spelling of institutionSpellings(rec.institution)) {
+          const schools = await lookup(spelling);
+          results += schools.length;
+          const hit = exactOptions(schools, spelling);
+          if (hit.length === 1) {
+            if (spelling !== rec.institution) {
+              inspections.push({ field: `Education ${row + 1}`, optionsFound: 1, sample: hit,
+                resolvedAs: `${JSON.stringify(rec.institution)} is not offered; entered as its institution ${JSON.stringify(hit[0])}` });
+            }
+            schoolHit = hit;
+            break;
+          }
+        }
         const degreeHit = exactOptions(degreeOptions, rec.degree);
 
         if (schoolHit.length !== 1 || degreeHit.length !== 1) {
           leftBlank.push({ field: `Education ${row + 1}`,
             why: schoolHit.length !== 1
               ? `${JSON.stringify(rec.institution)} is not offered by this board's school list `
-                + `(${schools.length} results for that search), so the entry is not recorded rather than substituted`
+                + `(${results} results for that search), so the entry is not recorded rather than substituted`
               : `${JSON.stringify(rec.degree)} is not one of the offered degrees (${degreeOptions.join(", ")})` });
           continue;
         }

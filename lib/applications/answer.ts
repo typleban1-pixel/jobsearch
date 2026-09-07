@@ -254,6 +254,31 @@ export function equivalents(value: string): string[] {
 }
 
 /**
+ * The spellings of one verified institution a school picker might offer.
+ *
+ * The profile records "Western Governors University, Leavitt School of
+ * Health": the university and the school within it. Greenhouse's school
+ * list knows the university and nothing below it, so the exact string
+ * matched nothing and a verified fact stopped the submission. The
+ * institution itself is a true answer to "School", so it is offered as a
+ * second spelling -- after the full record, never instead of it.
+ *
+ * Deliberately narrow: the head must itself name an institution and the
+ * part after the separator must name a school, college or division
+ * within it. "Cleveland, OH" and "Lorain County Community College" have
+ * exactly one spelling.
+ */
+export function institutionSpellings(value: string): string[] {
+  const v = value.trim();
+  const out = [v];
+  const m = /^(.+?\b(?:university|college|institute|school|academy|polytechnic)\b.*?)\s*(?:,|-|\u2013|\u2014|:)\s+(.+)$/i.exec(v);
+  if (m && /\b(school|college|institute|division|department|faculty|campus|cent(?:er|re))\b/i.test(m[2]!)) {
+    out.push(m[1]!.trim());
+  }
+  return [...new Set(out)];
+}
+
+/**
  * The part of an option a person actually chooses.
  *
  * EEO forms glue the federal definition onto the label with no
@@ -1015,10 +1040,16 @@ function resolveEducation(field: FormField, ctx: ResolveContext, key: string, ma
   if (!edu.length) return blocked(field, key, matchedBy, "UNKNOWN", "no education records are on file to answer this from");
   const top = edu[0]!;
   if (key === "education_school") {
-    const fit = fitOption(field, top.institution);
-    if (!fit.ok) return blocked(field, key, matchedBy, "AMBIGUOUS", fit.why);
-    return { field, intentKey: key, matchedBy, answer: fit.value, confidence: "VERIFIED",
-      blockKind: null, blockedReason: null, evidenceIds: [top.rowId], considered: [], refused: false };
+    // The full record first; the institution itself only when a closed
+    // list offers that and not the school within it.
+    let first: { ok: false; why: string } | null = null;
+    for (const spelling of institutionSpellings(top.institution)) {
+      const fit = fitOption(field, spelling);
+      if (fit.ok) return { field, intentKey: key, matchedBy, answer: fit.value, confidence: "VERIFIED",
+        blockKind: null, blockedReason: null, evidenceIds: [top.rowId], considered: [], refused: false };
+      first ??= fit;
+    }
+    return blocked(field, key, matchedBy, "AMBIGUOUS", first!.why);
   }
   // degree
   if (!top.credential) return blocked(field, key, matchedBy, "UNKNOWN", "the most recent education record has no credential recorded");
