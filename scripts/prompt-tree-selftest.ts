@@ -48,6 +48,10 @@ ok(classifyOption({ label: "x", instanceId: null, hasSideCharm: false }) === "BR
   ok(eeo.ok && eeo.label === "No", "a spelled-out negative answers a Yes/No control as No");
   const amb = matchOptionLabel(["Ohio", "Ohio (North)", "Ohio (South)"], "Ohio");
   ok(amb.ok && amb.label === "Ohio", "an exact label wins over qualified variants");
+  const vet = matchOptionLabel(["Select One", "I IDENTIFY AS ONE OR MORE OF THE CLASSIFICATIONS OF PROTECTED VETERANS LISTED ABOVE", "I IDENTIFY AS A VETERAN, JUST NOT A PROTECTED VETERAN", "I AM NOT A VETERAN", "I DO NOT WISH TO SELF-IDENTIFY"], "I am not a protected veteran", "Veterans Status");
+  ok(vet.ok && vet.label === "I DO NOT WISH TO SELF-IDENTIFY", "a demographic answer the list splits two ways declines rather than guessing");
+  const vetPlain = matchOptionLabel(["Fax", "Landline", "Mobile"], "I am not a protected veteran", "Phone Device Type");
+  ok(!vetPlain.ok, "the demographic rule applies only to a demographic field");
   const two = matchOptionLabel(["Fax", "Landline", "Mobile"], "216-555-0100");
   ok(!two.ok && two.hits.length === 0, "a value that is none of the options matches nothing");
 }

@@ -183,7 +183,7 @@ export const failures = (reports: FillReport[]): FillReport[] =>
  * an ambiguity to report rather than a tie to break.
  */
 export async function selectListboxOption(
-  page: Page, selector: string, wanted: string,
+  page: Page, selector: string, wanted: string, fieldLabel?: string | null,
 ): Promise<FillOutcome> {
   const button = page.locator(`${selector}:visible`);
   const n = await button.count().catch(() => 0);
@@ -204,7 +204,7 @@ export async function selectListboxOption(
   const already = await readCurrent();
   // Pre-filled the tenant's way ("United States of America" for "US") is
   // already answered; reopening it and failing to find "US" was not.
-  if (already && !isInput && matchOptionLabel([already], wanted).ok) {
+  if (already && !isInput && matchOptionLabel([already], wanted, fieldLabel).ok) {
     return { status: "ALREADY", readBack: already };
   }
 
@@ -237,7 +237,7 @@ export async function selectListboxOption(
 
   // The same choice, worded the tenant's way -- see optionMatch.ts for
   // the tiers and why each is safe. One label or none, never a guess.
-  const m = matchOptionLabel(labels, wanted);
+  const m = matchOptionLabel(labels, wanted, fieldLabel);
   if (!m.ok) {
     await page.keyboard.press("Escape").catch(() => undefined);
     return { status: "FAILED",

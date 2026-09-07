@@ -557,7 +557,7 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
       : isPromptTree
         ? await selectPromptPath(page, a.field_key, a.answer_text)
         : isListbox
-        ? await selectListboxOption(page, a.field_key, a.answer_text)
+        ? await selectListboxOption(page, a.field_key, a.answer_text, a.question_text)
         : await fillOne(page, target);
     if (out.status === "FAILED") { failed++; console.log(`   FAIL ${a.question_text}: ${out.why}`); }
     else {

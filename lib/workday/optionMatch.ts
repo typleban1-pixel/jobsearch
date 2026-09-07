@@ -20,6 +20,7 @@
 import { equivalents } from "../applications/answer.ts";
 import { normalizeCountryName, normalizeRegionName } from "../browser/geography.ts";
 import { GENERIC_SURVEY_FREETEXT, pickSurveyOption } from "../applications/lowStakesSurvey.ts";
+import { isDemographicField, resolveEeoOption } from "../browser/eeo.ts";
 
 export type OptionMatch =
   | { ok: true; label: string; how: string }
@@ -32,7 +33,7 @@ export const unqualify = (l: string) => norm(l.replace(/\s*\((?:[^()]*)\)\s*$/, 
 const isGenericSource = (wanted: string) =>
   norm(wanted) === norm(GENERIC_SURVEY_FREETEXT) || /^(?:company|employer|corporate)\s*(?:web\s*site|website|site)$/i.test(wanted.trim());
 
-export function matchOptionLabel(offered: string[], wanted: string): OptionMatch {
+export function matchOptionLabel(offered: string[], wanted: string, fieldLabel?: string | null): OptionMatch {
   // The same label read twice is one option, not an ambiguity: a popup
   // scan that swept in a second copy must not turn a match into a tie.
   const labels = [...new Set(offered.map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean))];
@@ -71,6 +72,19 @@ export function matchOptionLabel(offered: string[], wanted: string): OptionMatch
   if (isGenericSource(wanted)) {
     const pick = pickSurveyOption(labels);
     if (pick) return { ok: true, label: pick.value, how: `survey: ${pick.reason}` };
+  }
+
+  // A demographic self-identification, matched to the employer's own
+  // vocabulary the way the Greenhouse fill does: a standard synonym, or
+  // the form's decline-to-answer option. Never a guess between two
+  // statements the stored answer does not decide -- "I am not a protected
+  // veteran" says nothing about being a veteran at all, so between "I am
+  // not a veteran" and "a veteran, just not protected" it declines.
+  if (fieldLabel && isDemographicField(fieldLabel)) {
+    const choice = resolveEeoOption(wanted, labels, fieldLabel);
+    if (choice.kind === "SYNONYM" || choice.kind === "DECLINE") {
+      return { ok: true, label: choice.option, how: `demographic ${choice.kind.toLowerCase()}` };
+    }
   }
 
   return { ok: false, hits: [], labels };
