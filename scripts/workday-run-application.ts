@@ -439,9 +439,15 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
     // another's terms.
     const acc = classifyAcceptance(`${a.question_text} ${a.field_key}`);
     const held = await heldValues(a.field_key);
-    if (held.length > 1 && held.every((v) => v.length > 0)) {
-      filled++;
-      console.log(`   held ${String(a.question_text).slice(0, 40).padEnd(42)} ${held.length} blocks, all answered on the page`);
+    if (held.length > 1) {
+      // A repeated section. Filled block by block by workday-experience-fill,
+      // never by this loop, which cannot know which block a single stored
+      // answer belongs to. All held: answered. Some empty: left as the
+      // experience fill left them (an optional Field of Study it could not
+      // map stays blank), and reported.
+      const empty = held.filter((v) => !v.length).length;
+      if (!empty) { filled++; console.log(`   held ${String(a.question_text).slice(0, 40).padEnd(42)} ${held.length} blocks, all answered on the page`); }
+      else console.log(`   --   ${String(a.question_text).slice(0, 40).padEnd(42)} ${held.length} blocks, ${empty} left blank by the experience fill; not written here`);
       continue;
     }
     if (acc.kind === "NEEDS_A_PERSON") {
