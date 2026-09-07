@@ -522,10 +522,37 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
    * into.
    */
   const isCheckbox = (key: string) => live.some((f: any) => String(f.key) === key && f.htmlType === "checkbox");
-  const blocked = (here as any[]).filter((a) => a.is_required
+  /**
+   * A control that already holds a value is answered, whoever answered it.
+   *
+   * My Experience is filled by workday-experience-fill.ts from the approved
+   * résumé, block by block; its Job Title and Company rows stay BLOCKED in
+   * the answer table because no single-field intent can answer a bare
+   * "Company". Stopping on them after they are visibly filled would stop
+   * every Workday application on page 2. The page is the authority: a
+   * required control with a committed value is not a blocker.
+   */
+  const holdsValue = async (key: string): Promise<boolean> => {
+    const el = page.locator(`${key}:visible`).first();
+    if (!(await el.count().catch(() => 0))) return false;
+    const held: string = await el.evaluate((e: any) => {
+      const tag = e.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return String(e.value ?? "");
+      const box = e.closest('[data-automation-id="multiSelectContainer"]');
+      if (box) return [...box.querySelectorAll('[data-automation-id="selectedItem"]')].map((x: any) => x.innerText).join(", ");
+      return String(e.innerText ?? "");
+    }).catch(() => "");
+    return held.trim().length > 0 && !/^select one$/i.test(held.trim());
+  };
+  const candidates = (here as any[]).filter((a) => a.is_required
     && classifyAcceptance(`${a.question_text} ${a.field_key}`).kind === "NOT_ACCEPTANCE"
     && (a.confidence_state === "BLOCKED"
         || (!a.answer_text && !(isCheckbox(a.field_key) && a.answer_text === ""))));
+  const blocked: any[] = [];
+  for (const a of candidates) {
+    if (await holdsValue(a.field_key)) { console.log(`   held ${String(a.question_text).slice(0, 40).padEnd(42)} already answered on the page`); continue; }
+    blocked.push(a);
+  }
   if (blocked.length) {
     console.log(`\nSTOPPING: ${blocked.length} required question(s) this system will not answer for you:`);
     for (const b of blocked) console.log(`   - ${b.question_text}`);
