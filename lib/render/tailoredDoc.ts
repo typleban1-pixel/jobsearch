@@ -83,6 +83,22 @@ export const DEFAULT_BUDGET: DensityBudget = {
  * this function's contract is that everything it returns was accepted by
  * the guards for this application.
  */
+/**
+ * Whether a posting's responsibilities involve AI.
+ *
+ * For such a posting the tailored résumé leads with RentPup, expands it
+ * to its AI lines, and adds the Genius One AI bullets: the strongest
+ * evidence of building with and around AI is the independent product and
+ * the contact-analysis system, not the earlier creative work. Decided
+ * from the posting's own terms; never from a job title alone.
+ */
+export const AI_TERMS = /\b(?:ai|a\.i\.|artificial intelligence|machine learning|llm|llms|large language model|generative ai|gen ai|ai[- ](?:assisted|powered|driven|enabled|first|tools?|agents?|automation|integration|adoption|strategy|workflows?))\b/i;
+export function isAiPosting(terms: string[]): boolean {
+  return terms.some((t) => AI_TERMS.test(String(t ?? "")));
+}
+/** A résumé line that speaks to AI work, in plain recruiter-facing terms. */
+const AI_LINE = /\b(?:ai|ai-assisted|artificial intelligence)\b/i;
+
 export function assembleTailoredDoc(
   master: ResumeDoc,
   accepted: AcceptedClaim[],
@@ -92,6 +108,7 @@ export function assembleTailoredDoc(
 ): { doc: ResumeDoc; dropped: Array<{ line: string; why: string }>; summaryIncomplete?: boolean } {
   const dropped: Array<{ line: string; why: string }> = [];
   const profile = profileFor(roleTitle, roleContextTerms);
+  const aiPosting = isAiPosting(roleContextTerms);
 
   // Matched on the ORIGINATING LINE, not the evidence set.
   //
@@ -206,7 +223,9 @@ export function assembleTailoredDoc(
         line: byOriginal.get(masterLine.text)
           ? { text: byOriginal.get(masterLine.text)!.claim, sources: masterLine.sources }
           : masterLine,
-        score: scoreClaim(masterLine.text, profile), i,
+        // For an AI posting, the project's AI lines lead its bullets and
+        // are never dropped as irrelevant.
+        score: scoreClaim(masterLine.text, profile) + (aiPosting && AI_LINE.test(masterLine.text) ? 100 : 0), i,
       }))
       .sort((a, b) => b.score - a.score || a.i - b.i);
     const pool: Array<{ line: ResumeLine; score: number }> = [];
@@ -299,9 +318,11 @@ export function assembleTailoredDoc(
       ceiling: budget.maxPerRole,
     })),
     ...projectPools.map((x) => ({
-      taken: Math.min(x.pool.length, projectAllowance(x), budget.maxPerProject),
+      // An AI posting earns the project up to four claims regardless of tier:
+      // this is the section the posting is about.
+      taken: aiPosting ? Math.min(x.pool.length, 4) : Math.min(x.pool.length, projectAllowance(x), budget.maxPerProject),
       pool: x.pool,
-      ceiling: budget.maxPerProject,
+      ceiling: aiPosting ? 4 : budget.maxPerProject,
     })),
   ];
   const roleSlots = slots.slice(0, withScores.length);
@@ -406,7 +427,7 @@ export function assembleTailoredDoc(
     dropped.push({ line: r, why: "stated verbatim as an experience bullet; the bullet carries the evidence" });
   }
 
-  const assembled: ResumeDoc = { ...master, summary: deduped.summary, roles: selection.roles, projects };
+  const assembled: ResumeDoc = { ...master, summary: deduped.summary, roles: selection.roles, projects, projectsFirst: aiPosting && projects.length > 0 };
   assertChronologyIntact(master, assembled);
   return {
     doc: dedupe(assembled, dropped),

@@ -97,6 +97,8 @@ export interface ResumeDoc {
   education: Array<{ institution: string; credential: string; field: string | null }>;
   skillGroups: Array<{ label: string; skills: string[] }>;
   projects: ResumeProject[];
+  /** Print Selected Work before Experience: set by tailoring for a posting whose work involves AI. */
+  projectsFirst?: boolean;
 }
 
 /** The professional form of a URL: no scheme, no trailing slash, no query. */
@@ -757,12 +759,15 @@ export function renderMarkdown(d: ResumeDoc): string {
   const link = (l: ResumeLink) => (l.text === l.href ? l.text : `[${l.text}](${l.href})`);
   out.push([d.location, d.email, d.phone, ...d.links.map(link)].filter(Boolean).join(" | "));
   out.push("", "## Summary", "", d.summary.text);
-  out.push("", "## Experience");
-  for (const r of d.roles) {
-    out.push("", `### ${r.title}`, `${r.employer}${r.location ? `, ${r.location}` : ""} | ${dates(r)}`, "");
-    for (const l of r.lines) out.push(`- ${l.text}`);
-  }
-  if (d.projects.length) {
+  const experience = () => {
+    out.push("", "## Experience");
+    for (const r of d.roles) {
+      out.push("", `### ${r.title}`, `${r.employer}${r.location ? `, ${r.location}` : ""} | ${dates(r)}`, "");
+      for (const l of r.lines) out.push(`- ${l.text}`);
+    }
+  };
+  const projects = () => {
+    if (!d.projects.length) return;
     out.push("", "## Projects");
     for (const p of d.projects) {
       out.push("", `### ${p.name}`);
@@ -770,7 +775,9 @@ export function renderMarkdown(d: ResumeDoc): string {
       out.push("", p.line.text);
       if (p.optional.length) { out.push(""); for (const l of p.optional) out.push(`- ${l.text}`); }
     }
-  }
+  };
+  // Projects lead for a posting about AI (projectsFirst, set by tailoring).
+  if (d.projectsFirst) { projects(); experience(); } else { experience(); projects(); }
   out.push("", "## Skills", "");
   for (const g of d.skillGroups) out.push(`**${g.label}:** ${g.skills.join(", ")}`, "");
   out.push("## Education", "");

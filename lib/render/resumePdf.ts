@@ -176,7 +176,8 @@ export function renderResumeHtml(doc: ResumeDoc, opts: RenderOptions = {}): stri
 
 <section><h2>Summary</h2><p class="summary">${esc(doc.summary.text)}</p></section>
 
-<section><h2>Experience</h2><div class="track">
+${(() => {
+  const experience = `<section><h2>Experience</h2><div class="track">
 ${doc.roles.map((r) => `<div class="role">
   <div class="role-head">
     <p class="role-title">${esc(r.title)}</p>
@@ -185,13 +186,15 @@ ${doc.roles.map((r) => `<div class="role">
   <p class="role-org">${esc(r.employer)}${r.location ? ` · ${esc(r.location)}` : ""}</p>
   ${r.lines.length ? `<ul>${r.lines.map((l) => `<li>${esc(l.text)}</li>`).join("")}</ul>` : ""}
 </div>`).join("")}
-</div></section>
-
-${doc.projects.length ? `<section><h2>Selected Work</h2>
+</div></section>`;
+  const work = doc.projects.length ? `<section><h2>Selected Work</h2>
 ${doc.projects.map((p) => `<div class="project"><p class="project-name">${esc(p.name)}</p><p class="project-desc">${esc(p.line.text)}</p>${
   p.optional.length ? `<ul>${p.optional.map((l) => `<li>${esc(l.text)}</li>`).join("")}</ul>` : ""
 }</div>`).join("")}
-</section>` : ""}
+</section>` : "";
+  // Selected Work leads for a posting about AI (doc.projectsFirst, set by tailoring).
+  return doc.projectsFirst ? `${work}\n\n${experience}` : `${experience}\n\n${work}`;
+})()}
 
 ${doc.skillGroups.length ? `<section><h2>Capabilities</h2>
 ${doc.skillGroups.map((g) => `<div class="skill-row">
