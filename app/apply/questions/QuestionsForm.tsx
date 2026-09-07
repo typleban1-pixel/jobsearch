@@ -15,6 +15,8 @@ export interface FormItem {
   applications: string[];            // labels this control resolves
   applicationId: string | null;      // set for single items, null for shared/reusable
   applyUrl?: string | null;          // employer's own form, for a file upload completed there
+  /** For a follow-up question: the question it follows and how that was answered. */
+  context?: string | null;
 }
 
 /** A file upload cannot be answered by typing; it is never accepted here. */
@@ -104,7 +106,12 @@ export function QuestionsForm({ data }: { data: FormData }) {
     } finally { setSaving(false); }
   }
 
-  function Field({ it, d }: { it: FormItem; d: { value: string; blank: boolean } }) {
+  // Plain render functions, not components. Declared inside QuestionsForm,
+  // a component's identity changes on every render, so React unmounted
+  // and remounted the input on each keystroke: one character, then the
+  // field lost focus. A function call returns the same element tree
+  // without giving it a new type.
+  function renderField(it: FormItem, d: { value: string; blank: boolean }) {
     const onText = (e: any) => set(it.controlId, { value: e.target.value, blank: false });
     // An enumerated control (select, or a boolean with explicit options) is a
     // radio group over exactly what the employer offers.
@@ -142,7 +149,7 @@ export function QuestionsForm({ data }: { data: FormData }) {
     return <input className="qinput" type="text" value={d.value} disabled={d.blank} onChange={onText} aria-label={it.question} placeholder="Type your answer" />;
   }
 
-  function Control({ it }: { it: FormItem }) {
+  function renderControl(it: FormItem) {
     const d = draft[it.controlId] ?? { value: "", blank: false };
     const done = isDone(it);
     const r = results[it.controlId];
@@ -150,7 +157,7 @@ export function QuestionsForm({ data }: { data: FormData }) {
     // the employer's own form; nothing is written and it is not counted.
     if (isFile(it)) {
       return (
-        <li className="qitem file">
+        <li key={it.controlId} className="qitem file">
           <p className="qitem-q">{it.question}</p>
           <p className="qitem-note">This is a file upload. Your tailored resume is attached automatically; anything else here is completed on the employer&rsquo;s own form.</p>
           {it.applyUrl
@@ -160,7 +167,8 @@ export function QuestionsForm({ data }: { data: FormData }) {
       );
     }
     return (
-      <li className={`qitem${done ? " done" : ""}${r && !r.ok ? " failed" : ""}`}>
+      <li key={it.controlId} className={`qitem${done ? " done" : ""}${r && !r.ok ? " failed" : ""}`}>
+        {it.context && <p className="qitem-context">{it.context}</p>}
         <p className="qitem-q">{it.question}
           {it.applications.length > 1 && <span className="qitem-apps"> · {it.applications.length} applications</span>}
         </p>
@@ -169,7 +177,7 @@ export function QuestionsForm({ data }: { data: FormData }) {
           <p className="qitem-saved">Saved ✓</p>
         ) : (
           <>
-            <Field it={it} d={d} />
+            {renderField(it, d)}
             {!it.required && (
               <label className="qblank">
                 <input type="checkbox" checked={d.blank} onChange={(e) => set(it.controlId, { blank: e.target.checked })} />
@@ -193,14 +201,14 @@ export function QuestionsForm({ data }: { data: FormData }) {
       {data.perApplication.map((g) => (
         <section key={g.application} className="qapp">
           <h2>{g.application}</h2>
-          <ul className="qitems">{g.items.map((it) => <Control key={it.controlId} it={it} />)}</ul>
+          <ul className="qitems">{g.items.map(renderControl)}</ul>
         </section>
       ))}
 
       {data.shared.length > 0 && (
         <section className="qapp">
           <h2>Shared across applications <span className="muted">— one answer, used where each employer offers it</span></h2>
-          <ul className="qitems">{data.shared.map((it) => <Control key={it.controlId} it={it} />)}</ul>
+          <ul className="qitems">{data.shared.map(renderControl)}</ul>
         </section>
       )}
 

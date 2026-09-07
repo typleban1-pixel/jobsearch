@@ -43,7 +43,7 @@ async function offeredBy(db: SupabaseClient, applicationId: string, fieldKey: st
 }
 
 /** BLOCKED_NEEDS_INPUT -> AWAITING_REVIEW once an application has no blocked rows left. */
-async function unblockIfClear(db: SupabaseClient, applicationId: string): Promise<void> {
+export async function unblockIfClear(db: SupabaseClient, applicationId: string): Promise<void> {
   const { data: still } = await db.from("application_answers")
     .select("id").eq("application_id", applicationId).eq("confidence_state", "BLOCKED").limit(1);
   if (still?.length) return;

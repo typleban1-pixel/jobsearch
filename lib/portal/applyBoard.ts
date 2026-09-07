@@ -16,6 +16,7 @@ import { FIT_FORMULA_VERSION } from "../scoring/fit.ts";
 import { TAXONOMY_VERSION } from "../scoring/requirementClass.ts";
 import { CANDIDACY_MODEL_VERSION } from "../scoring/candidacy.ts";
 import { loadMatchScores } from "./db.ts";
+import { followUpContext } from "../applications/followUp.ts";
 import type { MatchScoreResult } from "./matchScore.ts";
 
 export interface ApplyRow {
@@ -331,12 +332,18 @@ export async function loadBlockedGroups(db: SupabaseClient): Promise<QuestionGro
     (q) => q.eq("status", "BLOCKED_NEEDS_INPUT").or("is_test.is.null,is_test.eq.false"));
   const jobIds = [...new Set(apps.map((a) => a.job_id).filter(Boolean))];
   const appIds = apps.map((a) => a.id);
-  const [jobs, blocked] = await Promise.all([
+  const [jobs, blocked, answered] = await Promise.all([
     page(db, "jobs", "id,title,company_id,url,application_form_url", scopedIn("id", jobIds)),
     page(db, "application_answers",
       "id,application_id,field_key,field_label,question_text,is_required,category,block_kind,blocked_reason",
       (q) => scopedIn("application_id", appIds)(q).eq("confidence_state", "BLOCKED")),
+    // What the rest of each form says, so a follow-up ("If yes, ...") can
+    // show the question it follows and how that was answered.
+    page(db, "application_answers", "application_id,field_key,answer_text",
+      (q) => scopedIn("application_id", appIds)(q).neq("confidence_state", "BLOCKED")),
   ]);
+  const answerOf = new Map<string, string | null>();
+  for (const a of answered) answerOf.set(`${a.application_id}:${a.field_key}`, a.answer_text ?? null);
   const companyIds = [...new Set(jobs.map((j) => j.company_id).filter(Boolean))];
   const companies = await page(db, "companies", "id,name", scopedIn("id", companyIds));
   const jobById = new Map(jobs.map((j: any) => [j.id, j]));
@@ -350,6 +357,7 @@ export async function loadBlockedGroups(db: SupabaseClient): Promise<QuestionGro
     const job = jobById.get(app.job_id);
     const snapshot = (app.form_snapshot?.fields ?? []) as any[];
     const spec = snapshot.find((f) => f.key === b.field_key);
+    const follows = followUpContext(snapshot, b.field_key, (k) => answerOf.get(`${b.application_id}:${k}`) ?? null);
     fields.push({
       applicationId: b.application_id,
       applicationLabel: `${nameById.get(job?.company_id) ?? "Unknown"} — ${job?.title ?? ""}`,
@@ -365,6 +373,7 @@ export async function loadBlockedGroups(db: SupabaseClient): Promise<QuestionGro
       // Where a file upload is actually completed: the employer's own form.
       // Same canonical target the board's handoff uses (form URL, else posting).
       applyUrl: job?.application_form_url ?? job?.url ?? null,
+      follows,
     });
   }
   return groupBlockedQuestions(fields);

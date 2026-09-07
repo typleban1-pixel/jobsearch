@@ -49,6 +49,14 @@ export default async function ConsolidatedQuestions() {
     const ids = await answerIdsFor(session.client, g);
     const idOf = (appId: string, fieldKey: string) => ids.get(`${appId}:${fieldKey}`) ?? "";
     const question = g.questionText || g.label;
+    // "If yes, please enter your position title and dates" means nothing
+    // without the question above it. Shown when every member agrees on it.
+    const contextOf = (f: { follows?: { question: string; answer: string | null } | null }) =>
+      f.follows ? `Follows “${f.follows.question}” — ${f.follows.answer === null ? "not answered yet" : `answered “${f.follows.answer}”`}` : null;
+    const sharedContext = (() => {
+      const all = g.fields.map(contextOf);
+      return all.length && all.every((c) => c && c === all[0]) ? all[0] : null;
+    })();
 
     if (g.fields.length > 1 && g.reusable) {
       const primary = g.fields[0]!;
@@ -60,7 +68,7 @@ export default async function ConsolidatedQuestions() {
         controlId, reuseAnswerIds, question, blockedReason: g.blockedReason,
         required: g.required, options: g.universalOptions, type: primary.type,
         applications: [...new Set(g.fields.map((f) => f.applicationLabel))], applicationId: null,
-        applyUrl: primary.applyUrl ?? null,
+        applyUrl: primary.applyUrl ?? null, context: sharedContext,
       });
       total += 1;
       continue;
@@ -75,7 +83,7 @@ export default async function ConsolidatedQuestions() {
         controlId, reuseAnswerIds: [], question: f.questionText || f.label || question,
         blockedReason: f.blockedReason ?? g.blockedReason, required: f.required,
         options: f.options, type: f.type, applications: [f.applicationLabel], applicationId: f.applicationId,
-        applyUrl: f.applyUrl ?? null,
+        applyUrl: f.applyUrl ?? null, context: contextOf(f),
       };
       const list = byApplication.get(f.applicationLabel) ?? [];
       list.push(item); byApplication.set(f.applicationLabel, list);

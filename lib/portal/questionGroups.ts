@@ -46,6 +46,8 @@ export interface BlockedField {
   blockedReason: string | null;
   /** The employer's own form URL, for a file upload that must be completed there. */
   applyUrl?: string | null;
+  /** For a conditional follow-up ("If yes, ..."): the question it follows and how that was answered. */
+  follows?: { question: string; answer: string | null } | null;
 }
 
 export interface QuestionGroup {

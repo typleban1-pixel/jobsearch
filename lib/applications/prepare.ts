@@ -20,6 +20,7 @@ import { reconcileAnswers, type ExistingAnswer } from "./reconcile.ts";
 import { matchIntent, isResumeUploadField, ASHBY_RESUME_KEY } from "./intents.ts";
 import { classifyOpenEnded } from "./openEnded.ts";
 import { composeGroundedAnswer } from "../llm/composeAnswer.ts";
+import { resolveFollowUps } from "./followUp.ts";
 import { snapshotForm } from "./formSnapshot.ts";
 import { tailorBullets, type BulletSource } from "../render/tailor.ts";
 import { evidenceTextOf, provenanceStatements } from "../render/evidenceText.ts";
@@ -444,6 +445,12 @@ export async function prepareApplication(
     }
     resolved.push(resolveField(field, ctx));
   }
+
+  // 4a. Conditional follow-ups ("If yes, please enter your position title
+  //     and dates"). Not applicable when the answer above rules them out:
+  //     blanked, derived from that answer. Otherwise still a question, now
+  //     carrying the parent question and its answer so it can be read.
+  resolved = resolveFollowUps(fields, resolved).resolved;
 
   // 4a-bis. Open-ended questions the deterministic resolver blocked, that
   // can be answered from evidence: PERSONALITY/interest (from HUMAN_CONFIRMED

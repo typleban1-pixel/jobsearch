@@ -711,6 +711,9 @@ a.counter:hover { border-color: currentColor; }
 .qitem-q { margin: 0 0 0.15rem; font-weight: 600; font-size: 0.95rem; }
 .qitem-apps { color: var(--ink-faint); font-weight: 400; font-size: 0.85rem; }
 .qitem-why { margin: 0 0 0.5rem; color: var(--ink-soft); font-size: 0.85rem; }
+/* The question a follow-up depends on, read before the follow-up itself. */
+.qitem-context { margin: 0 0 4px; font-size: 13px; color: #5b6b63; }
+.qitem-context::before { content: "↳ "; }
 .qitem-saved { margin: 0.3rem 0 0; color: var(--good, #2e7d32); font-size: 0.9rem; }
 .qitem-err { margin: 0.4rem 0 0; color: var(--bad); font-size: 0.85rem; }
 .qitem-note { margin: 0.3rem 0 0; color: var(--ink-soft); font-size: 0.82rem; }
