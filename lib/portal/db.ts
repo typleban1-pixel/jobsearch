@@ -287,17 +287,29 @@ const GATE_KINDS = new Set(["HARD_REQUIREMENT_MISSING"]);
 
 /** PostgREST rejects an .in() with hundreds of uuids: the URL overflows
  *  the request header. Batched and issued together. */
+/**
+ * Rows for a set of ids, batched so the URL stays short. Each batch is
+ * paged too: PostgREST caps an unranged select at 1,000 rows and returns
+ * the cap silently, and 120 current scores own about 1,140 score_reasons
+ * rows -- so the unpaged version dropped roughly one reason row in eleven,
+ * a different set on each load, and Match Scores drifted between page
+ * views. Order is (column, id) so paging is stable across non-unique keys.
+ */
 async function byIds<T>(db: SupabaseClient, table: string, columns: string, column: string, ids: string[], size = 120): Promise<T[]> {
+  const batch = async (slice: string[]): Promise<T[]> => {
+    const rows: T[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from(table).select(columns).in(column, slice)
+        .order(column, { ascending: true }).order("id", { ascending: true }).range(from, from + 999);
+      if (error) throw new Error(`${table}: ${error.message}`);
+      rows.push(...((data ?? []) as T[]));
+      if ((data ?? []).length < 1000) return rows;
+    }
+  };
   const batches = await Promise.all(
-    Array.from({ length: Math.ceil(ids.length / size) }, (_, i) =>
-      db.from(table).select(columns).in(column, ids.slice(i * size, i * size + size))),
+    Array.from({ length: Math.ceil(ids.length / size) }, (_, i) => batch(ids.slice(i * size, i * size + size))),
   );
-  const out: T[] = [];
-  for (const b of batches) {
-    if (b.error) throw new Error(`${table}: ${b.error.message}`);
-    out.push(...((b.data ?? []) as T[]));
-  }
-  return out;
+  return batches.flat();
 }
 
 /**
@@ -613,45 +625,58 @@ export async function loadJobCardPage(
     return empty((await rankedCount).count ?? 0);
   }
 
-  let qb = db.from("job_card_summary").select("card", { count: "exact" })
-    // actionable: REJECT hidden; a job with no verdict stays visible.
-    .or("candidacy_verdict.is.null,candidacy_verdict.neq.REJECT");
-  if (opts.interest === "active" && withInterest.length) qb = qb.not("opening_id", "in", inList(withInterest));
-  if (opts.interest === "saved") qb = qb.in("opening_id", saved);
-  if (opts.interest === "dismissed") qb = qb.in("opening_id", dismissed);
   // Commas and parentheses are PostgREST syntax inside an or-filter.
   const q = opts.q.replace(/[,()]/g, " ").trim();
-  if (q) qb = qb.or(`title.ilike.%${q}%,company.ilike.%${q}%`);
+  // Builders are mutable, so each request starts from a fresh one with
+  // the same filters applied.
+  const filtered = (select: string, head = false) => {
+    let qb = db.from("job_card_summary").select(select, { count: "exact", head })
+      // actionable: REJECT hidden; a job with no verdict stays visible.
+      .or("candidacy_verdict.is.null,candidacy_verdict.neq.REJECT");
+    if (opts.interest === "active" && withInterest.length) qb = qb.not("opening_id", "in", inList(withInterest));
+    if (opts.interest === "saved") qb = qb.in("opening_id", saved);
+    if (opts.interest === "dismissed") qb = qb.in("opening_id", dismissed);
+    if (q) qb = qb.or(`title.ilike.%${q}%,company.ilike.%${q}%`);
+    return qb;
+  };
+  const pageOf = (from: number) => matchOrder(filtered("card")).range(from, from + perPage - 1);
 
   // The page is asked for with the filters applied, so the rank number is
   // the position in the full filtered ranking, not in the slice.
   const requested = Math.max(1, opts.page || 1);
-  const from = (requested - 1) * perPage;
-  const [pageRes, ranked] = await Promise.all([
-    qb.order("match_score", { ascending: false })
-      .order("match_provisional", { ascending: true })
-      .order("fit_score", { ascending: false })
-      .order("job_id", { ascending: true })
-      .range(from, from + perPage - 1),
-    rankedCount,
-  ]);
+  let [pageRes, ranked] = await Promise.all([pageOf((requested - 1) * perPage), rankedCount]);
+  let total = pageRes.count ?? 0;
+  // Asked past the end: PostgREST answers 416 rather than an empty page.
+  // Count the filtered set, then read its last page instead of nothing.
+  if (pageRes.error?.code === "PGRST103") {
+    total = (await filtered("job_id", true)).count ?? 0;
+    pageRes = await pageOf((Math.max(1, Math.ceil(total / perPage)) - 1) * perPage);
+  }
   if (pageRes.error) throw new Error(`job_card_summary: ${pageRes.error.message}`);
 
-  const total = pageRes.count ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / perPage));
   const page = Math.min(requested, pageCount);
-  // Asked past the end: re-read the last page rather than show nothing.
-  let rows = (pageRes.data ?? []) as any[];
-  if (page !== requested) {
-    const last = await qb.order("match_score", { ascending: false }).order("match_provisional", { ascending: true })
-      .order("fit_score", { ascending: false }).order("job_id", { ascending: true })
-      .range((page - 1) * perPage, page * perPage - 1);
-    rows = (last.data ?? []) as any[];
-  }
+  const rows = (pageRes.data ?? []) as any[];
   return {
     cards: rows.map((r) => overlay(r.card as JobCard, overlays)),
     total, ranked: ranked.count ?? 0, page, pageCount, perPage, startIndex: (page - 1) * perPage,
   };
+}
+
+/**
+ * sortCards("match"), in SQL: Match Score desc, firm before provisional,
+ * then compareAttention (assessable band first, attention score desc), then
+ * stored Fit desc, then job id. The attention pair lives inside the card
+ * json; PostgREST orders json paths natively (jsonb numbers compare as
+ * numbers), and at ~1,600 rows the sort is not what costs anything.
+ */
+function matchOrder<T extends { order: (c: string, o: { ascending: boolean }) => T }>(qb: T): T {
+  return qb.order("match_score", { ascending: false })
+    .order("match_provisional", { ascending: true })
+    .order("card->attention->>band", { ascending: true })
+    .order("card->attention->score", { ascending: false })
+    .order("fit_score", { ascending: false })
+    .order("job_id", { ascending: true });
 }
 
 export interface JobCardDetail {
@@ -678,12 +703,18 @@ export async function loadJobCardById(db: SupabaseClient, jobId: string): Promis
   // Rank = rows that sort strictly above this one, plus one -- under the
   // list's exact ordering (match desc, firm before provisional, fit desc,
   // job_id), so the number here is the position the list shows.
-  const m = row.match_score, p = Boolean((row.card as any)?.match?.provisional), f = row.fit_score ?? 0;
+  const c = row.card as JobCard;
+  const m = row.match_score, p = Boolean(c.match?.provisional), f = row.fit_score ?? 0;
+  const band = c.attention?.band ?? "ASSESSABLE", att = c.attention?.score ?? 0;
+  const tie = `match_score.eq.${m},match_provisional.eq.${p}`;
+  const sameBand = `${tie},card->attention->>band.eq.${band}`;
   const above = [
     `match_score.gt.${m}`,
     ...(p ? [`and(match_score.eq.${m},match_provisional.eq.false)`] : []),
-    `and(match_score.eq.${m},match_provisional.eq.${p},fit_score.gt.${f})`,
-    `and(match_score.eq.${m},match_provisional.eq.${p},fit_score.eq.${f},job_id.lt.${jobId})`,
+    ...(band !== "ASSESSABLE" ? [`and(${tie},card->attention->>band.eq.ASSESSABLE)`] : []),
+    `and(${sameBand},card->attention->score.gt.${att})`,
+    `and(${sameBand},card->attention->score.eq.${att},fit_score.gt.${f})`,
+    `and(${sameBand},card->attention->score.eq.${att},fit_score.eq.${f},job_id.lt.${jobId})`,
   ].join(",");
 
   const [overlays, sibs, aboveMatch, total, aboveFit, aboveEvidence] = await Promise.all([

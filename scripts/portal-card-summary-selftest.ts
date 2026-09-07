@@ -35,8 +35,9 @@ for (const tab of ["active", "saved", "dismissed", "all"] as InterestTab[]) {
   const old = live(tab);
   const page1 = await loadJobCardPage(db, { interest: tab, q: "", page: 1 });
   ok(page1.total === old.length, `${tab}: total ${page1.total} == live ${old.length}`);
+  const firstDiff = ids(page1.cards).findIndex((id, i) => id !== old[i]?.id);
   ok(same(ids(page1.cards), ids(old.slice(0, 50))), `${tab}: page 1 order identical`,
-    same(ids(page1.cards), ids(old.slice(0, 50))) ? undefined : { summary: ids(page1.cards).slice(0, 5), live: ids(old.slice(0, 5)) });
+    firstDiff < 0 ? undefined : { firstDiff, summary: ids(page1.cards).slice(firstDiff, firstDiff + 3), live: ids(old.slice(firstDiff, firstDiff + 3)) });
   // Last page, asked for past the end: must clamp and match the live tail.
   if (old.length > 50) {
     const lastNo = Math.ceil(old.length / 50);
@@ -59,8 +60,10 @@ if (term) {
   ok(got.total === old.length && same(ids(got.cards), ids(old.slice(0, 50))), `search "${term}": total + order identical (${got.total})`);
 }
 
-// Detail: the rank shown on a job page is its position in the live list.
-const top = live("all");
+// Detail: the rank shown on a job page is its position among every ranked
+// job -- the old page ranked within loadJobCards() unfiltered, so the
+// count and rank there include REJECT verdicts the list hides.
+const top = sortCards(all, "match");
 const probes = [0, Math.floor(top.length / 2), top.length - 1]
   .map((i) => top[i]).filter((c): c is (typeof top)[number] => c !== undefined);
 for (const probe of probes) {
