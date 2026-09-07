@@ -40,7 +40,7 @@ process.exit(bad ? 1 : 0);
 // A posting that values startup experience leads with RentPup too, and the
 // signal is read from the posting's own words, not only extracted terms.
 ok(isStartupPosting(["1 year of experience at an early stage tech startup preferred"]), "'early stage tech startup' marks a startup posting");
-ok(isStartupPosting(["You thrive in a fast-paced and dynamic environment"]), "'fast-paced and dynamic environment' marks one");
+ok(!isStartupPosting(["You thrive in a fast-paced and dynamic environment"]), "'fast-paced environment' alone is boilerplate, not a startup signal");
 ok(isStartupPosting(["comfortable wearing many hats"]), "'wearing many hats' marks one");
 ok(!isStartupPosting(["project coordination", "budget management"]), "ordinary requirements do not");
 ok(isAiPosting(["Aleph is an AI-native platform for Financial Planning & Analysis"]), "'AI-native platform' in the description marks an AI posting");

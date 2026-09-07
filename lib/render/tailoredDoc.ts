@@ -106,7 +106,9 @@ const AI_LINE = /\b(?:ai|ai-assisted|artificial intelligence)\b/i;
  * posting leads with it, as an AI posting does, and its launch-and-traction
  * lines are preferred. The person asked for this on 2026-09-07.
  */
-export const STARTUP_TERMS = /\b(?:start-?ups?|early[- ]stage|seed[- ]stage|series [ab]\b|founding (?:team|member)|0[- ]to[- ]1|zero[- ]to[- ]one|wear(?:ing)? many hats|scrappy|high[- ]growth|fast[- ]paced (?:and dynamic |)environment|built? (?:something |a product )?from (?:scratch|the ground up)|entrepreneur(?:ial|ship)?)\b/i;
+// Startup EXPERIENCE, named as such. "Fast-paced environment" is corporate
+// boilerplate on half of all postings and is not a signal.
+export const STARTUP_TERMS = /\b(?:start-?ups?|early[- ]stage|seed[- ]stage|series [ab]\b|founding (?:team|member)|0[- ]to[- ]1|zero[- ]to[- ]one|wear(?:ing)? many hats|built? (?:something |a product )?from (?:scratch|the ground up)|entrepreneur(?:ial|ship)?)\b/i;
 export function isStartupPosting(terms: string[]): boolean {
   return terms.some((t) => STARTUP_TERMS.test(String(t ?? "")));
 }
