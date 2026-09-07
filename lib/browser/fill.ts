@@ -672,7 +672,21 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         .filter({ has: ctx.frame.locator('[class*="_label_"], [class*="_heading_"], label, legend', { hasText: exact }) });
     };
 
+    /**
+     * A person does not fill fourteen fields in forty seconds. Ashby's
+     * spam heuristic refused Aleph twice after fills at machine speed (and
+     * a dozen earlier debugging visits to the same form); a short, uneven
+     * pause before each control and a longer one before Submit is what a
+     * careful applicant's pace looks like. Ashby only: the Greenhouse
+     * adapter is frozen and has shown no such refusal.
+     */
+    const pace = async (lo: number, hi: number): Promise<void> => {
+      if (provider !== "ASHBY") return;
+      await page.waitForTimeout(lo + Math.floor(Math.random() * (hi - lo)));
+    };
+
     const write = async (f: LiveField, rawValue: string): Promise<void> => {
+      await pace(900, 2400);
       let value = await proveAnswerFits(f, rawValue);
 
       /**

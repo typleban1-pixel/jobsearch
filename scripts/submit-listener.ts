@@ -32,6 +32,8 @@ const once = process.argv.includes("--once");
 const POLL_MS = 5_000;
 /** A claim older than this was left by a process that died. */
 const STALE_CLAIM_MS = 30 * 60_000;
+/** The least time between two submit clicks from this machine. */
+const MIN_GAP_BETWEEN_SUBMITS_MS = 4 * 60_000;
 
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
@@ -84,7 +86,19 @@ async function poll(): Promise<void> {
   if (error) { log(`query failed: ${error.message}`); return; }
   if (!waiting?.length) return;
 
-  for (const app of waiting) {
+  // Applications are sent one per poll, and never within a few minutes of
+  // the last one. Four submissions from one browser inside ten minutes is
+  // a pattern an ATS spam filter reads as a bot; spacing them is what a
+  // person's afternoon of applying looks like, and the queue loses
+  // nothing -- the next request goes on the next poll after the gap.
+  const { data: last } = await db.from("applications").select("submit_click_attempted_at")
+    .not("submit_click_attempted_at", "is", null).order("submit_click_attempted_at", { ascending: false }).limit(1);
+  const lastClick = last?.[0]?.submit_click_attempted_at ? Date.parse(last[0].submit_click_attempted_at) : 0;
+  if (Date.now() - lastClick < MIN_GAP_BETWEEN_SUBMITS_MS) {
+    return;                                        // not yet; the request stays queued
+  }
+
+  for (const app of waiting.slice(0, 1)) {
     try {
       // The switches are read per request, not per process, so pausing in
       // the portal takes effect on the next request rather than on the

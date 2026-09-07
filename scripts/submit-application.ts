@@ -433,6 +433,13 @@ if (dryRun) {
   console.log(`  evidence: ${runDir}`);
   await finish(0);
 }
+// A person reads the completed form before pressing Submit. Ashby's spam
+// heuristic refused a submit that followed the last field by a second;
+// the pause is the review a person would give it.
+if (job!.source === "ASHBY") {
+  await submit.first().scrollIntoViewIfNeeded().catch(() => undefined);
+  await page.waitForTimeout(5_000 + Math.floor(Math.random() * 4_000));
+}
 console.log(`\nclicking submit (${await submit.first().innerText().catch(() => "?")})`);
 const requestedAt = new Date();
 

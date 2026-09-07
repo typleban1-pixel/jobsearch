@@ -58,6 +58,22 @@ const { data: app, error } = await db.from("applications")
   .eq("id", applicationId).single();
 if (error || !app) { console.error(`no such application: ${error?.message}`); process.exit(1); }
 
+if (validate && !process.argv.includes("--again")) {
+  // One rehearsal per form. Every rehearsal uploads the resume and leaves a
+  // draft on the employer's side under the applicant's email; Aleph's form
+  // had seen seventeen such visits when Ashby flagged the real submission
+  // as spam. A second rehearsal within a day has to be asked for.
+  const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  const { data: recent } = await db.from("application_fill_runs").select("started_at,outcome")
+    .eq("application_id", applicationId).gte("started_at", since).order("started_at", { ascending: false }).limit(1);
+  if (recent?.length) {
+    console.error(`this form was already exercised at ${recent[0]!.started_at} (${recent[0]!.outcome}).`);
+    console.error("Each visit uploads the resume and leaves a draft with the employer; repeated visits read as spam.");
+    console.error("Pass --again if a second rehearsal today is really needed.");
+    process.exit(1);
+  }
+}
+
 if (!validate) {
   // Filling an unreviewed package would put unread answers into an
   // employer's form. Approval is the gate for that, not just for
