@@ -243,6 +243,10 @@ a.counter:hover { border-color: currentColor; }
   text-decoration: none; white-space: nowrap; cursor: pointer; display: inline-block;
 }
 .btn-primary:hover { filter: brightness(1.08); }
+.btn-primary:focus-visible, .btn-quiet:focus-visible, .statebadge:focus-visible, .primarynav a:focus-visible,
+.jobcard-source a:focus-visible, .tab:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
 .btn-primary[disabled] { opacity: 0.5; cursor: not-allowed; filter: none; }
 
 /* "Continue on Ashby": the re-prepare control plus its escape-hatch link. */
@@ -741,3 +745,134 @@ a.counter:hover { border-color: currentColor; }
 }
 .matchfit.provisional { background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line); }
 .approw-title .matchfit { font-size: 0.72rem; }
+
+/* ── Redesign: Jobs decide, Applications need you ───────────────────
+   Shared state words, the job card hierarchy, the applications inbox
+   and the three-step review. Tokens only; both themes inherit. */
+
+/* Attention count on the Applications nav item: how many need you. */
+.navcount {
+  display: inline-block; margin-left: 0.35rem; min-width: 1.3rem; padding: 0 0.35rem;
+  border-radius: 999px; background: var(--accent); color: #fff;
+  font-size: 0.72rem; font-weight: 700; line-height: 1.3rem; text-align: center;
+  font-variant-numeric: tabular-nums; vertical-align: 0.1rem;
+}
+
+/* One state badge, everywhere. Needs you is the loud one. */
+.statebadge {
+  display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;
+  font-size: 0.82rem; font-weight: 600; padding: 0.3rem 0.7rem; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink-soft); text-decoration: none;
+}
+a.statebadge:hover, a.statebadge:focus-visible { border-color: currentColor; }
+.statebadge.s-needs_you { background: var(--warn); color: #fff; border-color: var(--warn); }
+.statebadge.s-ready { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.statebadge.s-preparing { color: var(--ink-soft); }
+.statebadge.s-submitted { color: var(--ink-faint); border-style: dashed; }
+.statebadge.s-closed { color: var(--ink-faint); }
+.statebadge.s-already { color: var(--ink-faint); }
+.statebadge.block { display: flex; justify-content: center; }
+
+/* Job card: title, company and facts on the left; the match on the right. */
+.jobcard-head { align-items: flex-start; }
+.jobcard-title { flex: 1; min-width: 0; }
+.jobcard-title .jobcard-facts { margin-top: 0.35rem; }
+.jobcard-match {
+  flex: none; display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto;
+  column-gap: 0.4rem; align-items: baseline; justify-items: end; text-align: right;
+  padding: 0.35rem 0.7rem; border-radius: var(--radius); background: var(--accent-soft); color: var(--accent);
+}
+.jobcard-match b { font-size: 1.75rem; line-height: 1; font-variant-numeric: tabular-nums; grid-row: 1 / span 2; align-self: center; }
+.jobcard-match .matchword { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+.jobcard-match .matchfitword { font-size: 0.85rem; font-weight: 600; }
+.jobcard-match.provisional { background: var(--bg); border: 1px solid var(--line); color: var(--ink-soft); }
+.jobcard-match.provisional b { color: var(--ink-soft); }
+
+.jobcard-reasons { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.92rem; }
+.jobcard-reasons li { display: flex; gap: 0.5rem; align-items: baseline; line-height: 1.4; }
+.jobcard-reasons .mark { flex: none; width: 1.1rem; text-align: center; font-weight: 700; }
+.jobcard-reasons .for .mark { color: var(--accent); }
+.jobcard-reasons .against { color: var(--ink-soft); }
+.jobcard-reasons .against .mark { color: var(--warn); }
+.jobcard-reasons .note { color: var(--ink-faint); font-size: 0.85rem; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.jobcard-source { margin: 0.7rem 0 0; display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; font-size: 0.85rem; color: var(--ink-faint); align-items: baseline; }
+.jobcard-source a { color: var(--accent); text-decoration: none; }
+.jobcard-source a:hover, .jobcard-source a:focus-visible { text-decoration: underline; }
+.jobcard-source .removed { color: var(--bad); font-weight: 600; }
+
+.jobcard-actions { align-items: center; }
+.pipeline-select { display: inline-flex; align-items: center; gap: 0.5rem; }
+.jobcard-actions .btn-primary { cursor: pointer; font: inherit; font-size: 0.9rem; }
+.jobcard-actions .btn-quiet.on { color: var(--accent); border-color: var(--accent); }
+.jobcard-actions .why { margin-left: auto; }
+.jobcard-actions .why > summary { font-size: 0.85rem; color: var(--ink-soft); cursor: pointer; }
+.jobcard-actions .why[open] { flex-basis: 100%; }
+.jobcard-actions .why[open] > summary { margin-bottom: 0.4rem; }
+
+/* Applications: an inbox. */
+.statusline { margin: 0 0 1.5rem; font-size: 1rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.statusline a { color: inherit; text-decoration: none; }
+.statusline a:hover, .statusline a:focus-visible { text-decoration: underline; }
+.statusline b { color: var(--ink); font-size: 1.1rem; }
+.statusline a.needs b { color: var(--warn); }
+.statusline .sep { color: var(--ink-faint); }
+.applysection-lead { margin: -0.3rem 0 0.7rem; color: var(--ink-soft); font-size: 0.9rem; }
+.applysection-cta { margin: -1.2rem 0 2rem; }
+.applysection.urgent h2 { color: var(--warn); }
+.applysection.urgent .approw { border-left: 3px solid var(--warn); }
+.applysection.quiet .approw { background: transparent; }
+.applysection.quiet .approw-title { font-weight: 500; }
+.approw { align-items: flex-start; }
+.approw-company { margin: 0; color: var(--ink-soft); font-size: 0.85rem; }
+.approw-title { margin: 0.05rem 0 0; font-weight: 600; font-size: 1.02rem; }
+.approw-state { margin: 0.5rem 0 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.approw-summary { margin: 0; color: var(--ink); font-size: 0.9rem; }
+.approw-progress { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; font-size: 0.85rem; color: var(--ink-soft); }
+.approw-progress li { display: flex; gap: 0.35rem; align-items: baseline; }
+.approw-progress .ok .mark { color: var(--accent); }
+.approw-progress .warn { color: var(--warn); font-weight: 600; }
+.approw-progress .pending { color: var(--ink-faint); }
+.approw-action { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; }
+.approw:has(.approw-review) .approw-action { width: 100%; align-items: stretch; }
+.answers li.blocked .a em { color: var(--warn); font-style: normal; font-weight: 600; }
+.needsinput-lead { margin: 0 0 0.6rem; color: var(--warn); }
+.needsinput-lead a { color: var(--warn); }
+
+/* Review: three steps. */
+.reviewsteps { list-style: none; margin: 0 0 1.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.8rem; }
+.reviewstep { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.1rem; }
+.reviewstep.attention { border-left: 3px solid var(--warn); }
+.reviewstep-head { display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; align-items: baseline; }
+.reviewstep-head h3 { margin: 0; font-size: 1.02rem; }
+.stepno { flex: none; width: 1.5rem; height: 1.5rem; border-radius: 999px; background: var(--line); color: var(--ink-soft);
+  font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; align-self: center; }
+.reviewstep.ok .stepno { background: var(--accent-soft); color: var(--accent); }
+.reviewstep.attention .stepno { background: var(--warn-soft); color: var(--warn); }
+.stepstatus { margin-left: auto; font-size: 0.9rem; font-weight: 600; }
+.stepstatus.ok { color: var(--accent); }
+.stepstatus.warn { color: var(--warn); }
+.reviewstep-body { margin-top: 0.75rem; }
+.reviewstep-body > summary { list-style: none; cursor: pointer; display: inline-block; }
+.reviewstep-body > summary::-webkit-details-marker { display: none; }
+.reviewstep-body[open] > summary { margin-bottom: 0.75rem; }
+.reviewstep-body .pdf { width: 100%; height: 34rem; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 0.6rem; }
+.reviewstep-problems { margin: 0.6rem 0 0; padding-left: 1.2rem; color: var(--warn); font-size: 0.92rem; }
+.needsinput { margin-top: 0.75rem; padding: 0.9rem 1rem; background: var(--warn-soft); border-radius: var(--radius); }
+.needsinput .answers { margin: 0 0 0.75rem; }
+.needsinput .answers li { border-color: transparent; }
+.jobdetails { margin-bottom: 1.5rem; }
+.jobdetails > summary { cursor: pointer; color: var(--ink-soft); font-size: 0.9rem; padding: 0.4rem 0; }
+.jobdetails .desc { white-space: pre-line; font-size: 0.9rem; color: var(--ink-soft); }
+
+@media (max-width: 640px) {
+  .jobcard-match { grid-template-columns: auto; justify-items: start; text-align: left; }
+  .jobcard-match b { grid-row: auto; }
+  .jobcard-actions .why { margin-left: 0; }
+  .pipeline-select { width: 100%; }
+  .pipeline-select .btn-primary { flex: 1; text-align: center; }
+  .approw-action { width: 100%; align-items: stretch; }
+  .approw-action .btn-primary, .approw-action .btn-quiet { text-align: center; }
+  .stepstatus { margin-left: 0; flex-basis: 100%; }
+}

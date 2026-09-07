@@ -1,16 +1,30 @@
+import { Suspense } from "react";
+import { currentSession } from "../lib/portal/session.ts";
+import { loadAttentionCount } from "../lib/portal/attention.ts";
+
 /**
- * The four things a person does here.
+ * The places a person goes.
  *
- * Handoff, Activity, ATS status, Companies and the automation controls
- * still exist and still work; they moved under Settings because none of
- * them is a step in applying for a job. "Handoff" in particular was a
- * word for an internal state, and reading it was never the point: the
- * work it represents now appears on Apply as the thing to go and do.
+ * Jobs is where a job is chosen; Applications is where the chosen ones are
+ * followed. The route behind Applications is still /apply -- renaming it
+ * would only invite broken links -- and every `current="apply"` caller
+ * keeps working. The count beside Applications is how many need the
+ * person, never how many exist: it streams in after the nav so no page
+ * waits on it, and a page that already knows the number passes it.
  */
-export function PrimaryNav({ current }: { current: "apply" | "jobs" | "resume-builder" | "submitted" | "settings" }) {
+export type NavKey = "apply" | "jobs" | "resume-builder" | "submitted" | "settings";
+
+async function AttentionCount() {
+  const session = await currentSession();
+  if (!session) return null;
+  const n = await loadAttentionCount(session.client).catch(() => 0);
+  return n > 0 ? <span className="navcount" aria-label={`${n} need you`}>{n}</span> : null;
+}
+
+export function PrimaryNav({ current, attention }: { current: NavKey; attention?: number }) {
   const items = [
-    { key: "apply", href: "/apply", label: "Apply" },
     { key: "jobs", href: "/jobs", label: "Jobs" },
+    { key: "apply", href: "/apply", label: "Applications" },
     { key: "resume-builder", href: "/resume-builder", label: "Resume Builder" },
     { key: "submitted", href: "/submitted", label: "Submitted" },
     { key: "settings", href: "/settings", label: "Settings" },
@@ -18,7 +32,12 @@ export function PrimaryNav({ current }: { current: "apply" | "jobs" | "resume-bu
   return (
     <nav className="primarynav" aria-label="Primary">
       {items.map((i) => (
-        <a key={i.key} href={i.href} aria-current={i.key === current ? "page" : undefined}>{i.label}</a>
+        <a key={i.key} href={i.href} aria-current={i.key === current ? "page" : undefined}>
+          {i.label}
+          {i.key === "apply" && (attention !== undefined
+            ? (attention > 0 ? <span className="navcount" aria-label={`${attention} need you`}>{attention}</span> : null)
+            : <Suspense fallback={null}><AttentionCount /></Suspense>)}
+        </a>
       ))}
     </nav>
   );

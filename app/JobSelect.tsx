@@ -1,31 +1,40 @@
 "use client";
 import { useJobsQueue } from "./jobs/JobsQueue.tsx";
+import { StateBadge } from "./StateBadge.tsx";
+import type { JobCard } from "../lib/portal/db.ts";
 
 /**
- * A card's queue control: a checkbox when the job is selectable, or a
- * persistent state pill once an application exists for it (so it can
- * never be accidentally queued twice). The pill reflects either the
- * server-loaded application status or the just-queued client result.
+ * A card's one pipeline control.
+ *
+ * No application yet: a checkbox to select it for bulk preparation, and a
+ * "Prepare application" button that prepares just this one. An application
+ * exists (from the server, or created a moment ago from this page): its
+ * state, in the same words the Applications page uses, leading to it.
+ * A job is therefore never offered for preparation twice.
  */
-const PILL: Record<string, string> = {
-  DRAFT: "Queued", PREPARING: "Preparing", BLOCKED_NEEDS_INPUT: "Needs you",
-  AWAITING_REVIEW: "Needs review", READY_TO_SUBMIT: "Ready", SUBMITTED: "Submitted",
-  ACKNOWLEDGED: "Submitted", IN_PROCESS: "Submitted", INTERVIEWING: "Submitted", OFFER: "Submitted",
-};
-
-export function JobSelect({ jobId, openingId, appStatus }: { jobId: string; openingId: string; appStatus: string | null }) {
+export function JobPipelineControl({ jobId, openingId, appState }: {
+  jobId: string; openingId: string; appState: JobCard["applicationState"];
+}) {
   const q = useJobsQueue();
-  if (!q) return null;
-  const justQueued = q.queuedOf(jobId);
-  const effective = justQueued?.state === "queued" ? "DRAFT" : appStatus;
-
-  if (effective || justQueued?.state === "already") {
-    const label = effective ? (PILL[effective] ?? "In applications") : "In applications";
-    return <span className={`statepill s-${(effective ?? "already").toLowerCase()}`}>{label}</span>;
+  const just = q?.queuedOf(jobId);
+  if (just?.state === "queued") {
+    return <StateBadge state="PREPARING" />;
   }
+  if (just?.state === "already") {
+    return <span className="statebadge s-already">In applications</span>;
+  }
+  if (appState) return <StateBadge state={appState.state} href={appState.href} />;
+  if (!q) return null;
+  const busy = q.busy;
   return (
-    <label className="jobselect" title="Select to queue">
-      <input type="checkbox" checked={q.selectedIds.has(jobId)} onChange={() => q.toggle(jobId, openingId)} />
-    </label>
+    <span className="pipeline-select">
+      <label className="jobselect" title="Select to prepare several at once">
+        <input type="checkbox" checked={q.selectedIds.has(jobId)} onChange={() => q.toggle(jobId, openingId)}
+          aria-label="Select this job" />
+      </label>
+      <button type="button" className="btn-primary" disabled={busy} onClick={() => q.prepare([jobId])}>
+        Prepare application <span aria-hidden="true">&rarr;</span>
+      </button>
+    </span>
   );
 }

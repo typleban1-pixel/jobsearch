@@ -90,9 +90,14 @@ const BASE: ApplicationFacts = {
 };
 const p = (f: Partial<ApplicationFacts>) => present({ ...BASE, ...f }, "app-1");
 
-check("a queued request reads as starting", p({ submitQueued: true }).summary === "Starting submission\u2026", p({ submitQueued: true }).summary);
-check("a running request reads as submitting", p({ submitRunning: true }).summary === "Submitting\u2026", "");
-check("neither offers a button", p({ submitQueued: true }).action === null && p({ submitRunning: true }).action === null, "");
+// Approved and handed to the submitter is Ready: the person's part is done.
+check("a queued request reads as approved and queued", p({ submitQueued: true }).summary === "Approved. Queued to submit." && p({ submitQueued: true }).state === "READY", p({ submitQueued: true }).summary);
+check("a running request reads as submitting", /Submitting/.test(p({ submitRunning: true }).summary) && p({ submitRunning: true }).state === "READY", "");
+// A way to look at it, never a way to send it again: a second Submit while
+// one is queued or running is the double-submission this file exists to prevent.
+check("neither offers a Submit button",
+  p({ submitQueued: true }).action?.label !== "Submit application" && p({ submitRunning: true }).action?.label !== "Submit application"
+  && !/submit/i.test(p({ submitQueued: true }).action?.label ?? "") && !/submit/i.test(p({ submitRunning: true }).action?.label ?? ""), "");
 
 // Refresh persistence: the state is read from the row, so a fresh render
 // of the same row produces the same thing.

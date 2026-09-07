@@ -24,7 +24,7 @@ export interface FormItem {
 /** A file upload cannot be answered by typing; it is never accepted here. */
 const isFile = (it: FormItem) => it.type === "file";
 export interface FormData {
-  perApplication: { application: string; items: FormItem[] }[];
+  perApplication: { application: string; applicationId?: string | null; items: FormItem[] }[];
   shared: FormItem[];
   total: number;
 }
@@ -48,6 +48,17 @@ export function QuestionsForm({ data }: { data: FormData }) {
   useEffect(() => {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* ignore */ }
   }, [draft]);
+
+  // The first unresolved question gets focus, so nobody scans past the
+  // answered ones to find it. A link to a specific application (#app-...)
+  // focuses the first open question inside that block instead.
+  useEffect(() => {
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    const scope = hash ? document.querySelector(hash) : null;
+    const root = scope ?? document;
+    const first = root.querySelector<HTMLElement>(".qitem:not(.done):not(.file) input, .qitem:not(.done):not(.file) textarea");
+    if (first) { first.focus({ preventScroll: Boolean(scope) }); if (!scope) first.closest(".qitem")?.scrollIntoView({ block: "center" }); }
+  }, []);
 
   // File uploads are shown for context but never answered here, so they are
   // excluded from the answerable set, the progress count, and the payload.
@@ -205,7 +216,7 @@ export function QuestionsForm({ data }: { data: FormData }) {
       {banner && <div className="banner warn"><span>{banner}</span></div>}
 
       {data.perApplication.map((g) => (
-        <section key={g.application} className="qapp">
+        <section key={g.application} className="qapp" id={g.applicationId ? `app-${g.applicationId}` : undefined}>
           <h2>{g.application}</h2>
           <ul className="qitems">{g.items.map(renderControl)}</ul>
         </section>

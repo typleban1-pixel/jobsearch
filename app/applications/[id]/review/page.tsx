@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { currentSession } from "../../../../lib/portal/session.ts";
 import { loadReview, type ReviewCheck } from "../../../../lib/portal/reviewData.ts";
 import { PrimaryNav } from "../../../PrimaryNav.tsx";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,7 @@ export default async function ReviewPage(props: {
   return (
     <main className="review">
       <header className="applyhead">
-        <h1>Review</h1>
+        <h1>Review application</h1>
         <PrimaryNav current="apply" />
       </header>
 
@@ -125,98 +126,144 @@ export default async function ReviewPage(props: {
             {r.submittedAt && (<><dt>Submitted</dt><dd>{new Date(r.submittedAt).toLocaleString()}</dd></>)}
             <dt>Employer &amp; role</dt><dd>{r.company} \u2014 {r.title}</dd>
             {r.submissionMode && (<><dt>Submission mode</dt><dd>{r.submissionMode}</dd></>)}
-            <dt>Resume used</dt><dd>{r.resume.hasArtifact ? "Exact tailored PDF (saved below)" : "no saved PDF bound"}</dd>
-            <dt>Confirmation</dt><dd>{r.confirmed ? "Received" : r.terminalState === "CONFIRMED" ? "Received" : "Not received"}</dd>
+            <dt>Resume used</dt><dd>{r.resume.hasArtifact ? "Exact tailored PDF (below)" : "no saved PDF bound"}</dd>
+            <dt>Confirmation</dt><dd>{r.confirmed || r.terminalState === "CONFIRMED" ? "Received" : "Not received"}</dd>
           </dl>
         </section>
       ) : r.noActionReason ? (
-        // The in-portal preparation checklist does not apply when the
-        // application is completed on the employer's site: showing ✗ marks
-        // for a resume that was never meant to be prepared here reads as work
-        // the person must do, with no control to do it. The external action
-        // below is the whole next step.
         <section className="pane">
           <h3>How this application works</h3>
           <p className="muted">{r.noActionReason}</p>
         </section>
-      ) : (
-        <section className="checklists">
-          <div>
-            <h3>Resume</h3>
-            <ul className="checks">{r.resumeChecks.map((c) => <Check key={c.label} c={c} />)}</ul>
-          </div>
-          <div>
-            <h3>Application</h3>
-            <ul className="checks">{r.applicationChecks.map((c) => <Check key={c.label} c={c} />)}</ul>
-          </div>
-          <div>
-            <h3>Final submission</h3>
-            <ul className="checks">{r.finalChecks.map((c) => <Check key={c.label} c={c} />)}</ul>
-          </div>
-        </section>
-      )}
+      ) : null}
 
-      <section className="pane">
-        <h3>Tailored resume</h3>
-        <p className="muted">This is the exact resume currently prepared for this application.</p>
-        {r.resume.hasArtifact ? (
-          <>
-            <object className="pdf" data={`/applications/${r.applicationId}/resume.pdf`} type="application/pdf">
-              <p>Your browser cannot display the PDF here.</p>
-            </object>
-            <a className="btn-quiet" href={`/applications/${r.applicationId}/resume.pdf`} target="_blank" rel="noreferrer">Open PDF</a>
-          </>
-        ) : (
-          <p className="bad">No saved PDF is bound to this application.</p>
-        )}
-        <details className="tech">
-          <summary>Resume verification</summary>
-          <dl>
-            <dt>Artifact hash</dt><dd>{r.resume.artifactSha256 ?? "none"}</dd>
-            <dt>Content hash</dt><dd>{r.resume.contentSha256 ?? "none"}</dd>
-            <dt>Renderer version</dt><dd>{r.resume.rendererVersion ?? "unknown"}</dd>
-            <dt>Grounding version</dt><dd>{r.resume.groundingVersion ?? "not recorded"}</dd>
-            <dt>Claim lines</dt><dd>{r.resume.linesAccepted}</dd>
-          </dl>
-        </details>
-      </section>
-
-      <section className="pane">
-        <h3>Application answers</h3>
-        <p className="muted">These are the answers the employer will receive.</p>
-        <ul className="answers">
-          {r.answers.map((a) => (
-            <li key={a.fieldKey}>
-              <p className="q">{a.question}</p>
-              <p className="a">{a.answer ?? <em>left blank</em>}</p>
-              {a.source && <p className="src">{a.source}</p>}
+      {/* The review, as three steps. Each step summarises what went right and
+          expands the one thing, if any, that needs the person. */}
+      {(() => {
+        const blocked = r.answers.filter((a) => a.state === "BLOCKED");
+        const answered = r.answers.filter((a) => a.state !== "BLOCKED");
+        const resumeOk = r.resumeChecks.every((c) => c.state === "PASS");
+        const resumeProblems = r.resumeChecks.filter((c) => c.state !== "PASS");
+        const finalProblems = r.applicationChecks.filter((c) => c.state === "FAIL" && !/questions/i.test(c.label));
+        return (
+          <ol className="reviewsteps">
+            <li className={`reviewstep${resumeOk ? " ok" : " attention"}`}>
+              <div className="reviewstep-head">
+                <span className="stepno" aria-hidden="true">1</span>
+                <h3>Resume</h3>
+                <span className={`stepstatus ${resumeOk ? "ok" : "warn"}`}>
+                  {resumeOk ? "\u2713 Tailored and ready" : `\u26a0 ${resumeProblems.map((c) => c.label).join("; ")}`}
+                </span>
+              </div>
+              {r.resume.hasArtifact ? (
+                <details className="reviewstep-body">
+                  <summary className="btn-quiet">Preview the PDF</summary>
+                  <object className="pdf" data={`/applications/${r.applicationId}/resume.pdf`} type="application/pdf">
+                    <p>Your browser cannot display the PDF here.</p>
+                  </object>
+                  <a className="btn-quiet" href={`/applications/${r.applicationId}/resume.pdf`} target="_blank" rel="noopener noreferrer">Open PDF in a new tab</a>
+                  <details className="tech">
+                    <summary>Resume verification</summary>
+                    <dl>
+                      <dt>Artifact hash</dt><dd>{r.resume.artifactSha256 ?? "none"}</dd>
+                      <dt>Content hash</dt><dd>{r.resume.contentSha256 ?? "none"}</dd>
+                      <dt>Renderer version</dt><dd>{r.resume.rendererVersion ?? "unknown"}</dd>
+                      <dt>Grounding version</dt><dd>{r.resume.groundingVersion ?? "not recorded"}</dd>
+                      <dt>Claim lines</dt><dd>{r.resume.linesAccepted}</dd>
+                    </dl>
+                  </details>
+                </details>
+              ) : (
+                <p className="bad">No saved PDF is bound to this application.</p>
+              )}
             </li>
-          ))}
-        </ul>
-      </section>
 
-      <section className="pane">
-        <h3>Why this may be worth applying to</h3>
-        {r.mainGap ? (
+            <li className={`reviewstep${blocked.length ? " attention" : " ok"}`}>
+              <div className="reviewstep-head">
+                <span className="stepno" aria-hidden="true">2</span>
+                <h3>Application questions</h3>
+                <span className={`stepstatus ${blocked.length ? "warn" : "ok"}`}>
+                  {answered.length > 0 && <>{"\u2713"} {answered.length} answered automatically</>}
+                  {answered.length > 0 && blocked.length > 0 && " \u00b7 "}
+                  {blocked.length > 0 && <>{"\u26a0"} {blocked.length} need{blocked.length === 1 ? "s" : ""} you</>}
+                  {answered.length === 0 && blocked.length === 0 && "No questions on this form"}
+                </span>
+              </div>
+              {blocked.length > 0 && (
+                <div className="needsinput">
+                  <p className="needsinput-lead"><b>Needs your input</b></p>
+                  <ul className="answers blocked">
+                    {blocked.map((a) => (
+                      <li key={a.fieldKey}>
+                        <p className="q">{a.question}</p>
+                        {a.blockedReason && <p className="src">{a.blockedReason}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                  <Link className="btn-primary" href={`/apply/questions#app-${r.applicationId}`}>
+                    Answer {blocked.length === 1 ? "it" : "them"} &rarr;
+                  </Link>
+                </div>
+              )}
+              {answered.length > 0 && (
+                <details className="reviewstep-body">
+                  <summary className="btn-quiet">Read the {answered.length} answer{answered.length === 1 ? "" : "s"} the employer will receive</summary>
+                  <ul className="answers">
+                    {answered.map((a) => (
+                      <li key={a.fieldKey}>
+                        <p className="q">{a.question}</p>
+                        <p className="a">{a.answer ?? <em>left blank</em>}</p>
+                        {a.source && <p className="src">{a.source}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </li>
+
+            <li className={`reviewstep${r.warnings.length || finalProblems.length ? " attention" : " ok"}`}>
+              <div className="reviewstep-head">
+                <span className="stepno" aria-hidden="true">3</span>
+                <h3>Final review</h3>
+                <span className={`stepstatus ${r.warnings.length || finalProblems.length ? "warn" : "ok"}`}>
+                  {r.warnings.length === 0 && finalProblems.length === 0
+                    ? "\u2713 Everything else looks good"
+                    : `\u26a0 ${r.warnings.length + finalProblems.length} thing${r.warnings.length + finalProblems.length === 1 ? "" : "s"} to look at`}
+                </span>
+              </div>
+              {(r.warnings.length > 0 || finalProblems.length > 0) && (
+                <ul className="reviewstep-problems">
+                  {r.warnings.map((w) => <li key={w}>{w}</li>)}
+                  {finalProblems.map((c) => <li key={c.label}>{c.label}</li>)}
+                </ul>
+              )}
+              <details className="tech">
+                <summary>All checks</summary>
+                <div className="checklists compact">
+                  <div><h4>Resume</h4><ul className="checks">{r.resumeChecks.map((c) => <Check key={c.label} c={c} />)}</ul></div>
+                  <div><h4>Application</h4><ul className="checks">{r.applicationChecks.map((c) => <Check key={c.label} c={c} />)}</ul></div>
+                  <div><h4>Final submission</h4><ul className="checks">{r.finalChecks.map((c) => <Check key={c.label} c={c} />)}</ul></div>
+                </div>
+              </details>
+            </li>
+          </ol>
+        );
+      })()}
+
+      <details className="tech jobdetails">
+        <summary>About the job and the match</summary>
+        <p className="muted">
+          {r.mainGap ? <>Main gap: {r.mainGap} is not established.</> : "No role-defining gap was found against the requirements this posting states."}
+        </p>
+        {r.keyRequirements.length > 0 && (
           <>
-            <p className="muted">Main gap</p>
-            <p>{r.mainGap} is not established.</p>
+            <p className="muted">Requirements this posting states:</p>
+            <ul>{r.keyRequirements.map((q) => <li key={q}>{q}</li>)}</ul>
           </>
-        ) : (
-          <p>No role-defining gap was found against the requirements this posting states.</p>
         )}
-        <details className="tech">
-          <summary>See matching details</summary>
-          <p className="muted">Requirements this posting states:</p>
-          <ul>{r.keyRequirements.map((q) => <li key={q}>{q}</li>)}</ul>
-        </details>
-      </section>
-
-      <section className="pane">
-        <h3>The job</h3>
         <p className="desc">{r.descriptionExcerpt}{r.descriptionExcerpt.length >= 700 ? "\u2026" : ""}</p>
-        {r.jobUrl && <a className="btn-quiet" href={r.jobUrl} target="_blank" rel="noreferrer">View full job listing</a>}
-      </section>
+        {r.jobUrl && <a className="btn-quiet" href={r.jobUrl} target="_blank" rel="noopener noreferrer">View original posting \u2197</a>}
+      </details>
 
       {r.submitOutcome === "AMBIGUOUS" && (
         <section className="pane ambiguous">
@@ -312,7 +359,7 @@ export default async function ReviewPage(props: {
           <>
             <form method="post" action="/api/applications/approve">
               <input type="hidden" name="applicationId" value={r.applicationId} />
-              <button className="btn-primary big" type="submit">Approve application</button>
+              <button className="btn-primary big" type="submit">Approve &amp; continue &rarr;</button>
             </form>
             <p className="muted">
               Approval means this resume and these answers may proceed to the final submission
@@ -347,7 +394,7 @@ export default async function ReviewPage(props: {
           <p className="muted">This cannot be approved until the points above are resolved.</p>
         ) : null}
         <div className="secondary">
-          <a className="btn-quiet" href="/apply">Back to Apply</a>
+          <a className="btn-quiet" href="/apply">Back to Applications</a>
         </div>
       </section>
 

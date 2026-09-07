@@ -53,8 +53,20 @@ check("the question count is pluralized honestly",
   check("awaiting review is flagged for inline review", r.inlineReview === true, String(r.inlineReview));
   check("awaiting review keeps the review permalink as its href", /\/review$/.test(r.action?.href ?? ""), r.action?.href ?? "");
 }
-check("an approved application offers Submit",
-  p({ status: "READY_TO_SUBMIT", humanApproved: true, allFieldsConfident: true }).action?.label === "Submit application", "");
+// Approved with nothing queued: the send is a click the person makes, so it
+// asks for them. Approved and queued/running: their part is done -- Ready.
+{
+  const approved = p({ status: "READY_TO_SUBMIT", humanApproved: true, allFieldsConfident: true });
+  check("an approved application with nothing queued offers Submit", approved.action?.label === "Submit application", JSON.stringify(approved));
+  check("and asks for the person, because Ready means running without them", approved.state === "NEEDS_YOU", approved.state);
+  const queued = p({ status: "READY_TO_SUBMIT", humanApproved: true, allFieldsConfident: true, submitQueued: true });
+  check("an approved application queued for the submitter is Ready", queued.state === "READY", queued.state);
+  check("and carries a way to look at it", Boolean(queued.action), JSON.stringify(queued.action));
+  const running = p({ status: "READY_TO_SUBMIT", humanApproved: true, allFieldsConfident: true, submitQueued: true, submitRunning: true });
+  check("a submission in progress is Ready and says so", running.state === "READY" && /Submitting/.test(running.summary), running.summary);
+  const retry = p({ status: "READY_TO_SUBMIT", humanApproved: true, allFieldsConfident: true, submitOutcome: "SAFE_STOP" });
+  check("a stopped attempt that can be retried needs the person, not Ready", retry.state === "NEEDS_YOU" && retry.action?.label === "Submit application", retry.state);
+}
 
 // The SpotHero shape: READY_TO_SUBMIT, a stale approval, and a current
 // REJECT. No action a person can take makes this submittable, so it is
@@ -100,6 +112,16 @@ check("and an unconfirmed submission is never described as received",
 check("abandoned applications are Closed", p({ status: "ABANDONED" }).state === "CLOSED", "");
 check("a draft with nothing needed is Preparing and offers no action",
   p({ status: "PREPARING" }).state === "PREPARING" && p({ status: "PREPARING" }).action === null, "");
+
+// The same words everywhere, and a raw enum never among them.
+{
+  const { STATE_LABEL, sourceLabel } = await import("../lib/portal/presentationState.ts");
+  check("the five state words are the human ones",
+    STATE_LABEL.NEEDS_YOU === "Needs you" && STATE_LABEL.READY === "Ready" && STATE_LABEL.PREPARING === "Preparing"
+    && STATE_LABEL.SUBMITTED === "Submitted" && STATE_LABEL.CLOSED === "Closed", JSON.stringify(STATE_LABEL));
+  check("every ATS has a friendly name", ["GREENHOUSE", "LEVER", "ASHBY", "WORKDAY", "SMARTRECRUITERS", "ICIMS", "JOBVITE"]
+    .every((k) => !/^[A-Z_]+$/.test(sourceLabel(k))), ["SMARTRECRUITERS", "ICIMS"].map(sourceLabel).join(", "));
+}
 
 // Exhaustiveness: every shape lands somewhere, with no internal wording.
 {

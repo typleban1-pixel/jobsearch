@@ -103,9 +103,85 @@ export interface Presentation {
   secondaryAction?: { label: string; href: string } | null;
 }
 
-const ATS_LABEL: Record<string, string> = {
+/**
+ * The name a person knows an applicant-tracking system by. Every value of
+ * the ats_provider enum is here, so no raw enum ever reaches a page.
+ */
+export const SOURCE_LABEL: Record<string, string> = {
   WORKDAY: "Workday", GREENHOUSE: "Greenhouse", LEVER: "Lever", ASHBY: "Ashby",
+  SMARTRECRUITERS: "SmartRecruiters", ICIMS: "iCIMS", JOBVITE: "Jobvite",
+  OTHER: "the employer's site", UNKNOWN: "the employer's site",
 };
+export function sourceLabel(provider: string | null | undefined): string {
+  const key = String(provider ?? "").toUpperCase();
+  return SOURCE_LABEL[key] ?? (key ? key.charAt(0) + key.slice(1).toLowerCase() : "the employer's site");
+}
+
+/** The four words a person operates in, plus the quiet fifth. Used on every surface. */
+export const STATE_LABEL: Record<PresentationState, string> = {
+  NEEDS_YOU: "Needs you", PREPARING: "Preparing", READY: "Ready", SUBMITTED: "Submitted", CLOSED: "Closed",
+};
+
+/**
+ * The state of an application from its row alone, for surfaces that hold
+ * the row but not the answers or the guard (the Jobs list, the navigation
+ * count). Same rules, same words: it builds the facts present() reads from
+ * the columns and, when given, the blocked-answer count. Refusals from the
+ * submit guard are not known here, so a state the guard alone would change
+ * (a posting that changed after approval) reads as its row says.
+ */
+export interface ApplicationRowFacts {
+  status: string;
+  human_approved: boolean | null;
+  all_fields_confident: boolean | null;
+  submitted_at: string | null;
+  confirmation_email_received?: boolean | null;
+  confirmation_reference?: string | null;
+  submit_requested_at?: string | null;
+  submit_started_at?: string | null;
+  submit_outcome?: string | null;
+  blocked_reason?: string | null;
+  prepare_started_at?: string | null;
+}
+export function factsFromRow(
+  row: ApplicationRowFacts, provider: string,
+  policy: { capability?: string | null; paused?: boolean | null } | null | undefined,
+  extra: { blockedAnswers?: number; applyUrl?: string | null; discoveredFields?: number } = {},
+): ApplicationFacts {
+  const handoff = /HANDOFF/i.test(String(row.blocked_reason ?? ""));
+  return {
+    status: row.status,
+    humanApproved: Boolean(row.human_approved),
+    allFieldsConfident: Boolean(row.all_fields_confident),
+    blockedAnswers: extra.blockedAnswers ?? 0,
+    discoveredFields: extra.discoveredFields,
+    submittedAt: row.submitted_at ?? null,
+    confirmationReceived: Boolean(row.confirmation_email_received || row.confirmation_reference),
+    provider,
+    providerCapability: policy?.capability ?? null,
+    providerPaused: Boolean(policy?.paused),
+    refusals: [],
+    handoff,
+    applyUrl: extra.applyUrl ?? null,
+    handoffReason: null,
+    submitQueued: Boolean(row.submit_requested_at && !row.submit_started_at),
+    submitRunning: Boolean(row.submit_requested_at && row.submit_started_at),
+    submitOutcome: (row.submit_outcome as ApplicationFacts["submitOutcome"]) ?? null,
+    activelyPreparing: Boolean(row.prepare_started_at) || row.status === "PREPARING",
+    blockedReason: row.blocked_reason ?? null,
+  };
+}
+
+/**
+ * Where a click on an application's state goes, from any page: the review
+ * for anything a person acts on, the questions page (at this application)
+ * when the work is answering, the application record once it is sent.
+ */
+export function stateHref(p: Presentation, applicationId: string): string {
+  if (p.action?.href.startsWith("/apply/questions")) return `/apply/questions#app-${applicationId}`;
+  if (p.state === "NEEDS_YOU" || p.state === "READY") return `/applications/${applicationId}/review`;
+  return `/applications/${applicationId}`;
+}
 
 export function present(f: ApplicationFacts, applicationId: string): Presentation {
   const href = `/applications/${applicationId}`;
@@ -132,12 +208,16 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
     };
   }
 
-  // In flight. Said plainly, and with nothing to click.
+  // Approved and handed to the submitter. This is what "Ready" means: the
+  // person's part is done and the work is running without them. It used
+  // to read as Preparing, which is the word for the work BEFORE review.
   if (f.submitRunning) {
-    return { state: "PREPARING", summary: "Submitting\u2026", action: null };
+    return { state: "READY", summary: "Approved. Submitting now\u2026",
+      action: { label: "View application", href: `${href}/review` } };
   }
   if (f.submitQueued) {
-    return { state: "PREPARING", summary: "Starting submission\u2026", action: null };
+    return { state: "READY", summary: "Approved. Queued to submit.",
+      action: { label: "View application", href: `${href}/review` } };
   }
 
   if (f.status === "ABANDONED" || f.status === "WITHDRAWN") {
@@ -147,7 +227,7 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
   // HANDOFF is an internal word. What a person needs is the thing they
   // have to go and do, named as the thing itself.
   if (f.handoff) {
-    const ats = ATS_LABEL[f.provider] ?? f.provider;
+    const ats = sourceLabel(f.provider);
     return {
       state: "NEEDS_YOU",
       // Only what is actually established for this provider. The old
@@ -256,23 +336,27 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
     const capabilityKnown = f.providerCapability !== undefined && f.providerCapability !== null;
     const workerCanSubmit = f.providerCapability === "PRODUCTION" && !f.providerPaused;
     if (capabilityKnown && !workerCanSubmit) {
-      const ats = ATS_LABEL[f.provider] ?? f.provider;
+      const ats = sourceLabel(f.provider);
       return { state: "NEEDS_YOU",
         summary: `Approved. ${ats} is finished by you: open the employer's form, attach the approved resume, and use the reviewed answers. Nothing is submitted for you.`,
         action: f.applyUrl ? { label: `Continue on ${ats}`, href: f.applyUrl } : { label: "Open application", href: `${href}/review` },
         secondaryAction: { label: "Resume and answers", href: `${href}/review` } };
     }
+    // Approved, but nothing is queued: the send is a click the person
+    // has to make (a stopped or declined attempt to retry, or a provider
+    // whose policy is unknown). "Ready" is reserved for work running
+    // without them, so this asks for them.
     if (f.submitOutcome === "SAFE_STOP") {
-      return { state: "READY",
-        summary: "The last attempt stopped before anything was sent. You can try again.",
+      return { state: "NEEDS_YOU",
+        summary: "The last attempt stopped before anything was sent. Send it again when you are ready.",
         action: { label: "Submit application", href: `${href}/review` } };
     }
     if (f.submitOutcome === "DECLINED") {
-      return { state: "READY",
-        summary: "The last request was declined before it started. You can try again.",
+      return { state: "NEEDS_YOU",
+        summary: "The last request was declined before it started. Send it again when you are ready.",
         action: { label: "Submit application", href: `${href}/review` } };
     }
-    return { state: "READY", summary: "Approved and ready to send.",
+    return { state: "NEEDS_YOU", summary: "Approved. One click sends it.",
       action: { label: "Submit application", href: `${href}/review` } };
   }
 
@@ -283,7 +367,7 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
   // activelyPreparing so a row a worker is genuinely mid-run on is never
   // yanked into Needs You.
   if (f.blockedReason && !f.activelyPreparing) {
-    const ats = ATS_LABEL[f.provider] ?? f.provider;
+    const ats = sourceLabel(f.provider);
     // A live-form provider parked ONLY because its form has not been
     // snapshotted yet is not a manual handoff: the worker can open the
     // form in a browser and prepare it. Offer that as the primary action

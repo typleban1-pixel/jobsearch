@@ -23,10 +23,10 @@ export function summarizeQueue(results: QueueResult[]): QueueTally {
   // Distinct reasons, so "2 need review" reads as one cause, not two lines.
   const distinct = [...new Set(reasons.filter(Boolean))];
   const note = [
-    queued ? `${queued} queued` : "",
+    queued ? `${queued} preparing` : "",
     already ? `${already} already applied` : "",
     reasons.length
-      ? `${reasons.length} not queued (${distinct.slice(0, 2).join("; ")}${distinct.length > 2 ? "; …" : ""})`
+      ? `${reasons.length} not prepared (${distinct.slice(0, 2).join("; ")}${distinct.length > 2 ? "; …" : ""})`
       : "",
   ].filter(Boolean).join(" · ");
   return { queued, already, skipped: reasons.length, note };

@@ -1,15 +1,10 @@
 import Link from "next/link";
 import type { JobCard } from "../lib/portal/db.ts";
-import { JobSelect } from "./JobSelect.tsx";
+import { JobPipelineControl } from "./JobSelect.tsx";
 import { BAND_LABEL, BAND_EXPLANATION } from "../lib/portal/attentionRank.ts";
-import {
-  describeArrangement, describeFreshness, describeLocations, describeSalary,
-  evidenceLabel, uncertaintyBand,
-} from "../lib/portal/present.ts";
+import { describeArrangement, describeLocations, describeSalary, uncertaintyBand } from "../lib/portal/present.ts";
 import { matchLabel } from "../lib/portal/matchScore.ts";
-
-/** An application a person can act on from its review page. */
-const REVIEWABLE = new Set(["AWAITING_REVIEW", "READY_TO_SUBMIT", "BLOCKED_NEEDS_INPUT"]);
+import { postingLink } from "../lib/portal/source.ts";
 
 const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
@@ -22,108 +17,91 @@ const VERDICT_TEXT: Record<string, string> = {
 };
 
 /**
- * One job, as a person reads it.
+ * One job, as a person decides on it.
  *
- * The scoring numbers this card used to lead with (Opportunity,
- * Generalist, Specialist, Fit, and the four-part decomposition) are all
- * still computed and still shown, under "Matching details". They answer
- * how the ranking was produced, which is a question for the days when
- * the ranking looks wrong. The question every other day is whether this
- * job is worth reading, and that is what the card now leads with.
+ * The card answers "should I apply?" and nothing else: what the job is,
+ * where and for how much, how well it matches and the two or three facts
+ * that decide that, where it was found with a link to the real posting,
+ * and one control -- prepare an application, or the state of the one that
+ * exists. Everything the ranking knows is still here, under "Why N?".
  */
 export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; returnTo: string; rank?: number | null }) {
   const salary = describeSalary(card);
   const band = uncertaintyBand(card.uncertainty);
-  // The user-facing fit label comes from the Match Score alone, so the
-  // number and the words never contradict. The candidacy verdict is kept
-  // for automation/submission safety and still shown under "Matching
-  // details" -- it no longer sets the headline fit claim.
+  // The number and the words come from the Match Score alone, so they can
+  // never contradict. It is a calibrated 0-100 read, not a percentage.
   const fit = matchLabel(card.match.score, card.match.provisional);
+  const posting = postingLink({ source: card.source, url: card.url, applyUrl: card.applyUrl, status: card.status, statusChangedAt: card.statusChangedAt });
 
-  // The strongest thing we can say for the job, and the most important
-  // thing against it. Both come from evidence already computed.
-  const strong = card.directConcepts.slice(0, 3);
-  // Boilerplate the ranking set aside is not shown as a gap either: a
-  // requirement naming no field is not something to be missing.
+  // Two reasons for, one against: the strongest direct evidence and the
+  // most important gap, both already computed by the ranking.
+  const reasonsFor = card.directConcepts.slice(0, 2);
   const gaps = [
-    ...card.credentialFamiliesUnmet.map((f) => `no ${f.toLowerCase()} credential`),
-    ...card.attention.genuineGaps.slice(0, 2),
+    ...card.credentialFamiliesUnmet.map((f) => `No ${f.toLowerCase()} credential`),
+    ...card.attention.genuineGaps,
   ];
+  const reasonAgainst = gaps[0] ?? null;
+  const dimmed = card.activeInterest === "NOT_INTERESTED";
 
   return (
-    <article className={`jobcard${card.activeInterest ? " dimmed" : ""}`}>
+    <article className={`jobcard${dimmed ? " dimmed" : ""}`} aria-labelledby={`job-${card.id}-title`}>
       <div className="jobcard-head">
         <div className="jobcard-title">
-          <JobSelect jobId={card.id} openingId={card.openingId} appStatus={card.applicationStatus} />
-          {rank !== null && <span className="jobcard-rank" title="position in your ranked queue">#{rank}</span>}
+          {rank !== null && <span className="jobcard-rank" title="position in your ranked list">#{rank}</span>}
           <div>
-            <h2><Link href={`/job/${card.id}`}>{card.title}</Link></h2>
+            <h2 id={`job-${card.id}-title`}><Link href={`/job/${card.id}`}>{card.title}</Link></h2>
             <p className="jobcard-company">{card.company}</p>
+            <p className="jobcard-facts">
+              <span>{describeLocations(card.locations, card.locationRaw)}</span>
+              <span>{describeArrangement(card.remotePolicy)}</span>
+              {salary && <span>{salary}</span>}
+            </p>
           </div>
         </div>
-        <div className="jobcard-badges">
-          <span className={`matchbadge${card.match.provisional ? " provisional" : ""}`}
-            title={card.match.note ? `Match estimate — ${card.match.note}` : "How good this opportunity is for your verified background"}>
-            <b>{card.match.provisional ? "~" : ""}{card.match.score}</b> Match
-          </span>
-          <span className={`matchfit${card.match.provisional ? " provisional" : ""}`}
-            title="Your fit for this role, derived from the Match Score">
-            {fit}
-          </span>
+        <div className={`jobcard-match${card.match.provisional ? " provisional" : ""}`}
+          title={card.match.note ? `Match estimate — ${card.match.note}` : "How well this role matches your verified background, 0 to 100"}>
+          <b>{card.match.provisional ? "~" : ""}{card.match.score}</b>
+          <span className="matchword">match</span>
+          <span className="matchfitword">{fit}</span>
         </div>
       </div>
 
-      {card.attention.band === "GENERIC_REQUIREMENTS" && (
-        <p className="jobcard-band" title={BAND_EXPLANATION.GENERIC_REQUIREMENTS}>
-          <span>{BAND_LABEL.GENERIC_REQUIREMENTS}</span>
-        </p>
+      {(reasonsFor.length > 0 || reasonAgainst || card.attention.band === "GENERIC_REQUIREMENTS") && (
+        <ul className="jobcard-reasons">
+          {reasonsFor.map((r) => (
+            <li key={r} className="for"><span className="mark" aria-hidden="true">&#10003;</span><span className="sr">Evidence for: </span>{r}</li>
+          ))}
+          {reasonAgainst && (
+            <li className="against"><span className="mark" aria-hidden="true">&#9651;</span><span className="sr">Gap: </span>{reasonAgainst}</li>
+          )}
+          {card.attention.band === "GENERIC_REQUIREMENTS" && (
+            <li className="note" title={BAND_EXPLANATION.GENERIC_REQUIREMENTS}>{BAND_LABEL.GENERIC_REQUIREMENTS}</li>
+          )}
+        </ul>
       )}
 
-      <p className="jobcard-facts">
-        <span>{describeLocations(card.locations, card.locationRaw)}</span>
-        <span>{describeArrangement(card.remotePolicy)}</span>
-        <span>{salary ?? "salary not stated"}</span>
+      <p className="jobcard-source">
+        <span>{posting.foundVia}</span>
+        {posting.removed
+          ? <span className="removed">{posting.removed}</span>
+          : posting.href && (
+            <a href={posting.href} target="_blank" rel="noopener noreferrer"
+              aria-label={`${posting.linkLabel} posting for ${card.title} at ${card.company} (opens in a new tab)`}>
+              {posting.linkLabel} <span aria-hidden="true">&#8599;</span>
+            </a>
+          )}
+        {card.variantCount > 1 && <span className="muted">{card.variantCount} versions of this opening</span>}
       </p>
 
-      {strong.length > 0 && (
-        <p className="jobcard-why">
-          <span className="lead">Strong evidence</span>
-          {strong.join(" · ")}
-        </p>
-      )}
-      {gaps.length > 0 && (
-        <p className="jobcard-gap">
-          <span className="lead">Main gap</span>
-          {gaps.join(" · ")}
-        </p>
-      )}
-
-      {(card.activeInterest || card.variantCount > 1 || card.applicationStatus) && (
-        <p className="jobcard-flags">
-          {card.applicationStatus && (
-            <span className="flag applied">
-              {card.applicationStatus === "SUBMITTED" ? "Already applied" : "Application in progress"}
-            </span>
-          )}
-          {card.activeInterest === "SAVED" && <span className="flag">Saved</span>}
-          {card.activeInterest === "NOT_INTERESTED" && <span className="flag">Not interested</span>}
-          {card.variantCount > 1 && (
-            <span className="flag">{card.variantCount} versions of this opening</span>
-          )}
-        </p>
-      )}
-
       <div className="jobcard-actions">
-        {card.applicationId && REVIEWABLE.has(card.applicationStatus ?? "")
-          ? <Link className="btn-primary" href={`/applications/${card.applicationId}/review`}>Review application</Link>
-          : <Link className="btn-primary" href={`/job/${card.id}`}>Review job</Link>}
+        <JobPipelineControl jobId={card.id} openingId={card.openingId} appState={card.applicationState} />
         <form method="post" action="/api/interest">
           <input type="hidden" name="openingId" value={card.openingId} />
           <input type="hidden" name="jobId" value={card.id} />
           <input type="hidden" name="returnTo" value={returnTo} />
           <input type="hidden" name="state" value={card.activeInterest === "SAVED" ? "CLEAR" : "SAVED"} />
-          <button type="submit" className="btn-quiet">
-            {card.activeInterest === "SAVED" ? "Unsave" : "Save"}
+          <button type="submit" className={`btn-quiet${card.activeInterest === "SAVED" ? " on" : ""}`}>
+            {card.activeInterest === "SAVED" ? "Saved" : "Save"}
           </button>
         </form>
         <form method="post" action="/api/interest">
@@ -135,43 +113,44 @@ export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; re
             {card.activeInterest === "NOT_INTERESTED" ? "Undo" : "Not interested"}
           </button>
         </form>
-      </div>
-
-      {/* Human-readable match breakdown; the raw formula sits inside it. */}
-      <details className="tech">
-        <summary>Match details</summary>
-        <div className="matchdetail">
-          <dl className="matchgrid">
-            <div><dt>Match score</dt><dd>{card.match.provisional ? "~" : ""}{card.match.score}/100{card.match.note ? ` · ${card.match.note}` : ""}</dd></div>
-            {card.candidacy && <div><dt>Candidacy</dt><dd>{VERDICT_TEXT[card.candidacy.label] ?? card.candidacy.label}{card.candidacy.stale ? " (stale)" : ""}</dd></div>}
-            <div><dt>Hard requirements supported</dt><dd>{card.candidacy ? `${card.candidacy.hardMet}/${card.candidacy.hardTotal}` : "—"}</dd></div>
-            <div><dt>By direct vs transferable</dt><dd>{card.hardDirect} direct · {card.candidacy?.transferableMatches ?? card.transferableConcepts.length} transferable</dd></div>
-            <div><dt>Genuine gaps</dt><dd>{describeGaps(card)}</dd></div>
-            <div><dt>Seniority</dt><dd>{card.seniorityPoints > 0 ? "aligned" : card.seniorityPoints < 0 ? "mismatch" : "not stated"}</dd></div>
-            <div><dt>Compensation</dt><dd>{salary ?? "not stated"}</dd></div>
-            <div><dt>Uncertainty</dt><dd>{band.toLowerCase()}{card.uncertainty !== null ? ` (${card.uncertainty})` : ""}{card.excludedUnknown > 0 ? ` · ${card.excludedUnknown} unevaluable` : ""}</dd></div>
-          </dl>
-          {card.candidacy?.reason && <p className="muted">{card.candidacy.reason}</p>}
-          {!card.scorable && <p className="muted">Too few requirements were extracted to judge this posting.</p>}
-
-          <details className="tech-raw">
-            <summary>Raw scoring details</summary>
-            <dl className="scoregrid">
-              <div><dt>attention score</dt><dd>{card.attention.score.toFixed(1)}</dd></div>
-              <div><dt>Fit (Formula3, raw)</dt><dd>{card.fit}</dd></div>
-              <div><dt>Opportunity</dt><dd>{card.opportunity ?? "—"}</dd></div>
-              <div><dt>Generalist</dt><dd>{card.generalist ?? "—"}</dd></div>
-              <div><dt>Specialist</dt><dd>{card.specialist ?? "—"}</dd></div>
-              <div><dt>from evidence</dt><dd>{signed(card.coveragePoints)}</dd></div>
-              <div><dt>title family</dt><dd>{signed(card.titleMatchPoints)}</dd></div>
-              <div><dt>seniority</dt><dd>{signed(card.seniorityPoints)}</dd></div>
-              <div><dt>gates</dt><dd>{signed(card.gatePenaltyPoints)}</dd></div>
-              {card.otherPoints !== 0 && <div><dt>other</dt><dd>{signed(card.otherPoints)}</dd></div>}
+        <details className="tech why">
+          <summary>Why {card.match.provisional ? "~" : ""}{card.match.score}?</summary>
+          <div className="matchdetail">
+            <dl className="matchgrid">
+              <div><dt>Match score</dt><dd>{card.match.provisional ? "~" : ""}{card.match.score}/100{card.match.note ? ` · ${card.match.note}` : ""}</dd></div>
+              {card.candidacy && <div><dt>Candidacy</dt><dd>{VERDICT_TEXT[card.candidacy.label] ?? card.candidacy.label}{card.candidacy.stale ? " (stale)" : ""}</dd></div>}
+              <div><dt>Hard requirements supported</dt><dd>{card.candidacy ? `${card.candidacy.hardMet}/${card.candidacy.hardTotal}` : "—"}</dd></div>
+              <div><dt>By direct vs transferable</dt><dd>{card.hardDirect} direct · {card.candidacy?.transferableMatches ?? card.transferableConcepts.length} transferable</dd></div>
+              <div><dt>Genuine gaps</dt><dd>{describeGaps(card)}</dd></div>
+              <div><dt>Seniority</dt><dd>{card.seniorityPoints > 0 ? "aligned" : card.seniorityPoints < 0 ? "mismatch" : "not stated"}</dd></div>
+              <div><dt>Compensation</dt><dd>{salary ?? "not stated"}</dd></div>
+              <div><dt>Uncertainty</dt><dd>{band.toLowerCase()}{card.uncertainty !== null ? ` (${card.uncertainty})` : ""}{card.excludedUnknown > 0 ? ` · ${card.excludedUnknown} unevaluable` : ""}</dd></div>
             </dl>
-            <p className="muted">Fit is a raw, signed ranking quantity, not a percentage. The Match score above is the calibrated 0–100 read.</p>
-          </details>
-        </div>
-      </details>
+            {card.directConcepts.length > 0 && <p className="muted"><b>Direct evidence:</b> {card.directConcepts.join(" · ")}</p>}
+            {card.transferableConcepts.length > 0 && <p className="muted"><b>Transferable:</b> {card.transferableConcepts.join(" · ")}</p>}
+            {gaps.length > 0 && <p className="muted"><b>Gaps:</b> {gaps.join(" · ")}</p>}
+            {card.candidacy?.reason && <p className="muted">{card.candidacy.reason}</p>}
+            {!card.scorable && <p className="muted">Too few requirements were extracted to judge this posting.</p>}
+
+            <details className="tech-raw">
+              <summary>Raw scoring details</summary>
+              <dl className="scoregrid">
+                <div><dt>attention score</dt><dd>{card.attention.score.toFixed(1)}</dd></div>
+                <div><dt>Fit (Formula3, raw)</dt><dd>{card.fit}</dd></div>
+                <div><dt>Opportunity</dt><dd>{card.opportunity ?? "—"}</dd></div>
+                <div><dt>Generalist</dt><dd>{card.generalist ?? "—"}</dd></div>
+                <div><dt>Specialist</dt><dd>{card.specialist ?? "—"}</dd></div>
+                <div><dt>from evidence</dt><dd>{signed(card.coveragePoints)}</dd></div>
+                <div><dt>title family</dt><dd>{signed(card.titleMatchPoints)}</dd></div>
+                <div><dt>seniority</dt><dd>{signed(card.seniorityPoints)}</dd></div>
+                <div><dt>gates</dt><dd>{signed(card.gatePenaltyPoints)}</dd></div>
+                {card.otherPoints !== 0 && <div><dt>other</dt><dd>{signed(card.otherPoints)}</dd></div>}
+              </dl>
+              <p className="muted">Fit is a raw, signed ranking quantity, not a percentage. The Match score above is the calibrated 0–100 read.</p>
+            </details>
+          </div>
+        </details>
+      </div>
     </article>
   );
 }

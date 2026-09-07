@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { StateBadge } from "../../StateBadge.tsx";
+import { sourceLabel } from "../../../lib/portal/presentationState.ts";
 import { notFound } from "next/navigation";
 import { redirect } from "next/navigation";
 import { loadJobCardById } from "../../../lib/portal/db.ts";
@@ -31,14 +33,9 @@ export default async function JobDetail(props: { params: Promise<{ id: string }>
   const desc = descRes.data;
 
   // Keyed by opening, so these wait only for the card, not for each other.
-  const [{ data: opening }, { data: live }] = await Promise.all([
-    db.from("openings").select("identity_method,provider_opening_key").eq("id", card.openingId).maybeSingle(),
-    // One live application per requisition, so the control disappears once
-    // any variant of this opening has one.
-    db.from("applications").select("id,status").eq("canonical_opening_id", card.openingId)
-      .not("status", "in", "(REJECTED,WITHDRAWN,ABANDONED)").limit(1),
-  ]);
-  const liveApplication = live?.[0] ?? null;
+  // The application state rides on the card (loadJobCardById overlays it),
+  // by the same rules the Applications page uses.
+  const { data: opening } = await db.from("openings").select("identity_method,provider_opening_key").eq("id", card.openingId).maybeSingle();
   const returnTo = `/job/${card.id}`;
 
   return (
@@ -48,23 +45,18 @@ export default async function JobDetail(props: { params: Promise<{ id: string }>
         {" · "}<Link href="/applications">applications</Link>
       </p>
 
-      {liveApplication ? (
+      {card.applicationState ? (
         <p className="muted small">
-          {["AWAITING_REVIEW", "READY_TO_SUBMIT", "BLOCKED_NEEDS_INPUT"].includes(liveApplication.status)
-            ? <Link className="btn-primary" href={`/applications/${liveApplication.id}/review`}>Review application</Link>
-            : null}
-          {" "}
-          <Link href={`/applications/${liveApplication.id}`}>
-            An application for this opening already exists ({liveApplication.status}).
-          </Link>
+          <StateBadge state={card.applicationState.state} href={card.applicationState.href} />
+          {" "}An application for this opening already exists.
         </p>
       ) : (
         <form method="post" action="/api/applications/prepare">
           <input type="hidden" name="jobId" value={card.id} />
-          <input type="hidden" name="returnTo" value="/applications" />
-          <button type="submit">Apply to this</button>
+          <input type="hidden" name="returnTo" value="/apply" />
+          <button type="submit" className="btn-primary">Prepare application &rarr;</button>
           <span className="muted small">
-            {" "}Freezes this exact posting version and queues it for preparation on the local worker.
+            {" "}Freezes this exact posting version; the worker on your Mac tailors the resume and answers the form.
           </span>
         </form>
       )}
@@ -74,7 +66,7 @@ export default async function JobDetail(props: { params: Promise<{ id: string }>
           profile v{card.profileVersion} · weights v{card.weightsVersion} · fit formula {card.fitFormulaVersion}
         </div>
       </header>
-      <div className="company">{card.company}{card.url && <> · <a href={card.url} target="_blank" rel="noreferrer">original posting</a></>}</div>
+      <div className="company">{card.company} · Found via {sourceLabel(card.source)}{(card.url ?? card.applyUrl) && <> · <a href={(card.url ?? card.applyUrl)!} target="_blank" rel="noopener noreferrer">View original ↗</a></>}</div>
 
       <div className="actions" style={{ justifyContent: "flex-start", marginTop: 14 }}>
         <form method="post" action="/api/interest">

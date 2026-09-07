@@ -17,6 +17,7 @@ import { ontologyDelta, withOntology, makeProfileHas } from "./matchScoreOntolog
 import { FIT_FORMULA_VERSION } from "../scoring/fit.ts";
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { present, factsFromRow, stateHref, STATE_LABEL, type PresentationState } from "./presentationState.ts";
 
 /**
  * Every read here runs through a caller-supplied client bound to the
@@ -197,6 +198,13 @@ export interface JobCard {
   title: string;
   company: string;
   url: string | null;
+  /** The ATS the posting was fetched from (jobs.source): where the system found it. */
+  source: string;
+  /** The employer's canonical apply link, a person's click-through when url is absent. */
+  applyUrl: string | null;
+  /** The posting's own lifecycle: OPEN, or a closed/removed state and when that was recorded. */
+  status: string;
+  statusChangedAt: string | null;
   postedAt: string | null;
   firstSeenAt: string | null;
   lastSeenAt: string | null;
@@ -287,6 +295,12 @@ export interface JobCard {
   applicationStatus: string | null;
   /** The live application's id, so a card can lead to its review. */
   applicationId: string | null;
+  /**
+   * The application's human state, by the same rules the Applications page
+   * uses (presentationState), with where a click should go. Live, never
+   * stored; null when no application exists for the opening.
+   */
+  applicationState: { state: PresentationState; label: string; href: string } | null;
   variantCount: number;
 }
 
@@ -354,9 +368,9 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
   const [reasons, jobs, locations] = await Promise.all([
     byIds<any>(db, "score_reasons", "score_id,dimension,kind,subject,detail,points", "score_id", scoreIds),
     byIds<any>(db, "jobs",
-      "id,company_id,title,url,posted_at,first_seen_at,last_seen_at,location_raw,remote_policy," +
+      "id,company_id,title,url,apply_url,source,posted_at,first_seen_at,last_seen_at,location_raw,remote_policy," +
       "salary_min,salary_max,salary_period,salary_is_estimated,seniority,eligibility,eligibility_reason," +
-      "canonical_opening_id,status", "id", jobIds),
+      "canonical_opening_id,status,status_changed_at", "id", jobIds),
     byIds<any>(db, "job_locations",
       "job_id,city,state,region,country,metro,is_remote,remote_scope,confidence,raw_segment,position",
       "job_id", jobIds),
@@ -481,6 +495,10 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
       title: j.title,
       company: companyName.get(j.company_id) ?? "unknown",
       url: j.url,
+      source: j.source,
+      applyUrl: j.apply_url ?? null,
+      status: j.status,
+      statusChangedAt: j.status_changed_at ?? null,
       postedAt: j.posted_at,
       firstSeenAt: j.first_seen_at,
       lastSeenAt: j.last_seen_at,
@@ -537,6 +555,7 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
         const v = interestByOpening.get(j.canonical_opening_id) ?? null;
         return v === "SAVED" || v === "NOT_INTERESTED" ? v : null;
       })(),
+      applicationState: null,
       variantCount: variantCounts.get(j.canonical_opening_id) ?? 1,
     });
   }
@@ -572,33 +591,50 @@ export interface JobCardPage {
 
 /** Live user state, keyed by opening, from the two small tables that carry it. */
 async function loadOverlays(db: SupabaseClient) {
-  const [interestRes, appsRes] = await Promise.all([
+  const [interestRes, appsRes, policyRes] = await Promise.all([
     db.from("job_interest").select("canonical_opening_id,state"),
     // Same read loadJobCards makes: a submitted application wins over a
     // draft one for the same opening, so a repost never reads as "in
-    // progress" once it has been sent.
-    db.from("applications").select("id,status,submitted_at,canonical_opening_id"),
+    // progress" once it has been sent. The columns the presentation rules
+    // read ride along, so a card can say "Needs you" with the same meaning
+    // the Applications page gives it.
+    db.from("applications")
+      .select("id,job_id,status,submitted_at,canonical_opening_id,human_approved,all_fields_confident,"
+        + "confirmation_email_received,confirmation_reference,submit_requested_at,submit_started_at,"
+        + "submit_outcome,blocked_reason,prepare_started_at")
+      .or("is_test.is.null,is_test.eq.false"),
+    db.from("ats_policy").select("provider,paused,capability"),
   ]);
   const interestByOpening = new Map<string, string>();
   for (const i of (interestRes.data ?? []) as any[]) interestByOpening.set(i.canonical_opening_id, i.state);
-  const appliedByOpening = new Map<string, string>();
-  const applicationByOpening = new Map<string, string>();
+  const applicationByOpening = new Map<string, any>();
   for (const a of (appsRes.data ?? []) as any[]) {
     if (!a.canonical_opening_id) continue;
-    const prior = appliedByOpening.get(a.canonical_opening_id);
-    if (!prior || a.submitted_at) { appliedByOpening.set(a.canonical_opening_id, a.status); applicationByOpening.set(a.canonical_opening_id, a.id); }
+    const prior = applicationByOpening.get(a.canonical_opening_id);
+    if (!prior || a.submitted_at) applicationByOpening.set(a.canonical_opening_id, a);
   }
-  return { interestByOpening, appliedByOpening, applicationByOpening };
+  const policyByProvider = new Map(((policyRes.data ?? []) as any[]).map((p) => [p.provider, p]));
+  return { interestByOpening, applicationByOpening, policyByProvider };
 }
 
 function overlay(card: JobCard, o: Awaited<ReturnType<typeof loadOverlays>>): JobCard {
   const v = o.interestByOpening.get(card.openingId) ?? null;
+  const app = o.applicationByOpening.get(card.openingId) ?? null;
+  let applicationState: JobCard["applicationState"] = null;
+  if (app) {
+    // The blocked-answer count is not loaded here; BLOCKED_NEEDS_INPUT
+    // carries the same meaning by status alone.
+    const p = present(factsFromRow(app, card.source, o.policyByProvider.get(card.source),
+      { blockedAnswers: app.status === "BLOCKED_NEEDS_INPUT" ? 1 : 0, applyUrl: card.applyUrl ?? card.url }), app.id);
+    applicationState = { state: p.state, label: STATE_LABEL[p.state], href: stateHref(p, app.id) };
+  }
   return {
     ...card,
     interest: (v as JobCard["interest"]) ?? null,
     activeInterest: v === "SAVED" || v === "NOT_INTERESTED" ? v : null,
-    applicationStatus: o.appliedByOpening.get(card.openingId) ?? null,
-    applicationId: o.applicationByOpening.get(card.openingId) ?? null,
+    applicationStatus: app?.status ?? null,
+    applicationId: app?.id ?? null,
+    applicationState,
   };
 }
 

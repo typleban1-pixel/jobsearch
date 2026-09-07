@@ -31,7 +31,7 @@ export default async function ConsolidatedQuestions() {
         <section className="caughtup">
           <h2>That&rsquo;s everything we needed.</h2>
           <p>No questions are waiting for you.</p>
-          <a className="btn-primary" href="/apply">Back to Apply</a>
+          <a className="btn-primary" href="/apply">Back to Applications</a>
         </section>
       </main>
     );
@@ -93,7 +93,9 @@ export default async function ConsolidatedQuestions() {
 
   const data: FormData = {
     perApplication: [...byApplication.entries()]
-      .map(([application, items]) => ({ application, items }))
+      // The application's id anchors its block (#app-{id}), so a link from
+      // its card or review lands on exactly these questions.
+      .map(([application, items]) => ({ application, applicationId: items[0]?.applicationId ?? null, items }))
       .sort((a, b) => a.application.localeCompare(b.application)),
     shared, total,
   };

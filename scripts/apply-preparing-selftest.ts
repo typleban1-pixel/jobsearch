@@ -57,13 +57,17 @@ const p = (o: Partial<ApplicationFacts>) => present({ ...base, ...o }, "app-1");
 }
 // 8/9. READY / SUBMITTED unaffected
 {
-  ok(p({ status: "READY_TO_SUBMIT", humanApproved: true, allFieldsConfident: true, discoveredFields: 3 }).state === "READY", "READY_TO_SUBMIT + approved is still READY");
+  // Ready means approved AND handed to the submitter; approved with nothing
+  // queued is a click the person still has to make.
+  ok(p({ status: "READY_TO_SUBMIT", humanApproved: true, allFieldsConfident: true, discoveredFields: 3, submitQueued: true }).state === "READY", "READY_TO_SUBMIT + approved + queued is READY");
+  ok(p({ status: "READY_TO_SUBMIT", humanApproved: true, allFieldsConfident: true, discoveredFields: 3 }).state === "NEEDS_YOU", "READY_TO_SUBMIT + approved but not queued asks for the person");
   ok(p({ status: "SUBMITTED", submittedAt: "2026-09-04", confirmationReceived: true }).state === "SUBMITTED", "SUBMITTED is still SUBMITTED");
 }
 // 10. the board auto-refreshes only while something is preparing
 {
   const page = readFileSync("app/apply/page.tsx", "utf8");
-  ok(/<AutoRefreshApply active=\{board\.preparing\.length > 0\}/.test(page), "/apply renders AutoRefreshApply, gated on there being something preparing");
+  // Polls while something is preparing or queued to submit; quiet otherwise.
+  ok(/<AutoRefreshApply active=\{board\.preparing\.length > 0( \|\| board\.ready\.length > 0)?\}/.test(page), "/apply renders AutoRefreshApply, gated on there being something in flight");
   const cmp = readFileSync("app/apply/AutoRefreshApply.tsx", "utf8");
   ok(/if \(!active\) return;/.test(cmp) && /router\.refresh\(\)/.test(cmp), "AutoRefreshApply polls router.refresh() only while active (quiet when settled)");
 }

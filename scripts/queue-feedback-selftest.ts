@@ -22,7 +22,7 @@ const check = (name: string, ok: boolean, detail = "") => {
   ]);
   check("all-refused still produces a message (never empty)", t.note.length > 0, JSON.stringify(t));
   check("it says none were queued and why",
-    t.queued === 0 && t.skipped === 2 && /2 not queued/.test(t.note) && /needs review before applying/.test(t.note),
+    t.queued === 0 && t.skipped === 2 && /2 not prepared/.test(t.note) && /needs review before applying/.test(t.note),
     t.note);
 }
 
@@ -35,7 +35,7 @@ const check = (name: string, ok: boolean, detail = "") => {
   ]);
   check("mixed counts are all reported",
     t.queued === 1 && t.already === 1 && t.skipped === 1
-    && /1 queued/.test(t.note) && /1 already applied/.test(t.note) && /1 not queued/.test(t.note),
+    && /1 preparing/.test(t.note) && /1 already applied/.test(t.note) && /1 not prepared/.test(t.note),
     t.note);
 }
 
@@ -47,19 +47,20 @@ const check = (name: string, ok: boolean, detail = "") => {
     { jobId: "c", state: "not_open", message: "posting is no longer open" },
   ]);
   check("count is total refused, reasons are distinct",
-    t.skipped === 3 && /3 not queued/.test(t.note)
+    t.skipped === 3 && /3 not prepared/.test(t.note)
     && /needs review before applying/.test(t.note) && /posting is no longer open/.test(t.note),
     t.note);
 }
 
-// All queued: a clean confirmation, no false "not queued".
+// All prepared: a clean confirmation, no false "not prepared". (The person
+// prepares applications; "queue" stays a backend word.)
 {
   const t = summarizeQueue([
     { jobId: "a", state: "queued", message: "queued" },
     { jobId: "b", state: "queued", message: "queued" },
   ]);
   check("all-queued reads as a confirmation with no refusal text",
-    t.queued === 2 && t.skipped === 0 && /2 queued/.test(t.note) && !/not queued/.test(t.note), t.note);
+    t.queued === 2 && t.skipped === 0 && /2 preparing/.test(t.note) && !/not prepared/.test(t.note), t.note);
 }
 
 console.log(`\n${pass} passed, ${fails.length} failed`);

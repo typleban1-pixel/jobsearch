@@ -14,10 +14,14 @@ export interface ReviewAnswer {
   fieldKey: string;
   question: string;
   answer: string | null;
-  /** "Answered by you" / "Filled from verified profile" / "" */
+  /** Where the answer came from, in a person's words; "" when nothing useful can be said. */
   source: string;
   required: boolean;
   sensitive: boolean;
+  /** BLOCKED needs the person; BLANK was left empty on purpose; ANSWERED has a value. */
+  state: "ANSWERED" | "BLANK" | "BLOCKED";
+  /** Why it is blocked, when it is. */
+  blockedReason: string | null;
 }
 
 export interface ReviewCheck { label: string; state: "PASS" | "PENDING" | "FAIL"; detail?: string }
@@ -130,7 +134,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   const [{ data: job }, { data: answersRaw }, { data: version }] = await Promise.all([
     db.from("jobs").select("*").eq("id", app.job_id).single(),
     db.from("application_answers")
-      .select("field_key,field_label,question_text,answer_text,confidence_state,is_required,provenance")
+      .select("field_key,field_label,question_text,answer_text,confidence_state,is_required,provenance,blocked_reason")
       .eq("application_id", applicationId),
     db.from("job_versions").select("id,is_current").eq("id", app.job_version_id).maybeSingle(),
   ]);
@@ -367,12 +371,19 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
       fieldKey: a.field_key,
       question: a.question_text || a.field_label || a.field_key,
       answer: a.answer_text,
-      source: a.provenance === "USER_RESPONSE" ? "Answered by you"
-        : a.provenance === "PROFILE" || a.provenance === "EMPLOYMENT_RECORD" ? "Filled from verified profile"
-        : a.confidence_state === "DERIVED" ? "Worked out from your profile" : "",
+      source: a.confidence_state === "BLOCKED" ? "Needs your answer"
+        : a.provenance === "USER_RESPONSE" ? "Answered by you"
+        : a.confidence_state === "HUMAN_CONFIRMED" ? "From an answer you gave before"
+        : a.provenance === "PROFILE" || a.provenance === "EMPLOYMENT_RECORD" ? "Filled from your verified profile"
+        : a.confidence_state === "DERIVED" ? "Worked out from your profile"
+        : a.confidence_state === "AI_DRAFTED_GROUNDED" ? "Drafted from your verified evidence"
+        : a.confidence_state === "LOW_STAKES_SURVEY" ? "Generic answer to a survey question"
+        : a.confidence_state === "VERIFIED" ? "Filled from your verified profile" : "",
       required: Boolean(a.is_required),
       sensitive: SENSITIVE.test(`${a.field_label ?? ""} ${a.question_text ?? ""}`),
-    })).sort((x, y) => Number(y.required) - Number(x.required)),
+      state: (a.confidence_state === "BLOCKED" ? "BLOCKED" : a.answer_text === null || a.answer_text === "" ? "BLANK" : "ANSWERED") as ReviewAnswer["state"],
+      blockedReason: a.confidence_state === "BLOCKED" ? (a.blocked_reason ?? null) : null,
+    })).sort((x, y) => (Number(y.state === "BLOCKED") - Number(x.state === "BLOCKED")) || (Number(y.required) - Number(x.required))),
     resumeChecks, applicationChecks, finalChecks,
     warnings,
     canApprove: warnings.length === 0 && !app.submitted_at && !app.human_approved

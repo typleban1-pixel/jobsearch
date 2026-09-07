@@ -23,7 +23,7 @@ export function InlineReview({ r }: { r: ReviewData }) {
   const permalink = `/applications/${r.applicationId}/review`;
   return (
     <details className="approw-review">
-      <summary className="btn-primary">Review &amp; approve</summary>
+      <summary className="btn-primary">Review &amp; approve &rarr;</summary>
       <div className="approw-review-body">
         {r.warnings.length > 0 ? (
           <div className="banner warn">
@@ -45,12 +45,18 @@ export function InlineReview({ r }: { r: ReviewData }) {
 
         <div className="pane">
           <h4>Application answers <span className="muted">— what the employer receives</span></h4>
+          {r.answers.some((a) => a.state === "BLOCKED") && (
+            <p className="needsinput-lead">
+              <b>{r.answers.filter((a) => a.state === "BLOCKED").length} need your input.</b>{" "}
+              <a href={`/apply/questions#app-${r.applicationId}`}>Answer them</a>
+            </p>
+          )}
           <ul className="answers">
             {r.answers.map((a) => (
-              <li key={a.fieldKey}>
+              <li key={a.fieldKey} className={a.state === "BLOCKED" ? "blocked" : undefined}>
                 <p className="q">{a.question}</p>
-                <p className="a">{a.answer ?? <em>left blank</em>}</p>
-                {a.source && <p className="src">{a.source}</p>}
+                <p className="a">{a.state === "BLOCKED" ? <em>needs your answer</em> : a.answer ?? <em>left blank</em>}</p>
+                {a.source && a.state !== "BLOCKED" && <p className="src">{a.source}</p>}
               </li>
             ))}
           </ul>
@@ -67,7 +73,7 @@ export function InlineReview({ r }: { r: ReviewData }) {
           {r.canApprove ? (
             <form method="post" action="/api/applications/approve">
               <input type="hidden" name="applicationId" value={r.applicationId} />
-              <button className="btn-primary" type="submit">Approve application</button>
+              <button className="btn-primary" type="submit">Approve &amp; continue &rarr;</button>
             </form>
           ) : (
             <p className="muted">This cannot be approved until the points above are resolved.</p>

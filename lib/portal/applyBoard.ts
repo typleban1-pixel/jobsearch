@@ -28,13 +28,17 @@ export interface ApplyRow {
   submittedAt: string | null;
   match: MatchScoreResult | null;
   presentation: Presentation;
+  /** What the preparation produced, summarised: the card says "6/7 answered", not six green boxes. */
+  progress: { resumeReady: boolean; answered: number; total: number; blocked: number };
 }
 
 export interface ApplyBoard {
   needsYou: ApplyRow[];
   preparing: ApplyRow[];
   ready: ApplyRow[];
+  /** The five most recent; submittedCount is the whole number. */
   recentlySubmitted: ApplyRow[];
+  submittedCount: number;
   closed: ApplyRow[];
   blocked: { blockedFields: number; answersNeeded: number; handoffs: number; applications: number };
 }
@@ -220,7 +224,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
   }
 
   const board: ApplyBoard = {
-    needsYou: [], preparing: [], ready: [], recentlySubmitted: [], closed: [],
+    needsYou: [], preparing: [], ready: [], recentlySubmitted: [], submittedCount: 0, closed: [],
     blocked: { blockedFields: 0, answersNeeded: 0, handoffs: 0, applications: 0 },
   };
 
@@ -304,6 +308,12 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       submittedAt: a.submitted_at ?? null,
       match: matchScores.get(a.job_id) ?? null,
       presentation: present(facts, a.id),
+      progress: {
+        resumeReady: Boolean(a.resume_id),
+        answered: mine.filter((x) => x.confidence_state !== "BLOCKED").length,
+        total: mine.length,
+        blocked: blockedAnswers,
+      },
     };
 
     switch (row.presentation.state) {
@@ -316,6 +326,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
   }
 
   board.recentlySubmitted.sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)));
+  board.submittedCount = board.recentlySubmitted.length;
   board.recentlySubmitted = board.recentlySubmitted.slice(0, 5);
 
   board.blocked = summarize(blockedGroups);
