@@ -32,6 +32,7 @@ export function OutreachCard({ r }: { r: OutreachRecord }) {
             : r.needsYourWords
             ? <span className="statebadge s-needs_you">Needs your words</span>
             : <span className="statebadge s-ready">Ready to send</span>}
+          {!r.submittedAt && !r.sentAt && <span className="statebadge s-needs_you" title="The note says you just applied; send it after the application goes in.">Application not submitted yet</span>}
           {r.jobUrl && <a href={r.jobUrl} target="_blank" rel="noopener noreferrer" className="qapp-listing">View job listing ↗</a>}
           <a href={`/applications/${r.applicationId}/review`} className="qapp-listing">Review application</a>
           <a href={`/applications/${r.applicationId}/resume.pdf`} target="_blank" rel="noopener noreferrer" className="qapp-listing">R&eacute;sum&eacute; PDF to attach ↗</a>
