@@ -91,12 +91,18 @@ for (const a of stale) {
     }
     revoked++;
     console.log(`  REVOKE  ${tag} (was human-approved on a pre-fix resume; re-review required)`);
-    if (providerProd && (verdict === "STRETCH" || verdict === "APPLICATION_CANDIDATE")) await regen(a, tag);
+    await regen(a, tag);
     continue;
   }
-  if (providerProd && (verdict === "STRETCH" || verdict === "APPLICATION_CANDIDATE")) { await regen(a, tag); continue; }
+  // Every open application's résumé is regenerated, whatever the provider
+  // or verdict. This used to regenerate only what the SYSTEM could submit,
+  // which left a résumé full of repository language bound to every
+  // application a person would finish by hand -- the Chartis Group on
+  // Ashby, where it was seen at review. A résumé an employer may see is
+  // held to the guard regardless of who clicks Submit.
+  await regen(a, tag);
   // Not submittable by the system: assert no stale submit request lingers.
-  skipped++; skipReasons.push(`${tag}: ${verdict} on ${j.source}${providerProd?"":" (provider blocked)"} — not system-submittable`);
+  if (!providerProd) skipReasons.push(`${tag}: ${verdict} on ${j.source} (provider blocked) — regenerated; a person finishes it`);
   if (commit && (a.submit_requested_at || a.submit_started_at)) {
     await db.from("applications").update({ submit_requested_at: null, submit_started_at: null }).eq("id", a.id);
     console.log(`  CLEARED stale submit request on ${tag}`);
