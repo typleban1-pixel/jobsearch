@@ -57,7 +57,15 @@ export async function renderAndStore(
   }
 
   const content = contentHash(finalDoc);
+  // The document itself is stored beside its hash and artifact. The row
+  // was inserted with only the accepted line texts, which the review page
+  // counts; the Workday experience filler needs the roles, education and
+  // skill groups of the document that was actually rendered (after any
+  // compaction), and reads them from here. The line list is kept.
+  const { data: existing } = await db.from("resumes").select("content").eq("id", resumeId).maybeSingle();
+  const lines = Array.isArray((existing?.content as any)?.lines) ? (existing!.content as any).lines : undefined;
   const { error } = await db.from("resumes").update({
+    content: { ...(finalDoc as any), ...(lines ? { lines } : {}) },
     content_sha256: content,
     artifact_pdf: r.pdf.toString("base64"),
     artifact_sha256: r.sha256,
