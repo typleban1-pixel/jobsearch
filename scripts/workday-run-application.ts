@@ -23,7 +23,7 @@ import { tenantFromToken, candidateHomeUrl } from "../lib/workday/tenant.ts";
 import { observe, waitForWorkdayReady } from "../lib/workday/probe.ts";
 import { snapshotLive } from "../lib/browser/liveSnapshot.ts";
 import { mergeDiscovery, summarise } from "../lib/applications/fieldMerge.ts";
-import { fillOne, selectRadioByLabel, selectListboxOption, selectPromptPath, type FillTarget } from "../lib/workday/fill.ts";
+import { fillOne, selectRadioByLabel, selectListboxOption, selectPromptPath, fillSigningDate, type FillTarget } from "../lib/workday/fill.ts";
 import { firstCharacterLost } from "../lib/workday/textFill.ts";
 import { collapseRadioGroups } from "../lib/workday/radioGroups.ts";
 import { resolveField, guardInheritedAnswer, type ResolveContext } from "../lib/applications/answer.ts";
@@ -497,6 +497,21 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
         console.log(`   ${on ? "ok  " : "FAIL"} ${String(a.question_text).slice(0, 40).padEnd(42)} acknowledged (${on})`);
         if (!on) failed++;
       }
+      continue;
+    }
+    /**
+     * A signing date is today. Workday's disability form carries a
+     * "Date" beside the name, rendered as month / day / year sections
+     * discovered as three fields. It is never answered from storage
+     * (dateControl.ts): the month section is filled with today's date as
+     * one value and the other two sections are that same date.
+     */
+    const dateSection = /dateSection(Month|Day|Year)-input$/.exec(String(a.field_key));
+    if (dateSection && /dateSignedOn|signatureDate|dateSigned|signedOn/i.test(String(a.field_key))) {
+      if (dateSection[1] !== "Month") continue;          // handled with the month
+      const out = await fillSigningDate(page, a.field_key);
+      if (out.status === "FAILED") { failed++; console.log(`   FAIL Date (signed today): ${out.why}`); }
+      else { filled++; console.log(`   ok   ${"Date (signed today)".padEnd(42)} ${JSON.stringify((out as any).readBack ?? "")}`); }
       continue;
     }
     if (!a.answer_text || a.confidence_state === "BLOCKED") continue;

@@ -182,6 +182,40 @@ export const failures = (reports: FillReport[]): FillReport[] =>
  * states "Virginia" sits inside "West Virginia". More than one match is
  * an ambiguity to report rather than a tie to break.
  */
+/**
+ * A signing date: today, typed as one value into Workday's three-section
+ * date control.
+ *
+ * The month, day and year look like three boxes and behave like one
+ * masked field (see workday-experience-fill.ts on dates): the month
+ * section is focused, eight digits are typed and the widget advances
+ * itself, then it is blurred so Workday validates. Read back from all
+ * three sections. The date is never stored: it says when the form was
+ * completed (lib/workday/dateControl.ts).
+ */
+export async function fillSigningDate(page: Page, monthSelector: string, today = new Date()): Promise<FillOutcome> {
+  const { signatureKeystrokes, toMMDDYYYY } = await import("./dateControl.ts");
+  const m = page.locator(`${monthSelector}:visible`).first();
+  if (!(await m.count().catch(() => 0))) return { status: "FAILED", why: "no visible month section for the signing date" };
+  const group = m.locator("xpath=ancestor::*[.//*[@data-automation-id='dateSectionYear-input']][1]");
+  const d = group.locator('[data-automation-id="dateSectionDay-input"]').first();
+  const y = group.locator('[data-automation-id="dateSectionYear-input"]').first();
+  const want = toMMDDYYYY(today);
+  const read = async () => [await m.inputValue().catch(() => ""), await d.inputValue().catch(() => ""), await y.inputValue().catch(() => "")]
+    .map((v) => String(v).trim());
+  const same = (v: string[]) => `${v[0]!.padStart(2, "0")}/${v[1]!.padStart(2, "0")}/${v[2]}` === want;
+  const before = await read();
+  if (same(before)) return { status: "ALREADY", readBack: want };
+  for (const el of [m, d, y]) await el.fill("").catch(() => undefined);
+  await m.click({ timeout: 8000 }).catch(() => undefined);
+  await page.keyboard.type(signatureKeystrokes(today), { delay: 90 });
+  await page.keyboard.press("Tab").catch(() => undefined);
+  await page.waitForTimeout(500);
+  const after = await read();
+  if (!same(after)) return { status: "FAILED", why: `typed ${want} but the control reads ${after.join("/")}` };
+  return { status: "FILLED", readBack: want };
+}
+
 export async function selectListboxOption(
   page: Page, selector: string, wanted: string, fieldLabel?: string | null,
 ): Promise<FillOutcome> {
