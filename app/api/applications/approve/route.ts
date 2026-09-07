@@ -92,8 +92,10 @@ export async function POST(request: Request): Promise<Response> {
   });
   const gapOnly = check.refusals.length > 0 && check.refusals.every((r) => r.code === "MATERIAL_QUALIFICATION_GAP");
   if (!check.ok && !(gapOnly && acceptGap)) {
-    return NextResponse.json(
-      { error: "cannot approve", refusals: check.refusals }, { status: 409 });
+    // A person clicked this. Send them back to the page that can explain
+    // the refusal, not to a JSON body.
+    const codes = check.refusals.map((r) => r.code).join(",");
+    return NextResponse.redirect(new URL(`/applications/${applicationId}/review?refused=${encodeURIComponent(codes)}`, request.url), { status: 303 });
   }
 
   const now = new Date().toISOString();

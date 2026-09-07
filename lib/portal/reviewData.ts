@@ -162,6 +162,12 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   // review screen say "2 questions still need your answer" while also saying
   // "All required questions answered".
   const blocked = requiredBlocked(answers as any);
+  // The submit guard, the approve route and the apply board count EVERY
+  // blocked row, optional ones included; this page counted required rows
+  // only, offered Approve, and the route refused with "2 answers still
+  // blocked". Same number here, so the page never promises what the
+  // route will not do.
+  const blockedAll = answers.filter((a: any) => a.confidence_state === "BLOCKED").length;
   const optionalBlocked = answers.filter((a: any) => !(a.is_required ?? true) && a.confidence_state === "BLOCKED").length;
   // An empty string is a deliberately unticked option checkbox (the
   // Workday runner records the two statements not chosen as ""), not a
@@ -201,7 +207,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     humanApprovedAt: app.human_approved_at ?? null,
     authorizationMode: app.authorization_mode ?? null,
     allFieldsConfident: Boolean(app.all_fields_confident),
-    blockedAnswers: blocked,
+    blockedAnswers: blockedAll,
     requiredUnanswered: unansweredRequired,
     jobVersionIsCurrent: Boolean(version?.is_current),
     storedArtifactSha256: resume?.artifact_sha256 ?? null,
@@ -222,7 +228,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     POSTING_CHANGED: "The job posting changed after this application was prepared.",
     ALREADY_SUBMITTED_ON_OPENING: "You have already applied to this opening.",
     ANSWERS_CHANGED: "The answers changed after this application was approved.",
-    BLOCKED_ANSWERS: `${blocked} question${blocked === 1 ? "" : "s"} still need your answer.`,
+    BLOCKED_ANSWERS: `${blockedAll} question${blockedAll === 1 ? "" : "s"} still open: answer ${blockedAll === 1 ? "it" : "them"} or leave ${blockedAll === 1 ? "it" : "them"} blank on the Questions page.`,
     REQUIRED_UNANSWERED: `${unansweredRequired} required field${unansweredRequired === 1 ? "" : "s"} are unanswered.`,
     FIELDS_NOT_CONFIDENT: "Not every field has a confident answer yet.",
     MATERIAL_QUALIFICATION_GAP: "This role's core qualifications are not established by your verified evidence, so it should not be submitted automatically; review it and apply manually if you choose.",

@@ -27,6 +27,22 @@ export default async function ReviewPage(props: {
   if (!r) redirect("/apply");
 
   const justApproved = (Array.isArray(sp.approved) ? sp.approved[0] : sp.approved) === "1";
+  const refusedRaw = Array.isArray(sp.refused) ? sp.refused[0] : sp.refused;
+  const REFUSAL_TEXT: Record<string, string> = {
+    MATERIAL_QUALIFICATION_GAP: "the role's core qualifications are not established by your verified evidence",
+    BLOCKED_ANSWERS: "some questions are still open (answer them or leave them blank on the Questions page)",
+    REQUIRED_UNANSWERED: "a required field is unanswered",
+    POSTING_NOT_OPEN: "the posting is no longer open",
+    NOT_ELIGIBLE: "the job no longer meets your eligibility rules",
+    CANDIDACY_REFUSES: "this no longer looks like a match",
+    POSTING_CHANGED: "the posting changed after this application was prepared",
+    ALREADY_SUBMITTED_ON_OPENING: "you have already applied to this opening",
+    ARTIFACT_CHANGED: "the resume changed after it was reviewed",
+    ANSWERS_CHANGED: "the answers changed after they were reviewed",
+    FIELDS_NOT_CONFIDENT: "not every field has a confident answer yet",
+    NO_CURRENT_CANDIDACY: "this job has no current candidacy verdict",
+  };
+  const refused = refusedRaw ? String(refusedRaw).split(",").filter(Boolean).map((c) => REFUSAL_TEXT[c] ?? c.toLowerCase().replace(/_/g, " ")) : [];
 
   return (
     <main className="review">
@@ -35,6 +51,12 @@ export default async function ReviewPage(props: {
         <PrimaryNav current="apply" />
       </header>
 
+      {refused.length > 0 && (
+        <div className="banner warn">
+          <strong>Not approved.</strong>{" "}
+          <span>The approval was refused because {refused.join("; and ")}. Fix that and try again.</span>
+        </div>
+      )}
       {justApproved && (
         <div className="banner good">
           <strong>Application approved \u2713</strong>
