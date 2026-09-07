@@ -60,7 +60,7 @@ export default async function ReviewPage(props: {
       )}
       {justApproved && (
         <div className="banner good">
-          <strong>Application approved \u2713</strong>
+          <strong>Application approved &#10003;</strong>
           <span>Nothing has been submitted yet.</span>
         </div>
       )}
@@ -104,7 +104,7 @@ export default async function ReviewPage(props: {
           submitted (terminalState NONE) do the readiness warnings show. */}
       {r.terminalState === "CONFIRMED" ? (
         <div className="banner good">
-          <strong>Submitted successfully \u2713</strong>
+          <strong>Submitted successfully &#10003;</strong>
           <span>Employer confirmed receipt of this application.</span>
         </div>
       ) : r.terminalState === "UNCERTAIN" ? (
@@ -147,7 +147,7 @@ export default async function ReviewPage(props: {
               : r.terminalState === "UNCERTAIN" ? "Uncertain \u2014 not confirmed"
               : "Sent \u2014 awaiting confirmation"}</dd>
             {r.submittedAt && (<><dt>Submitted</dt><dd>{new Date(r.submittedAt).toLocaleString()}</dd></>)}
-            <dt>Employer &amp; role</dt><dd>{r.company} \u2014 {r.title}</dd>
+            <dt>Employer &amp; role</dt><dd>{r.company} &mdash; {r.title}</dd>
             {r.submissionMode && (<><dt>Submission mode</dt><dd>{r.submissionMode}</dd></>)}
             <dt>Resume used</dt><dd>{r.resume.hasArtifact ? "Exact tailored PDF (below)" : "no saved PDF bound"}</dd>
             <dt>Confirmation</dt><dd>{r.confirmed || r.terminalState === "CONFIRMED" ? "Received" : "Not received"}</dd>
