@@ -272,6 +272,17 @@ export default async function ReviewPage(props: {
               saved and will carry on without you.
             </span>
           </p>
+        ) : r.phase === "APPROVED" && r.submitOutcome !== "AMBIGUOUS" && !r.submittedAt && !r.automatable ? (
+          <>
+            <strong>Approved. Finish it on {r.providerLabel}.</strong>
+            <p className="muted">
+              {r.providerLabel} is not submitted by the worker, so the last step is yours: open the employer&rsquo;s
+              form, attach the resume above (Open PDF), and use the answers on this page. Nothing here submits.
+            </p>
+            {r.applyUrl && (
+              <a className="btn-primary big" href={r.applyUrl} target="_blank" rel="noreferrer">Continue on {r.providerLabel}</a>
+            )}
+          </>
         ) : r.phase === "APPROVED" && r.submitOutcome !== "AMBIGUOUS" && !r.submittedAt ? (
           <>
             <form method="post" action="/api/applications/submit-request">

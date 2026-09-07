@@ -246,6 +246,18 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
   }
 
   if (f.status === "READY_TO_SUBMIT" && f.humanApproved && f.allFieldsConfident && !nothingDiscovered) {
+    // Approved on a provider the worker does not submit to (Ashby, Lever,
+    // Workday, or one that is paused): the last step is the person's. Not
+    // "Ready", which is for work running without them, and never "Submit
+    // application", which only produced a declined request.
+    const workerCanSubmit = f.providerCapability === "PRODUCTION" && !f.providerPaused;
+    if (!workerCanSubmit) {
+      const ats = ATS_LABEL[f.provider] ?? f.provider;
+      return { state: "NEEDS_YOU",
+        summary: `Approved. ${ats} is finished by you: open the employer's form, attach the approved resume, and use the reviewed answers. Nothing is submitted for you.`,
+        action: f.applyUrl ? { label: `Continue on ${ats}`, href: f.applyUrl } : { label: "Open application", href: `${href}/review` },
+        secondaryAction: { label: "Resume and answers", href: `${href}/review` } };
+    }
     if (f.submitOutcome === "SAFE_STOP") {
       return { state: "READY",
         summary: "The last attempt stopped before anything was sent. You can try again.",

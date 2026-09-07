@@ -48,7 +48,7 @@ export async function POST(request: Request): Promise<Response> {
   if (app.submitted_at) return NextResponse.json({ error: "already submitted" }, { status: 409 });
 
   const [{ data: job }, { data: answers }, { data: version }] = await Promise.all([
-    db.from("jobs").select("status,eligibility,canonical_opening_id").eq("id", app.job_id).single(),
+    db.from("jobs").select("status,eligibility,canonical_opening_id,source").eq("id", app.job_id).single(),
     db.from("application_answers").select("field_key,answer_text,confidence_state,is_required")
       .eq("application_id", applicationId),
     db.from("job_versions").select("is_current").eq("id", app.job_version_id).maybeSingle(),
@@ -98,6 +98,12 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.redirect(new URL(`/applications/${applicationId}/review?refused=${encodeURIComponent(codes)}`, request.url), { status: 303 });
   }
 
+  // Approval is the authorization to send -- where the worker can send.
+  // Ashby, Lever and Workday are finished by the person; asking the
+  // listener to submit those only produced a declined request a second
+  // later and a page that said "starting submission".
+  const { data: policy } = await db.from("ats_policy").select("capability,paused").eq("provider", (job as any)?.source ?? "").maybeSingle();
+  const workerCanSubmit = policy?.capability === "PRODUCTION" && !policy?.paused;
   const now = new Date().toISOString();
   const { error } = await db.from("applications").update({
     human_approved: true,
@@ -120,7 +126,7 @@ export async function POST(request: Request): Promise<Response> {
     // before anything reaches an employer, and it refuses providers
     // whose adapter is not PRODUCTION -- which is why this cannot
     // submit Workday.
-    submit_requested_at: now,
+    submit_requested_at: workerCanSubmit ? now : null,
   }).eq("id", applicationId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -135,6 +141,7 @@ export async function POST(request: Request): Promise<Response> {
     p_detail: `approved from the review screen by ${auth.user.email ?? auth.user.id}. `
       + `artifact ${resume?.artifact_sha256 ?? "(none)"}, answers ${currentAnswers}, `
       + `${rows.length} answers. Nothing has been submitted.`
+      + (workerCanSubmit ? " Submission requested from the worker." : ` ${(job as any)?.source ?? "This provider"} is finished by the person; no submission was requested.`)
       + (gapOnly && acceptGap ? ` The person chose to apply despite the qualification gap: ${check.refusals[0]!.detail}.` : ""),
   });
   if (auditErr) console.error("approval recorded but the audit event failed:", auditErr.message);
