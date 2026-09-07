@@ -28,6 +28,7 @@ import { firstCharacterLost } from "../lib/workday/textFill.ts";
 import { collapseRadioGroups } from "../lib/workday/radioGroups.ts";
 import { resolveField, guardInheritedAnswer, type ResolveContext } from "../lib/applications/answer.ts";
 import { loadContext, applicationScope } from "../lib/applications/prepare.ts";
+import { promoteRequestedAnswers } from "../lib/feedback/promote.ts";
 import { chooseAdvance, classifyAcceptance } from "../lib/workday/advance.ts";
 
 const ID = process.argv[2] ?? "35eaed21-599e-4480-bc7b-192677c80f18";
@@ -56,6 +57,11 @@ const tenant = tenantFromToken(co!.ats_token);
  * live tables, so a resolution made now matches the one the resume was
  * rendered from.
  */
+// Answers confirmed on earlier applications are reusable here only once
+// promoted; do that first, so a question already answered word for word
+// is recalled rather than asked again.
+const promoted = await promoteRequestedAnswers(db, "user:plebantyler@gmail.com").catch((e: any) => { console.log(`  (promotion skipped: ${e.message})`); return [] as any[]; });
+if (promoted.length) console.log(`  promoted ${promoted.filter((p: any) => !p.skipped).length} confirmed answer(s) for reuse`);
 const ctx: ResolveContext = await loadContext(db);
 ctx.application = await applicationScope(db, job!.id).catch(() => undefined);
 

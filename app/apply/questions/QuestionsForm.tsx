@@ -17,6 +17,8 @@ export interface FormItem {
   applyUrl?: string | null;          // employer's own form, for a file upload completed there
   /** For a follow-up question: the question it follows and how that was answered. */
   context?: string | null;
+  /** An agreement or acknowledgement: given to one employer, never reused for another. */
+  consent?: boolean;
 }
 
 /** A file upload cannot be answered by typing; it is never accepted here. */
@@ -73,7 +75,11 @@ export function QuestionsForm({ data }: { data: FormData }) {
       .filter(({ it, d }) => d && (d.blank || d.value.trim().length > 0) && (d.blank || !it.required || d.value.trim().length > 0))
       .map(({ it, d }) => ({
         answerId: it.controlId, answer: d!.blank ? "" : d!.value.trim(),
-        leaveBlank: d!.blank, promote: false, reuseAnswerIds: it.reuseAnswerIds,
+        // A typed answer is remembered: the worker classifies it (a fact
+        // about the person, a stable reply, or this exact wording only)
+        // and reuses it wherever that holds, so the same question is never
+        // asked twice. A blank and an agreement are one-off.
+        leaveBlank: d!.blank, promote: !d!.blank && !it.consent, reuseAnswerIds: it.reuseAnswerIds,
       }));
     if (toSend.length === 0) { setBanner("Nothing to save yet. Answer at least one question."); setSaving(false); return; }
     try {

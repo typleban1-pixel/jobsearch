@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { currentSession } from "../../../lib/portal/session.ts";
 import { loadBlockedGroups, answerIdsFor } from "../../../lib/portal/applyBoard.ts";
-import { summarize } from "../../../lib/portal/questionGroups.ts";
+import { summarize, isConsent } from "../../../lib/portal/questionGroups.ts";
 import { PrimaryNav } from "../../PrimaryNav.tsx";
 import { QuestionsForm, type FormData, type FormItem } from "./QuestionsForm.tsx";
 
@@ -68,7 +68,7 @@ export default async function ConsolidatedQuestions() {
         controlId, reuseAnswerIds, question, blockedReason: g.blockedReason,
         required: g.required, options: g.universalOptions, type: primary.type,
         applications: [...new Set(g.fields.map((f) => f.applicationLabel))], applicationId: null,
-        applyUrl: primary.applyUrl ?? null, context: sharedContext,
+        applyUrl: primary.applyUrl ?? null, context: sharedContext, consent: isConsent(primary),
       });
       total += 1;
       continue;
@@ -83,7 +83,7 @@ export default async function ConsolidatedQuestions() {
         controlId, reuseAnswerIds: [], question: f.questionText || f.label || question,
         blockedReason: f.blockedReason ?? g.blockedReason, required: f.required,
         options: f.options, type: f.type, applications: [f.applicationLabel], applicationId: f.applicationId,
-        applyUrl: f.applyUrl ?? null, context: contextOf(f),
+        applyUrl: f.applyUrl ?? null, context: contextOf(f), consent: isConsent(f),
       };
       const list = byApplication.get(f.applicationLabel) ?? [];
       list.push(item); byApplication.set(f.applicationLabel, list);

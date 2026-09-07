@@ -225,6 +225,9 @@ if (kind === "daily") {
   // authorized until this re-decides them and drops the failing ones to
   // review. Never touches a human approval; hardcodes no job.
   steps.push(await run("reconcile-auth", ["scripts/reconcile-authorizations.ts", "--commit"]));
+  // Answers a person confirmed since the last run become reusable: banked
+  // by intent, or keyed on their exact wording (lib/feedback/classify.ts).
+  steps.push(await run("promote-answers", ["scripts/promote-answers.ts"]));
   // Opt-out, so validating discovery and scoring does not have to spend
   // model budget preparing applications as a side effect. The default is
   // unchanged: the scheduled run still prepares.
