@@ -95,6 +95,12 @@ for (let i = 0; i < remove.length; i += 100) {
 const { data: still } = await db.from("application_answers").select("id").eq("application_id", id).eq("confidence_state", "BLOCKED");
 const blocked = (still ?? []).length;
 const status = blocked > 0 ? "BLOCKED_NEEDS_INPUT" : (app.human_approved ? app.status : "AWAITING_REVIEW");
+// The lifecycle allows DRAFT -> PREPARING only; a Workday application that
+// was never prepared by prepareApplication steps through PREPARING here.
+if (app.status === "DRAFT" && status !== "DRAFT") {
+  const { error: stepErr } = await db.from("applications").update({ status: "PREPARING" }).eq("id", id);
+  if (stepErr) throw new Error(`DRAFT -> PREPARING: ${stepErr.message}`);
+}
 const { error } = await db.from("applications").update({
   status, prepared_at: new Date().toISOString(),
   blocked_reason: blocked > 0 ? `${blocked} field(s) on the employer's form need your answer` : null,
