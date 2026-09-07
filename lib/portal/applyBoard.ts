@@ -26,6 +26,9 @@ export interface ApplyRow {
   title: string;
   provider: string;
   submittedAt: string | null;
+  /** For a batched row: when the listener may run it (null = as soon as it can). */
+  submitNotBefore: string | null;
+  submitRunning: boolean;
   match: MatchScoreResult | null;
   presentation: Presentation;
   /** What the preparation produced, summarised: the card says "6/7 answered", not six green boxes. */
@@ -111,7 +114,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
     "id,job_id,job_version_id,status,human_approved,human_approved_at,all_fields_confident," +
     "submitted_at,confirmation_email_received,confirmation_reference,blocked_reason," +
     "approved_artifact_sha256,approved_answers_sha256,resume_id,is_test," +
-    "submit_requested_at,submit_started_at,submit_outcome,prepare_started_at,policy_snapshot",
+    "submit_requested_at,submit_started_at,submit_not_before,submit_outcome,prepare_started_at,policy_snapshot",
     (q) => q.or("is_test.is.null,is_test.eq.false"));
   const jobIds = [...new Set(apps.map((a) => a.job_id).filter(Boolean))];
   const versionIds = [...new Set(apps.map((a) => a.job_version_id).filter(Boolean))];
@@ -293,6 +296,7 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       handoffReason: firstSentenceOf(a.blocked_reason),
       submitQueued: Boolean(a.submit_requested_at && !a.submit_started_at),
       submitRunning: Boolean(a.submit_requested_at && a.submit_started_at),
+      submitNotBefore: a.submit_not_before ?? null,
       submitOutcome: a.submit_outcome ?? null,
       // A worker holds a fresh prepare claim, or the row is mid-transition
       // in PREPARING: only then does the card read "Preparing". A DRAFT that
@@ -306,6 +310,8 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
       company: nameById.get(j.company_id) ?? "Unknown",
       title: j.title, provider: j.source,
       submittedAt: a.submitted_at ?? null,
+      submitNotBefore: a.submit_not_before ?? null,
+      submitRunning: Boolean(a.submit_requested_at && a.submit_started_at),
       match: matchScores.get(a.job_id) ?? null,
       presentation: present(facts, a.id),
       progress: {

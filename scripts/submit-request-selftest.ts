@@ -91,7 +91,11 @@ const BASE: ApplicationFacts = {
 const p = (f: Partial<ApplicationFacts>) => present({ ...BASE, ...f }, "app-1");
 
 // Approved and handed to the submitter is Ready: the person's part is done.
-check("a queued request reads as approved and queued", p({ submitQueued: true }).summary === "Approved. Queued to submit." && p({ submitQueued: true }).state === "READY", p({ submitQueued: true }).summary);
+check("a queued request whose hold has passed reads as approved and queued", p({ submitQueued: true }).summary === "Approved. Queued to submit." && p({ submitQueued: true }).state === "READY", p({ submitQueued: true }).summary);
+{
+  const held = p({ submitQueued: true, submitNotBefore: new Date(Date.now() + 3 * 3_600_000).toISOString() });
+  check("a batched request names the run it waits for", held.state === "READY" && /^Approved\. Applies at .* (today|tonight|tomorrow|on [A-Z][a-z]+)\.$/.test(held.summary), held.summary);
+}
 check("a running request reads as submitting", /Submitting/.test(p({ submitRunning: true }).summary) && p({ submitRunning: true }).state === "READY", "");
 // A way to look at it, never a way to send it again: a second Submit while
 // one is queued or running is the double-submission this file exists to prevent.

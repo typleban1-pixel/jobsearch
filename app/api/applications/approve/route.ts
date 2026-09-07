@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { userClient } from "../../../../lib/portal/supabase.ts";
 import { revalidateBeforeSubmit } from "../../../../lib/applications/revalidate.ts";
 import { answerSetHash } from "../../../../lib/applications/approvalBinding.ts";
+import { nextSubmitWindow } from "../../../../lib/automation/submitWindows.ts";
 
 /**
  * Approving an application.
@@ -127,6 +128,10 @@ export async function POST(request: Request): Promise<Response> {
     // whose adapter is not PRODUCTION -- which is why this cannot
     // submit Workday.
     submit_requested_at: workerCanSubmit ? now : null,
+    // Batched, not immediate: the listener holds the request until the
+    // next scheduled run (midnight, 8:00, 16:00 local). "Apply now" on
+    // the Batched page clears the hold.
+    submit_not_before: workerCanSubmit ? nextSubmitWindow(new Date(now)).toISOString() : null,
     // "Approve anyway": the choice to apply despite the qualification gap
     // is recorded where the submit guard reads it, and cleared with the
     // approval whenever the résumé or the authorization is reset.
@@ -147,10 +152,12 @@ export async function POST(request: Request): Promise<Response> {
     p_detail: `approved from the review screen by ${auth.user.email ?? auth.user.id}. `
       + `artifact ${resume?.artifact_sha256 ?? "(none)"}, answers ${currentAnswers}, `
       + `${rows.length} answers. Nothing has been submitted.`
-      + (workerCanSubmit ? " Submission requested from the worker." : ` ${(job as any)?.source ?? "This provider"} is finished by the person; no submission was requested.`)
+      + (workerCanSubmit ? ` Submission requested from the worker, batched for the next scheduled run (${nextSubmitWindow(new Date(now)).toISOString()}).` : ` ${(job as any)?.source ?? "This provider"} is finished by the person; no submission was requested.`)
       + (gapOnly && acceptGap ? ` The person chose to apply despite the qualification gap: ${check.refusals[0]!.detail}.` : ""),
   });
   if (auditErr) console.error("approval recorded but the audit event failed:", auditErr.message);
 
-  return NextResponse.redirect(new URL(`/applications/${applicationId}/review?approved=1`, request.url), { status: 303 });
+  // An approved application that the worker will send goes to the batch;
+  // one the person finishes themselves stays on its review page.
+  return NextResponse.redirect(new URL(workerCanSubmit ? `/batched#application-${applicationId}` : `/applications/${applicationId}/review?approved=1`, request.url), { status: 303 });
 }

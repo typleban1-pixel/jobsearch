@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { userClient } from "../../../../lib/portal/supabase.ts";
+import { nextSubmitWindow } from "../../../../lib/automation/submitWindows.ts";
 
 /**
  * Ask the local worker to run an application you already approved.
@@ -51,10 +52,11 @@ export async function POST(request: Request): Promise<Response> {
   // and redirected as though the click had worked. Errors are checked
   // now: a request that cannot be recorded must not look successful.
   const { error } = await db.from("applications")
-    .update({ submit_requested_at: new Date().toISOString(), submit_started_at: null })
+    .update({ submit_requested_at: new Date().toISOString(), submit_started_at: null,
+      submit_not_before: nextSubmitWindow().toISOString() })
     .eq("id", applicationId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const safe = returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/applications";
+  const safe = returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : `/batched#application-${applicationId}`;
   return NextResponse.redirect(new URL(safe, request.url), { status: 303 });
 }

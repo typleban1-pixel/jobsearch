@@ -58,6 +58,8 @@ export interface ReviewData {
   submissionMode: string | null;
   submitQueued: boolean;
   submitRunning: boolean;
+  /** For a queued request: the earliest the listener may run it (null = as soon as it can). */
+  submitNotBefore: string | null;
   submitOutcome: "CONFIRMED" | "SAFE_STOP" | "AMBIGUOUS" | "DECLINED" | null;
   clickAttemptedAt: string | null;
   approved: boolean;
@@ -367,6 +369,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     submissionMode: app.submission_mode ?? null,
     submitQueued: Boolean(app.submit_requested_at && !app.submit_started_at),
     submitRunning: Boolean(app.submit_requested_at && app.submit_started_at),
+    submitNotBefore: app.submit_not_before ?? null,
     submitOutcome: app.submit_outcome ?? null,
     clickAttemptedAt: app.submit_click_attempted_at ?? null,
     approved: Boolean(app.human_approved),

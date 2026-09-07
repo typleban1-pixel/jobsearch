@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { userClient } from "../../../../lib/portal/supabase.ts";
 import { retryAllowed } from "../../../../lib/applications/submitOutcome.ts";
+import { nextSubmitWindow } from "../../../../lib/automation/submitWindows.ts";
 
 /**
  * Asking the local worker to submit an application.
@@ -51,6 +52,7 @@ export async function POST(request: Request): Promise<Response> {
     .update({
       submit_requested_at: new Date().toISOString(),
       submit_started_at: null,
+      submit_not_before: nextSubmitWindow().toISOString(),
       submit_outcome: null,
       submit_outcome_at: null,
       submit_click_attempted_at: null,
@@ -68,9 +70,9 @@ export async function POST(request: Request): Promise<Response> {
       p_application_id: applicationId,
       p_event: "SUBMIT_REQUESTED",
       p_detail: `requested from the portal by ${auth.user.email ?? auth.user.id}. `
-        + `The local worker will re-run every guard immediately before submitting.`,
+        + `Batched for the next scheduled run. The local worker will re-run every guard immediately before submitting.`,
     }).then(() => undefined, () => undefined);
   }
 
-  return NextResponse.redirect(new URL(`/applications/${applicationId}/review`, request.url), { status: 303 });
+  return NextResponse.redirect(new URL(`/batched#application-${applicationId}`, request.url), { status: 303 });
 }

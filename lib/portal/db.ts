@@ -600,7 +600,7 @@ async function loadOverlays(db: SupabaseClient) {
     // the Applications page gives it.
     db.from("applications")
       .select("id,job_id,status,submitted_at,canonical_opening_id,human_approved,all_fields_confident,"
-        + "confirmation_email_received,confirmation_reference,submit_requested_at,submit_started_at,"
+        + "confirmation_email_received,confirmation_reference,submit_requested_at,submit_started_at,submit_not_before,"
         + "submit_outcome,blocked_reason,prepare_started_at")
       .or("is_test.is.null,is_test.eq.false"),
     db.from("ats_policy").select("provider,paused,capability"),

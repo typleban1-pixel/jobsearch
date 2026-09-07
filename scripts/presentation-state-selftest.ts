@@ -117,7 +117,7 @@ check("a draft with nothing needed is Preparing and offers no action",
 {
   const { STATE_LABEL, sourceLabel } = await import("../lib/portal/presentationState.ts");
   check("the five state words are the human ones",
-    STATE_LABEL.NEEDS_YOU === "Needs you" && STATE_LABEL.READY === "Ready" && STATE_LABEL.PREPARING === "Preparing"
+    STATE_LABEL.NEEDS_YOU === "Needs you" && STATE_LABEL.READY === "Batched" && STATE_LABEL.PREPARING === "Preparing"
     && STATE_LABEL.SUBMITTED === "Submitted" && STATE_LABEL.CLOSED === "Closed", JSON.stringify(STATE_LABEL));
   check("every ATS has a friendly name", ["GREENHOUSE", "LEVER", "ASHBY", "WORKDAY", "SMARTRECRUITERS", "ICIMS", "JOBVITE"]
     .every((k) => !/^[A-Z_]+$/.test(sourceLabel(k))), ["SMARTRECRUITERS", "ICIMS"].map(sourceLabel).join(", "));

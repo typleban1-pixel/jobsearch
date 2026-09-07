@@ -12,6 +12,8 @@
  * reported here was decided by the submission guard, not invented.
  */
 
+import { describeWindow, isDue } from "../automation/submitWindows.ts";
+
 export type PresentationState = "NEEDS_YOU" | "PREPARING" | "READY" | "SUBMITTED" | "CLOSED";
 
 export interface ApplicationFacts {
@@ -43,6 +45,8 @@ export interface ApplicationFacts {
   discoveredFields?: number;
   /** A worker has claimed the request and is running it now. */
   submitRunning?: boolean;
+  /** The earliest the listener may run a queued request: the next scheduled run, or null for "as soon as it can". */
+  submitNotBefore?: string | null;
   /** How the last request ended. */
   submitOutcome?: "CONFIRMED" | "SAFE_STOP" | "AMBIGUOUS" | "DECLINED" | null;
   /** The provider's adapter capability and pause state, when known. Unknown leaves the READY paths as they were. */
@@ -119,7 +123,7 @@ export function sourceLabel(provider: string | null | undefined): string {
 
 /** The four words a person operates in, plus the quiet fifth. Used on every surface. */
 export const STATE_LABEL: Record<PresentationState, string> = {
-  NEEDS_YOU: "Needs you", PREPARING: "Preparing", READY: "Ready", SUBMITTED: "Submitted", CLOSED: "Closed",
+  NEEDS_YOU: "Needs you", PREPARING: "Preparing", READY: "Batched", SUBMITTED: "Submitted", CLOSED: "Closed",
 };
 
 /**
@@ -139,6 +143,7 @@ export interface ApplicationRowFacts {
   confirmation_reference?: string | null;
   submit_requested_at?: string | null;
   submit_started_at?: string | null;
+  submit_not_before?: string | null;
   submit_outcome?: string | null;
   blocked_reason?: string | null;
   prepare_started_at?: string | null;
@@ -166,6 +171,7 @@ export function factsFromRow(
     handoffReason: null,
     submitQueued: Boolean(row.submit_requested_at && !row.submit_started_at),
     submitRunning: Boolean(row.submit_requested_at && row.submit_started_at),
+    submitNotBefore: row.submit_not_before ?? null,
     submitOutcome: (row.submit_outcome as ApplicationFacts["submitOutcome"]) ?? null,
     activelyPreparing: Boolean(row.prepare_started_at) || row.status === "PREPARING",
     blockedReason: row.blocked_reason ?? null,
@@ -179,7 +185,8 @@ export function factsFromRow(
  */
 export function stateHref(p: Presentation, applicationId: string): string {
   if (p.action?.href.startsWith("/apply/questions")) return `/apply/questions#app-${applicationId}`;
-  if (p.state === "NEEDS_YOU" || p.state === "READY") return `/applications/${applicationId}/review`;
+  if (p.state === "NEEDS_YOU") return `/applications/${applicationId}/review`;
+  if (p.state === "READY") return `/batched#application-${applicationId}`;
   return `/applications/${applicationId}`;
 }
 
@@ -208,15 +215,18 @@ export function present(f: ApplicationFacts, applicationId: string): Presentatio
     };
   }
 
-  // Approved and handed to the submitter. This is what "Ready" means: the
-  // person's part is done and the work is running without them. It used
-  // to read as Preparing, which is the word for the work BEFORE review.
+  // Approved and handed to the submitter. This is what "Batched" means: the
+  // person's part is done and the work runs without them, at the next
+  // scheduled run (or at once, after "Apply now"). It used to read as
+  // Preparing, which is the word for the work BEFORE review.
   if (f.submitRunning) {
     return { state: "READY", summary: "Approved. Submitting now\u2026",
       action: { label: "View application", href: `${href}/review` } };
   }
   if (f.submitQueued) {
-    return { state: "READY", summary: "Approved. Queued to submit.",
+    const held = f.submitNotBefore && !isDue(f.submitNotBefore);
+    return { state: "READY",
+      summary: held ? `Approved. Applies ${describeWindow(new Date(f.submitNotBefore!))}.` : "Approved. Queued to submit.",
       action: { label: "View application", href: `${href}/review` } };
   }
 

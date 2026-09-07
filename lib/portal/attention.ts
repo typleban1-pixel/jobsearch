@@ -1,17 +1,25 @@
 /**
- * How many applications need the person right now: the number on the
- * Applications navigation item.
+ * The numbers on the navigation: how many applications need the person,
+ * and how many are batched for the next run.
  *
- * Not the total. Twenty applications with three waiting on a person is
- * "3". It is the same number the Applications page puts over its first
- * section, computed by the same loader, so the badge and the page can
- * never disagree about what "needs you" means. The page itself passes its
- * count in; every other page streams this after rendering.
+ * Not totals. Twenty applications with three waiting on a person is "3".
+ * They are the same numbers the Applications and Batched pages put over
+ * their lists, computed by the same loader, so a badge and its page can
+ * never disagree. A page that already holds the board passes its counts
+ * in; every other page streams them after rendering. One board load per
+ * request: React's cache() dedupes the two badges.
  */
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadApplyBoard } from "./applyBoard.ts";
 
-export async function loadAttentionCount(db: SupabaseClient): Promise<number> {
+export interface NavCounts { needsYou: number; batched: number }
+
+export const loadNavCounts = cache(async (db: SupabaseClient): Promise<NavCounts> => {
   const board = await loadApplyBoard(db);
-  return board.needsYou.length;
+  return { needsYou: board.needsYou.length, batched: board.ready.length };
+});
+
+export async function loadAttentionCount(db: SupabaseClient): Promise<number> {
+  return (await loadNavCounts(db)).needsYou;
 }

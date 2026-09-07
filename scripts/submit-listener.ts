@@ -77,11 +77,16 @@ async function poll(): Promise<void> {
     .is("submitted_at", null)
     .lt("submit_started_at", stale);
 
+  // Only requests whose hold has passed. A person's approval is batched
+  // for the next scheduled run (submit_not_before); "Apply now" in the
+  // portal moves that to the present; a null hold runs at once.
   const { data: waiting, error } = await db.from("applications")
     .select("id,job_id,human_approved,authorization_mode,all_fields_confident,status")
     .not("submit_requested_at", "is", null)
     .is("submit_started_at", null)
     .is("submitted_at", null)
+    .or(`submit_not_before.is.null,submit_not_before.lte.${new Date().toISOString()}`)
+    .order("submit_not_before", { ascending: true, nullsFirst: true })
     .limit(5);
   if (error) { log(`query failed: ${error.message}`); return; }
   if (!waiting?.length) return;
