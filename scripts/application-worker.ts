@@ -223,7 +223,7 @@ if (!commit) {
 
 // ---- do the work, one isolated application at a time -------------------
 const results: Array<{ company: string; title: string; action: string; outcome: string }> = [];
-let prepared = 0, submitted = 0, handedOff = 0, failed = 0;
+let prepared = 0, submitted = 0, handedOff = 0, failed = 0, skipped = 0;
 
 for (const w of work.slice(0, limit)) {
   const company = companyName.get(w.job.company_id) ?? "unknown";
@@ -240,6 +240,17 @@ for (const w of work.slice(0, limit)) {
         failed++; results.push({ company, title: w.job.title, action: w.disposition.action, outcome: `preparation failed: ${r.tail}` });
         console.log(`  FAILED to prepare: ${r.tail.slice(0, 200)}`);
         continue;                                   // the queue continues
+      }
+      // prepare-application exits 0 when it declines with a reason ("not
+      // prepared: ..."): a stale or MANUAL_REVIEW candidacy, a closed job, a
+      // live application on the same opening. That is a decision, not a
+      // fault, and it is reported in its own words rather than as a
+      // missing row.
+      const declined = /not prepared: (.+?)(?: \| |$)/.exec(r.tail)?.[1];
+      if (declined) {
+        skipped++; results.push({ company, title: w.job.title, action: w.disposition.action, outcome: `not prepared: ${declined}` });
+        console.log(`  not prepared: ${declined.slice(0, 200)}`);
+        continue;
       }
       prepared++;
       // A job can carry several application rows (closed/abandoned history plus
@@ -402,5 +413,5 @@ for (const w of work.slice(0, limit)) {
 }
 
 console.log(`\n${"-".repeat(60)}`);
-console.log(`prepared ${prepared} · submitted ${submitted} · routed to review or held ${handedOff} · failed ${failed}`);
+console.log(`prepared ${prepared} · submitted ${submitted} · routed to review or held ${handedOff} · not prepared (declined with a reason) ${skipped} · failed ${failed}`);
 for (const r of results) console.log(`  ${r.action.padEnd(6)} ${r.company.slice(0, 22).padEnd(24)} ${r.title.slice(0, 40).padEnd(42)} ${r.outcome.slice(0, 60)}`);

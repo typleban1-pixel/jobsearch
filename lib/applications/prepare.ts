@@ -260,7 +260,7 @@ async function checkCandidacy(db: SupabaseClient, jobId: string): Promise<
 
   const { data: prof } = await db.from("profile").select("profile_version").single();
   const { data: rows } = await db.from("job_candidacy")
-    .select("id,verdict,profile_version,formula_version,taxonomy_version,model_version")
+    .select("id,verdict,profile_version,formula_version,taxonomy_version,model_version,reason_codes,reason")
     .eq("job_id", jobId).order("created_at", { ascending: false }).limit(20);
   const all = rows ?? [];
   if (!all.length) {
@@ -279,9 +279,15 @@ async function checkCandidacy(db: SupabaseClient, jobId: string): Promise<
         + `taxonomy ${TAXONOMY_VERSION}, model ${CANDIDACY_MODEL_VERSION}. Rescore before preparing.` };
   }
   if (mayPrepare(current.verdict as Verdict)) return { ok: true, verdict: current.verdict as Verdict, id: current.id };
+  // Say what the verdict actually rests on. MANUAL_REVIEW covers an
+  // unassessed posting, an unresolved role-defining requirement and a
+  // posting with nothing to discriminate on, and "gating credential" was
+  // true of only one of those.
+  const codes: string[] = ((current as any).reason_codes ?? []) as string[];
+  const reason = (current as any).reason ? `: ${(current as any).reason}` : "";
   return { ok: false, verdict: current.verdict as Verdict, id: current.id,
     refusedReason: current.verdict === "MANUAL_REVIEW"
-      ? "candidacy is MANUAL_REVIEW: an unresolved gating credential needs a human answer before this can proceed"
+      ? `candidacy is MANUAL_REVIEW (${codes.join(", ") || "no reason code"})${reason}; a person decides before this can proceed`
       : "candidacy is REJECT for this job" };
 }
 
