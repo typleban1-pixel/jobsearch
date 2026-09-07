@@ -66,6 +66,10 @@ export const PERSONAL_FACT_INTENTS: Record<string, string> = {
  */
 export const EMPLOYER_INTENTS = new Set([
   "previously_employed_here", "relatives_at_company",
+  // "Samsara Careers Site" is how he heard about Samsara. Banked as
+  // reusable, it was typed into Shepherd's form as how he heard about
+  // Shepherd. The channel is a fact about one employer's posting.
+  "referral_source",
 ]);
 
 export const CONTEXTUAL_INTENTS = new Set([

@@ -71,7 +71,7 @@ const SYSTEM = (name: string, kind: string, limit: number | null) =>
   + `management scope, industry tenure, or cause-and-effect that is not in the FACTS. `
   + `Do not overstate: reading a language is not speaking it; having previously held a certificate is not holding it now; `
   + `an aspiration is not a plan. `
-  + (limit ? `Keep the answer at or under ${limit} characters. ` : `Keep it concise (a few sentences). `)
+  + (limit ? `Keep the answer at or under ${limit} characters. ` : `Keep it concise: three to five sentences, never more than 120 words. `)
   + `If the FACTS do not actually let you answer THIS question, output exactly: INSUFFICIENT. `
   + (kind === "PERSONALITY"
       ? `This is a low-stakes personality/interest question; pick whichever facts fit best and answer warmly.`
@@ -90,7 +90,7 @@ async function draft(input: ComposeInput, extra: string, usage: LlmUsage[]): Pro
       + input.facts.map((f, i) => `${i + 1}. ${f}`).join("\n")
       + ctx + (extra ? `\n\n${extra}` : "")
       + `\n\nWrite the answer now (or exactly INSUFFICIENT).`,
-    maxOutputTokens: 600, temperature: 0.5,
+    maxOutputTokens: 900, temperature: 0.5,
   });
   usage.push(r.usage);
   return String(r.content).trim();

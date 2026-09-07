@@ -50,7 +50,7 @@ const PERSONALITY: RegExp[] = [
 const GROUNDED: RegExp[] = [
   /\bwhy (?:are you |do you |would you )?(?:interested|excited|applying|keen)\b/i,
   /\bwhy (?:this|our|the) (?:role|position|company|team|job|opportunity)\b/i,
-  /\bwhat (?:interests|excites|draws|attracts|appeals to) you\b/i,
+  /\bwhat (?:interests?|excite[sd]?|drew|draws|attract(?:s|ed)|appeal(?:s|ed) to|motivate[sd]?) you\b/i,
   /\btell us about (?:your |a |any )?(?:relevant )?experience\b/i,
   /\bdescribe (?:a|your|how|an? )\b/i,
   /\bhow (?:do|would|have) you (?:approach|handle|deal with|manage|navigate)\b/i,

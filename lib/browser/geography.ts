@@ -257,3 +257,27 @@ export function qualifiedGeoMatches(
     return opt.slice(answer.length).every((extra) => supplied.includes(extra));
   });
 }
+
+/**
+ * Options that name the profile's own state or country, for a control that
+ * offers only places coarser than the answer.
+ *
+ * An Ashby "Location" configured as a country picker cannot hold
+ * "Cleveland"; the honest entry is the country the profile states. The
+ * state is preferred when offered (it says more), then the country; both
+ * are matched as whole places, so "United States" is accepted and
+ * "United States Minor Outlying Islands" is not. Returns exactly the
+ * matches at the finest level that has any, or nothing.
+ */
+export function coarserGeoMatches(
+  options: string[], profile: { state?: string | null; country?: string | null },
+): string[] {
+  const state = profile.state ? normalizeRegionName(String(profile.state)) : null;
+  const country = profile.country ? normalizeCountryName(String(profile.country)) : null;
+  for (const want of [state ? [state, country].filter(Boolean).join(", ") : null, state, country]) {
+    if (!want) continue;
+    const hits = options.filter((o) => sameGeography(o, want));
+    if (hits.length) return hits;
+  }
+  return [];
+}

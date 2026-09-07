@@ -11,6 +11,7 @@
  * this file.
  */
 import { matchIntent, INTENTS, type Intent } from "./intents.ts";
+import { isDemographicField, resolveEeoOption, isDeclineOption, isVoluntarySelfIdField } from "../browser/eeo.ts";
 import { resolveYearsQuestion, type EmploymentRecord } from "../scoring/experienceDuration.ts";
 import { normalizeQuestion } from "../feedback/classify.ts";
 import { recallAnswer, recallIntent, type RecallStore } from "../feedback/recall.ts";
@@ -331,7 +332,29 @@ function fitOption(field: FormField, value: string): { ok: true; value: string }
       o.trim().toLowerCase() === want || optionLabel(o).toLowerCase() === want);
     if (exact) return { ok: true, value: exact };
   }
+  // A self-identification control: the standard synonyms the EEO resolver
+  // already sanctions ("Male" offered as "Man"), never a decline chosen on
+  // the person's behalf here.
+  if (isDemographicField(field.label)) {
+    const c = resolveEeoOption(value, options, field.label);
+    if (c.kind === "EXACT" || c.kind === "SYNONYM") return { ok: true, value: c.option };
+  }
+  // Pronouns: "He/him/his" and "He/Him" are the same set written to a
+  // different length. Equal when every pronoun the shorter one lists is a
+  // prefix of the longer one's list, case-insensitively.
+  if (/\bpronouns?\b/i.test(field.label)) {
+    const hit = options.filter((o) => samePronouns(o, value));
+    if (hit.length === 1) return { ok: true, value: hit[0]! };
+  }
   return { ok: false, why: `the derived answer "${value}" is not one of the offered options (${options.slice(0, 8).join(", ")}${options.length > 8 ? ", ..." : ""})` };
+}
+
+export function samePronouns(a: string, b: string): boolean {
+  const split = (s: string) => s.toLowerCase().split(/\s*\/\s*/).map((t) => t.trim()).filter(Boolean);
+  const x = split(a), y = split(b);
+  if (x.length < 2 || y.length < 2) return false;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  return short.every((t, i) => t === long[i]);
 }
 
 /**
@@ -547,10 +570,46 @@ function resolveExperienceYears(
     considered: [{ rowId: null, what: calc, whyRejected: "" }], refused: false };
 }
 
+/** A question asking for the NAME of whoever referred the applicant. */
+export const REFERRER_NAME = /\bwho (?:were you )?referred\b|\breferred (?:to|by)\b[^?]*\b(?:who|whom|name)\b|\bname of (?:the |your )?(?:employee|person|referrer|contact)\b|\breferr(?:er|al)(?:'s)? (?:name|email)\b|\bwho referred you\b/i;
+
 export function resolveField(field: FormField, ctx: ResolveContext): ResolvedField {
   const result = resolveFieldFromTruth(field, ctx);
-  if (result.confidence !== "BLOCKED" || result.refused || !ctx.learned) return result;
-  return answerFromHumanFeedback(field, ctx, result);
+  if (result.confidence !== "BLOCKED" || result.refused) return result;
+  const learned = ctx.learned ? answerFromHumanFeedback(field, ctx, result) : result;
+  if (learned.confidence !== "BLOCKED" || learned.refused) return learned;
+  return declineVoluntarySelfId(field, learned);
+}
+
+/**
+ * An OPTIONAL self-identification question nobody has answered takes the
+ * form's own "prefer not to answer".
+ *
+ * "What is your current age?" and "Which communities do you belong to?"
+ * are voluntary surveys with a decline option printed on them. Left
+ * BLOCKED, they held up approval of an otherwise complete application
+ * over a question the person is entitled not to answer, and would have
+ * asked them to type an age bracket into a review screen. Declining
+ * states nothing about the person; it is exactly what a person who skips
+ * the question does. Never for a required field, never where the bank or
+ * the person has given an answer (those resolve above), and never a
+ * substantive question: only wording this recognises as self-ID.
+ */
+function declineVoluntarySelfId(field: FormField, blockedResult: ResolvedField): ResolvedField {
+  if (field.required) return blockedResult;
+  const opts = field.options ?? [];
+  const decline = opts.filter((o) => isDeclineOption(o));
+  if (decline.length !== 1 || !isVoluntarySelfIdField(field.label)) return blockedResult;
+  return {
+    field, intentKey: blockedResult.intentKey ?? "voluntary_self_id",
+    matchedBy: "voluntary self-identification with no stored answer: the form's own decline option",
+    answer: decline[0]!, confidence: "LOW_STAKES_SURVEY", blockKind: null, blockedReason: null,
+    evidenceIds: [],
+    considered: [...blockedResult.considered, { rowId: null,
+      what: `optional self-identification question; "${decline[0]}" chosen`,
+      whyRejected: "declining asserts nothing about the applicant and is not evidence; a confirmed answer, if one is ever given, replaces it" }],
+    refused: false,
+  };
 }
 
 /**
@@ -882,6 +941,24 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
     }
     return blocked(field, intent.key, matchedBy, "UNKNOWN",
       "this asks for something specific to this employer, which the profile cannot supply on its own.");
+  }
+
+  // 3a. "Who referred you?" on a posting this system found for itself.
+  //
+  // Nobody did. The job came from the employer's own job board through
+  // ingest, so an OPTIONAL referrer-name field is left blank as not
+  // applicable rather than parked as a question, and never answered from
+  // any stored "how did you hear" preference (which is how "Samsara
+  // Careers Site" was once typed in as the name of a Fieldguide referrer).
+  // A required one still blocks: a form that insists on a referrer is a
+  // form that wants a person to decide.
+  if (REFERRER_NAME.test(field.label) && !field.required && ctx.application?.jobId) {
+    return { field, intentKey: "referrer_name", matchedBy: `${matchedBy}; a referrer's name, on a posting found by this system`,
+      answer: null, confidence: "DERIVED", blockKind: null, blockedReason: null,
+      evidenceIds: [ctx.application.jobId],
+      considered: [{ rowId: null, what: "the posting was discovered on the employer's job board by this system; no one referred the applicant",
+        whyRejected: "n/a: the field is left blank as not applicable" }],
+      refused: false };
   }
 
   // 3b. A low-stakes recruiting/attribution survey question ("how did you

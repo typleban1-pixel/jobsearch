@@ -101,3 +101,11 @@ ok(!isDisabilityField("How do you identify? (gender identity)"), "gender is not 
 
 console.log(`${n-bad}/${n} assertions passed`);
 process.exit(bad?1:0);
+
+{
+  const FEDERAL = ["Hispanic or Latino", "White (Not Hispanic or Latino)", "Black or African American (Not Hispanic or Latino)", "Two or More Races (Not Hispanic or Latino)", "Decline to self-identify"];
+  const c = resolveEeoOption("White", FEDERAL, "Race");
+  ok(c.kind === "EXACT" && (c as any).option === "White (Not Hispanic or Latino)", "the federal qualifier is not part of the category: White -> White (Not Hispanic or Latino)");
+  const d = resolveEeoOption("Not Hispanic or Latino", FEDERAL, "Race");
+  ok(d.kind === "DECLINE", "an ethnicity answer that names no race category on a race control declines rather than picking one");
+}

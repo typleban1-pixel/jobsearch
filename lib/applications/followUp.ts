@@ -31,8 +31,13 @@ export interface FollowUpCue { expects: "yes" | "no" | "any" }
 /** Whether a label reads as a follow-up, and which parent answer it applies to. */
 export function followUpCue(label: string): FollowUpCue | null {
   const t = label.trim();
-  if (/^if\s+(?:yes|so|applicable|you\s+(?:do|have|did|are|were|answered\s+yes|selected\s+yes|said\s+yes))\b/i.test(t)) return { expects: "yes" };
-  if (/^if\s+(?:no|not|you\s+(?:do not|don't|have not|haven't|did not|didn't|are not|aren't|answered\s+no|selected\s+no|said\s+no))\b/i.test(t)) return { expects: "no" };
+  // "If yes, ..." refers to the answer just given. "If you were referred
+  // by an employee, who?" is a condition on a fact about the applicant,
+  // asked on its own, and reading it as a follow-up tied it to whatever
+  // question happened to sit above it (a pronoun choice, once). Only
+  // wording that names an ANSWER is a cue.
+  if (/^if\s+(?:yes|so|applicable|you\s+(?:answered|selected|said|chose|checked|marked|indicated)\s+["'“]?yes)\b/i.test(t)) return { expects: "yes" };
+  if (/^if\s+(?:no|not|you\s+(?:answered|selected|said|chose|checked|marked|indicated)\s+["'“]?no)\b/i.test(t)) return { expects: "no" };
   // Refers to another question without saying which answer it depends on.
   if (/^if\s+(?:other|you\s+(?:selected|answered|chose|indicated|checked|marked)|the answer|applicable to you|your answer)\b/i.test(t)) return { expects: "any" };
   if (/^(?:please\s+)?(?:specify|explain|elaborate|clarify|describe|provide\s+(?:more\s+)?(?:details|detail|information|specifics)|give\s+details|list\s+(?:them|which))\b/i.test(t)

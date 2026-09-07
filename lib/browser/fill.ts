@@ -25,16 +25,13 @@ import { snapshotLive, type LiveField } from "./liveSnapshot.ts";
 import { resolveFormContext, assertContextIntact, type FormContext } from "./formContext.ts";
 import { exactlyOne, fillText, fillTextCommitting, verifyCommitted, readBack, readAshbyCommitted, selectOption, setChecked, setFiles, clickOptionWithin, shouldReattempt } from "./actions.ts";
 import { readLazyOptions, readFilteredOptions, exactOptions } from "./inspectCombobox.ts";
-import { geoSearchTerm, exactGeoMatches, qualifiedGeoMatches, sameGeography } from "./geography.ts";
+import { geoSearchTerm, geoParts, exactGeoMatches, qualifiedGeoMatches, coarserGeoMatches, sameGeography } from "./geography.ts";
 import { matchCountryOption } from "../applications/workCountry.ts";
 import { isDemographicField, resolveEeoOption } from "./eeo.ts";
 import { reconcileAll, answerFitsControl, type Reconciled } from "./reconcile.ts";
 import { attachResume, type AttachmentEvidence } from "./upload.ts";
 import {
-  revealAshbyForm, ashbyMultiStep, readChoiceFieldsets, groupAshbyChoices,
-  mergeChoiceGroups, dropFileHeaderArtifacts, chooseSingleOption, verifySingleSelected,
-  readAshbyComboboxes, markAshbyComboboxes, readAshbyButtonGroups, mergeAshbyButtonGroups,
-  waitForAshbyHydration,
+  revealAshbyForm, ashbyMultiStep, normalizeAshbyFields, chooseSingleOption, verifySingleSelected, waitForAshbyHydration,
 } from "./ashbyForm.ts";
 import { behaviourOf, recordObservation, uploadFirst, type Behaviour } from "./parserBehaviour.ts";
 import { hashSnapshot } from "../applications/formSnapshot.ts";
@@ -344,11 +341,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
     const snapForm = async () => {
       const s = await snapshotLive(ctx.frame);
       if (provider !== "ASHBY") return s;
-      const grouping = groupAshbyChoices(await readChoiceFieldsets(page));
-      let fields = mergeChoiceGroups(dropFileHeaderArtifacts(s.fields), grouping);
-      fields = markAshbyComboboxes(fields, await readAshbyComboboxes(page));
-      fields = mergeAshbyButtonGroups(fields, await readAshbyButtonGroups(page));
-      return { ...s, fields };
+      return { ...s, fields: await normalizeAshbyFields(page, s.fields) };
     };
     let live = await snapForm();
     if (live.captcha) throw new Stop("CAPTCHA", "a challenge is present; it is never solved or worked around");
@@ -667,8 +660,20 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       return fit.value;
     };
 
+    /**
+     * The one Ashby field entry whose LABEL is this question, matched on the
+     * label node's whole text rather than on the container containing the
+     * words somewhere: "Location" is a substring of "Which location do you
+     * prefer?", and hasText over the container matched both.
+     */
+    const ashbyEntryFor = (label: string) => {
+      const exact = new RegExp(`^\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\*?\\s*$`);
+      return ctx.frame.locator('[class*="_fieldEntry_"]')
+        .filter({ has: ctx.frame.locator('[class*="_label_"], [class*="_heading_"], label, legend', { hasText: exact }) });
+    };
+
     const write = async (f: LiveField, rawValue: string): Promise<void> => {
-      const value = await proveAnswerFits(f, rawValue);
+      let value = await proveAnswerFits(f, rawValue);
 
       /**
        * An Ashby single-select group is one question with one radio per
@@ -733,8 +738,7 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
        * control committed the chosen option.
        */
       if (f.htmlType === "ashby-combobox") {
-        const container = ctx.frame.locator('[class*="_fieldEntry_"], [class*="ashby-application-form-field"]')
-          .filter({ hasText: f.label });
+        const container = ashbyEntryFor(f.label);
         const cc = await container.count();
         if (cc !== 1) {
           throw new Stop("SELECTOR_AMBIGUOUS", `"${f.label}": ${cc} Ashby field containers match this question, so the control is not uniquely identified`);
@@ -744,25 +748,63 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         if (nc !== 1) {
           throw new Stop("SELECTOR_AMBIGUOUS", `"${f.label}": ${nc} comboboxes in its container`);
         }
-        const isLoc = /\b(city|town|location|residence|reside|current city|metro|country|state|province)\b/i.test(f.label);
-        const term = isLoc ? geoSearchTerm(value) : value;
-        await combo.click({ timeout: 8000 });
-        await combo.fill("").catch(() => undefined);
-        await combo.type(term, { delay: 30 });
-        // The single open listbox is this combobox's (only one is open at a
-        // time). More than one, or none, and the menu cannot be tied back to
-        // the question: fail closed rather than read the wrong list.
+        // A place-picker is recognised by its wording OR by what it offers:
+        // "Where will you be working from?" names no city or location, but
+        // its menu is a list of places and the answer is one, so it is
+        // matched as geography rather than as text.
+        const isLoc = /\b(city|town|location|residence|reside|current city|metro|country|state|province|located|based|live|working from|work from)\b/i.test(f.label)
+          || geoParts(value).length >= 2;
+        // An Ashby location control is configured by the employer to offer
+        // one KIND of place -- cities, or regions, or only countries -- and
+        // the autocomplete answers with nothing when the term is the wrong
+        // kind: AtoB's "Location" is a country picker and "Cleveland" gets an
+        // empty menu. So the city is tried first, then the profile's own
+        // state, then its country, each a verified fact about the same
+        // place; the option chosen still has to satisfy the geographic rules
+        // below, so a country picker ends up holding "United States" and
+        // nothing looser.
+        const prof0 = (resolveContext as any)?.profile ?? {};
+        // A location question answered coarsely ("United States" for "Which
+        // country do you intend to work from?") still fills a city-level
+        // picker with the profile's own city: the city is a fact the
+        // profile states, it implies the country, and a picker that only
+        // offers countries still ends up holding the country below.
+        const profilePlace = [prof0.city, prof0.state, prof0.country].filter(Boolean).join(", ");
+        const coarse = isLoc && profilePlace && prof0.city
+          && geoParts(profilePlace).slice(1).includes(geoParts(value)[0] ?? "") && geoParts(value).length === 1;
+        if (coarse) value = profilePlace;
+        const terms = isLoc
+          ? [...new Set([geoSearchTerm(value), prof0.state, prof0.country]
+              .filter((t): t is string => Boolean(t && String(t).trim())).map((t) => String(t)))]
+          : [value];
+        const readOffered = async (): Promise<string[]> => {
+          // The single open listbox is this combobox's (only one is open at a
+          // time). More than one, or none, and the menu cannot be tied back to
+          // the question: fail closed rather than read the wrong list.
+          let seen: string[] = [];
+          for (let attempt = 0; attempt < 12; attempt++) {
+            await page.waitForTimeout(400);
+            seen = await ctx.frame.evaluate(() => {
+              const boxes = Array.from(document.querySelectorAll("[role=listbox]"))
+                .filter((b) => (b as HTMLElement).getClientRects().length > 0);
+              if (boxes.length !== 1) return [];
+              return Array.from(boxes[0]!.querySelectorAll("[role=option]"))
+                .map((o) => (o.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+            });
+            if (seen.length) break;
+          }
+          return seen;
+        };
         let offered: string[] = [];
-        for (let attempt = 0; attempt < 20; attempt++) {
-          await page.waitForTimeout(400);
-          offered = await ctx.frame.evaluate(() => {
-            const boxes = Array.from(document.querySelectorAll("[role=listbox]"))
-              .filter((b) => (b as HTMLElement).getClientRects().length > 0);
-            if (boxes.length !== 1) return [];
-            return Array.from(boxes[0]!.querySelectorAll("[role=option]"))
-              .map((o) => (o.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean);
-          });
+        let term = terms[0]!;
+        for (const t of terms) {
+          term = t;
+          await combo.click({ timeout: 8000 });
+          await combo.fill("").catch(() => undefined);
+          await combo.type(t, { delay: 30 });
+          offered = await readOffered();
           if (offered.length) break;
+          await page.keyboard.press("Escape").catch(() => undefined);
         }
         inspections.push({ field: f.label || f.key, optionsFound: offered.length, sample: offered.slice(0, 3),
           allOptions: offered, resolvedAs: `ashby combobox (${isLoc ? "location" : isDemographicField(f.label) ? "demographic" : "exact"})` });
@@ -777,8 +819,12 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
           // profile's own state/country. Nothing looser.
           let hits = exactGeoMatches(offered, value);
           if (hits.length === 0) {
-            const prof = (resolveContext as any)?.profile ?? {};
-            hits = qualifiedGeoMatches(offered, value, { state: prof.state, country: prof.country });
+            hits = qualifiedGeoMatches(offered, value, { state: prof0.state, country: prof0.country });
+          }
+          // Only when the control offered nothing for the city itself: a
+          // coarser picker holds the profile's own state or country.
+          if (hits.length === 0 && term !== geoSearchTerm(value)) {
+            hits = coarserGeoMatches(offered, { state: prof0.state, country: prof0.country });
           }
           if (hits.length === 1) chosen = hits[0]!;
           else why = `searching ${JSON.stringify(term)} gave ${hits.length} places equal to ${JSON.stringify(value)} among ${offered.join(" | ")}`;
@@ -891,41 +937,61 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
        */
       if (f.htmlType === "checkbox-group") {
         const offered = f.options ?? [];
-        const chosen = matchCountryOption(offered, value);
-        inspections.push({ field: f.label || f.key, optionsFound: offered.length,
-          sample: offered.slice(0, 3), allOptions: offered,
-          resolvedAs: chosen.ok ? `matched ${JSON.stringify(chosen.option)} by ${chosen.how}` : chosen.why });
-        if (!chosen.ok) {
+        // A pick-many answer may name several options, separated by ";" or
+        // "|". Each is matched exactly against the offered text first
+        // (an Ashby "Where did you hear about us?" or self-ID list), and
+        // only a country list falls back to country-name equivalence
+        // (Greenhouse's "which countries" checklist). Nothing looser.
+        const wanted = value.split(/\s*[;|]\s*/).map((v) => v.trim()).filter(Boolean);
+        const picks: string[] = [];
+        for (const w of wanted) {
+          const exact = chooseSingleOption(offered, w);
+          if (exact.ok) { picks.push(exact.option); continue; }
+          const country = matchCountryOption(offered, w);
+          if (country.ok) { picks.push(country.option); continue; }
+          inspections.push({ field: f.label || f.key, optionsFound: offered.length,
+            sample: offered.slice(0, 3), allOptions: offered, resolvedAs: exact.why });
           throw new Stop("READBACK_MISMATCH",
-            `"${f.label || f.key}": ${chosen.why}. The control offered: ${offered.join(" | ")}`);
+            `"${f.label || f.key}": ${exact.why}. The control offered: ${offered.join(" | ")}`);
         }
-        const oneSelector = f.optionSelectors?.[chosen.option];
-        if (!oneSelector) {
-          throw new Stop("SELECTOR_AMBIGUOUS",
-            `"${f.label || f.key}": ${JSON.stringify(chosen.option)} has no selector of its own, `
-            + "and the group's selector reaches every option");
+        inspections.push({ field: f.label || f.key, optionsFound: offered.length,
+          sample: offered.slice(0, 3), allOptions: offered, resolvedAs: `matched ${JSON.stringify(picks)}` });
+        for (const pick of picks) {
+          const oneSelector = f.optionSelectors?.[pick];
+          if (!oneSelector) {
+            throw new Stop("SELECTOR_AMBIGUOUS",
+              `"${f.label || f.key}": ${JSON.stringify(pick)} has no selector of its own, `
+              + "and the group's selector reaches every option");
+          }
+          const box = ctx.frame.locator(oneSelector);
+          if (await box.count() !== 1) {
+            throw new Stop("SELECTOR_AMBIGUOUS",
+              `"${f.label || f.key}": ${JSON.stringify(oneSelector)} matched ${await box.count()} controls`);
+          }
+          if (!(await box.isChecked().catch(() => false))) {
+            await box.check({ timeout: 8000 }).catch(async () => {
+              const id = await box.getAttribute("id").catch(() => null);
+              if (id) await ctx.frame.locator(`label[for="${id}"]`).first().click({ timeout: 8000 }).catch(() => {});
+              else await box.click({ force: true, timeout: 8000 }).catch(() => {});
+            });
+          }
+          await page.waitForTimeout(250);
         }
-        const box = ctx.frame.locator(oneSelector);
-        if (await box.count() !== 1) {
-          throw new Stop("SELECTOR_AMBIGUOUS",
-            `"${f.label || f.key}": ${JSON.stringify(oneSelector)} matched ${await box.count()} controls`);
-        }
-        if (!(await box.isChecked().catch(() => false))) await box.check({ timeout: 8000 });
-        await page.waitForTimeout(300);
 
-        // Read the whole group back: exactly the intended option, and
+        // Read the whole group back: exactly the intended options, and
         // nothing else.
         const state = await ctx.frame.evaluate((sels: Record<string, string>) =>
-          Object.fromEntries(Object.entries(sels).map(([label, sel]) =>
+          Object.fromEntries(Object.entries(sels).filter(([, sel]) => sel).map(([label, sel]) =>
             [label, Boolean((document.querySelector(sel) as HTMLInputElement | null)?.checked)])),
           f.optionSelectors ?? {});
-        const ticked = Object.entries(state).filter(([, on]) => on).map(([l]) => l);
-        if (ticked.length !== 1 || ticked[0] !== chosen.option) {
+        const ticked = Object.entries(state).filter(([, on]) => on).map(([l]) => l).sort();
+        const want = [...picks].sort();
+        if (ticked.length !== want.length || ticked.some((t, i) => t !== want[i])) {
           throw new Stop("READBACK_MISMATCH",
             `"${f.label || f.key}" reads back as ${ticked.length ? ticked.join(" + ") : "nothing selected"} `
-            + `after selecting ${JSON.stringify(chosen.option)}`);
+            + `after selecting ${JSON.stringify(picks)}`);
         }
-        filled.push({ field: f.label || f.key, value: chosen.option });
+        filled.push({ field: f.label || f.key, value: picks.join("; ") });
         return;
       }
 
@@ -934,7 +1000,10 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       // prove it commits by reading aria-pressed. No single input control
       // exists, so this runs before control() is resolved.
       if (f.htmlType === "ashby-button-group") {
-        const container = ctx.frame.locator("[class*=_fieldEntry_]").filter({ hasText: f.label }).first();
+        const container = ashbyEntryFor(f.label);
+        if (await container.count() !== 1) {
+          throw new Stop("SELECTOR_AMBIGUOUS", `"${f.label || f.key}": ${await container.count()} Ashby field containers carry this question`);
+        }
         const btn = container.getByRole("button", { name: value, exact: true }).first();
         if (await btn.count() === 0) {
           throw new Stop("SELECTOR_AMBIGUOUS", `"${f.label || f.key}": no ${JSON.stringify(value)} button found in the field`);
@@ -1109,7 +1178,11 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
         // the system does not check a protected-class box on someone's behalf;
         // these fields are voluntary and optional, so leaving them blank never
         // blocks handoff. Generic to Ashby's EEO key naming, not one form.
-        if (/_systemfield_eeoc_/i.test(f.key)) {
+        // ...unless the person has answered it: a HUMAN_CONFIRMED self-ID
+        // from the bank is theirs to give and is entered exactly as on
+        // Greenhouse. With no confirmed answer the box stays blank, never
+        // resolved live and never declined on their behalf.
+        if (/_systemfield_eeoc_/i.test(f.key) && !byKey.get(f.key)?.answer) {
           leftBlank.push({ field: f.label || f.key, why: "EEO self-identification is voluntary and left for you to complete on the employer's form" });
           processedLabels.add(f.label || f.key);
           continue;
@@ -1308,6 +1381,10 @@ export async function fillApplication(input: FillInput): Promise<FillOutcome> {
       const out = new Map<string, string>();
       for (const f of snap.fields) {
         if (f.type === "file" || !f.selector) continue;
+        // A checkbox or radio reports its VALUE attribute ("on"), not a
+        // text a parser could have written; reading it as one reported
+        // thirteen "parsed" fields on a form whose parser wrote nothing.
+        if (f.type === "boolean" || (f.type as string) === "checkbox-group" || /^(?:checkbox|radio)/.test(String(f.htmlType))) continue;
         const c = await control(ctx, f).catch(() => null);
         if (!c) continue;
         const v = await c.inputValue().catch(() => "");

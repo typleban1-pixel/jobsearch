@@ -31,11 +31,7 @@ import { hashSnapshot, type FormSnapshot } from "../applications/formSnapshot.ts
 import { snapshotLive, type LiveSnapshot } from "./liveSnapshot.ts";
 import { isDemographicField, isDisabilityField } from "./eeo.ts";
 import { launchBrowser, newPreparedPage } from "./launch.ts";
-import {
-  looksLikeForm, toFormField, groupAshbyChoices, mergeChoiceGroups,
-  dropFileHeaderArtifacts, readChoiceFieldsets, revealAshbyForm, ashbyMultiStep,
-  readAshbyComboboxes, markAshbyComboboxes,
-} from "./ashbyForm.ts";
+import { looksLikeForm, toFormField, revealAshbyForm, ashbyMultiStep, normalizeAshbyFields } from "./ashbyForm.ts";
 
 export interface AshbyLiveResult {
   ok: boolean;
@@ -110,15 +106,12 @@ export async function snapshotAshbyLive(input: {
     // Collapse Ashby choice fieldsets into one question each, then drop the
     // per-option fields the generic read produced. Anything not proven to be
     // a grouped option is left exactly as discovered.
-    const grouping = groupAshbyChoices(await readChoiceFieldsets(page));
-    // Merge on LiveField (the grouped questions carry live per-option
-    // selectors the fill path needs), then project to FormField for the
-    // stored snapshot -- which keeps only key/label/type/required/options,
-    // so no volatile selector is ever persisted and this snapshot is
-    // byte-identical to before.
-    const cleaned = dropFileHeaderArtifacts(live.fields);
-    const merged = markAshbyComboboxes(mergeChoiceGroups(cleaned, grouping), await readAshbyComboboxes(page));
-    const fields = merged.map(toFormField);
+    // The SAME normalization the fill applies (normalizeAshbyFields): the
+    // form's field entries read from the live page and assembled over the
+    // generic snapshot, then projected to FormField for storage -- which
+    // keeps only key/label/type/required/options, so no volatile selector
+    // is ever persisted.
+    const fields = (await normalizeAshbyFields(page, live.fields)).map(toFormField);
     const snapshot: FormSnapshot = {
       provider: "ASHBY",
       fields,

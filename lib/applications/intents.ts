@@ -108,7 +108,7 @@ export const INTENTS: Intent[] = [
   { key: "phone", description: "Phone number", category: "A_VERIFIED_FACT",
     // A "phone country code" control wants a dial code, not the number,
     // and a "phone device type" control wants Mobile, not the number.
-    patterns: [/\b(phone|mobile|cell|telephone)\b/i],
+    patterns: [/\b(phone|mobile|cell|telephone)\b|\bbest (?:number|way) to reach you\b|\bnumber (?:to|we can) (?:reach|contact|call) you\b|\bcontact number\b/i],
     excludes: [CONSENT, /\b(country code|calling code|dial(?:ing)? code|phone country|country phone|phone code)\b/i,
                /\b(?:phone|telephone|mobile|device)\s*(?:device\s*)?type\b/i] },
   { key: "address_line", description: "Street address", category: "A_VERIFIED_FACT",
@@ -130,7 +130,8 @@ export const INTENTS: Intent[] = [
   { key: "linkedin_url", description: "LinkedIn profile URL", category: "A_VERIFIED_FACT",
     patterns: [/\blinkedin\b/i] },
   { key: "portfolio_url", description: "Portfolio or personal website URL", category: "A_VERIFIED_FACT",
-    patterns: [/\b(portfolio|personal website|personal site|your website)\b/i] },
+    patterns: [/\b(portfolio|personal website|personal site|your website)\b/i,
+               /\blinks? to (?:any )?(?:other )?(?:assets|work|samples|projects|materials)\b|\bwork samples?\b|\bsamples? of your work\b/i] },
   { key: "github_url", description: "GitHub profile URL", category: "A_VERIFIED_FACT",
     patterns: [/\bgit ?hub\b/i] },
   { key: "resume_upload", description: "Resume or CV file", category: "A_VERIFIED_FACT",
@@ -184,7 +185,7 @@ export const INTENTS: Intent[] = [
   { key: "current_job_title", description: "Current or most recent job title", category: "B_CALCULATED",
     patterns: [/\b(?:current|present|most recent|previous) (?:job )?title\b|\bcurrent role\b/i] },
   { key: "current_location_text", description: "Where you are currently located", category: "B_CALCULATED",
-    patterns: [/\bwhere are you (?:currently )?(?:located|based)\b|\bwhat city and state do you (?:reside|live)\b|\bcity, ?state(?:, ?country)?\b|\bcurrent (?:location|residence|city)\b|^location$|\bcandidate.?location\b|\byour location\b/i],
+    patterns: [/\bwhere are you (?:currently )?(?:located|based)\b|\bwhat city and state do you (?:reside|live)\b|\bcity, ?state(?:, ?country)?\b|\bcurrent (?:location|residence|city)\b|^location$|\bcandidate.?location\b|\byour location\b|\bwhere (?:will|would|do) you (?:be )?work(?:ing)? from\b|\bwhere (?:do|would) you (?:currently )?(?:reside|live)\b/i],
     // A bare "Location" on an application is the candidate's location. A
     // desired/work/office location has its own intent and its own words.
     // A question that names a SINGLE sub-field as its head noun -- "the

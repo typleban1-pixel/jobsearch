@@ -472,3 +472,197 @@ export async function waitForAshbyHydration(page: any, timeoutMs = 20000): Promi
   }
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Field entries: the structure Ashby actually renders.
+//
+// Every question on an Ashby form lives in one `_fieldEntry_` container that
+// carries the question's label (a <label class="_label_ ..."> whose class
+// list says whether it is required), an optional description, and the
+// controls: one text/textarea/file input; two or more radios (named
+// "{qid}_{optid}", each option its own name); two or more checkboxes for a
+// pick-many (each NAMED BY ITS OPTION TEXT, so "Other" and "I prefer not to
+// answer" recur across questions and the name alone reaches several boxes);
+// two or more <button aria-pressed> for Ashby's Yes/No; or one anonymous
+// react-select combobox. The generic DOM walk sees every one of those
+// controls as its own field and names it by whatever text is nearest, which
+// is how "Where did you hear about Fieldguide?" arrived as thirteen
+// unrelated yes/no questions called "LinkedIn", "Indeed", "Other"... and a
+// label-less combobox arrived not at all. Reading the entries directly is
+// the fix: one entry, one question, options and selectors attached.
+// ---------------------------------------------------------------------------
+
+export interface AshbyEntryOption {
+  label: string;
+  /** A plain-CSS selector reaching exactly this control, or "" when none is unique. */
+  selector: string;
+}
+export interface AshbyEntry {
+  label: string;
+  description: string | null;
+  required: boolean;
+  kind: "radio" | "checkbox" | "buttons" | "combobox" | "other";
+  options: AshbyEntryOption[];
+  /** Every name and id of a control inside the entry, for dropping the generic duplicates. */
+  memberNames: string[];
+  memberIds: string[];
+  /** The shared name when the options are Ashby system EEO radios, else null. */
+  systemName: string | null;
+}
+
+export async function readAshbyEntries(page: any): Promise<AshbyEntry[]> {
+  return page.mainFrame().evaluate(() => {
+    const norm = (s: string | null | undefined) => (s || "").replace(/\s+/g, " ").replace(/\s*\*\s*$/, "").trim();
+    const attr = (s: string) => s.replace(/["\\]/g, "\\$&");
+    const uniqueSel = (el: Element, type: string): string => {
+      const id = el.id;
+      if (id && document.querySelectorAll(`#${CSS.escape(id)}`).length === 1) return `#${CSS.escape(id)}`;
+      const name = el.getAttribute("name") || "";
+      const value = el.getAttribute("value") || "";
+      if (name && value) {
+        const s = `input[type=${type}][name="${attr(name)}"][value="${attr(value)}"]`;
+        if (document.querySelectorAll(s).length === 1) return s;
+      }
+      if (name) {
+        const s = `input[type=${type}][name="${attr(name)}"]`;
+        if (document.querySelectorAll(s).length === 1) return s;
+      }
+      return "";
+    };
+    const optionLabel = (el: Element): string => {
+      const id = el.id;
+      if (id) {
+        const ls = Array.from(document.querySelectorAll(`label[for="${CSS.escape(id)}"]`));
+        // Duplicate ids make label[for] ambiguous; prefer the label that
+        // actually contains or follows this control.
+        const own = ls.find((l) => l.contains(el) || l === el.nextElementSibling || l.parentElement === el.parentElement);
+        const t = norm((own ?? ls[0])?.textContent);
+        if (t) return t;
+      }
+      const wrap = el.closest("label"); if (wrap) return norm(wrap.textContent);
+      const sib = el.nextElementSibling; if (sib && sib.tagName === "LABEL") return norm(sib.textContent);
+      return norm(el.parentElement?.textContent);
+    };
+    const out: any[] = [];
+    for (const e of Array.from(document.querySelectorAll("[class*=_fieldEntry_]"))) {
+      const labelNode = e.querySelector("[class*=_label_], [class*=_heading_], label, legend");
+      const label = norm(labelNode?.textContent);
+      if (!label) continue;
+      const required = /_required_/.test(labelNode?.getAttribute("class") || "")
+        || Array.from(e.querySelectorAll("input,select,textarea")).some((c) => c.hasAttribute("required") || c.getAttribute("aria-required") === "true");
+      const description = norm(e.querySelector("[class*=_description_]")?.textContent) || null;
+      const radios = Array.from(e.querySelectorAll("input[type=radio]"));
+      const buttons = Array.from(e.querySelectorAll("button[aria-pressed]"));
+      const checkboxes = Array.from(e.querySelectorAll("input[type=checkbox]"))
+        // A button group's backing checkbox has no label of its own.
+        .filter((c) => buttons.length < 2 || optionLabel(c).length > 0);
+      const combos = Array.from(e.querySelectorAll("[role=combobox]"));
+      const controls = Array.from(e.querySelectorAll("input,select,textarea,button[aria-pressed],[role=combobox]"));
+      const memberNames = controls.map((c) => c.getAttribute("name") || "").filter(Boolean);
+      const memberIds = controls.map((c) => c.id || "").filter(Boolean);
+      let kind: string = "other";
+      let options: any[] = [];
+      let systemName: string | null = null;
+      if (radios.length >= 2) {
+        kind = "radio";
+        options = radios.map((r) => ({ label: optionLabel(r), selector: uniqueSel(r, "radio") }));
+        const names = new Set(radios.map((r) => r.getAttribute("name") || ""));
+        if (names.size === 1 && /_systemfield_eeoc_/i.test([...names][0]!)) systemName = [...names][0]!;
+      } else if (checkboxes.length >= 2) {
+        kind = "checkbox";
+        options = checkboxes.map((c) => ({ label: optionLabel(c), selector: uniqueSel(c, "checkbox") }));
+      } else if (buttons.length >= 2) {
+        kind = "buttons";
+        options = buttons.map((b) => ({ label: norm((b as HTMLElement).innerText), selector: "" }));
+      } else if (combos.length === 1 && !e.querySelector("input[type=text],input[type=email],input[type=tel],textarea,select")) {
+        kind = "combobox";
+      }
+      out.push({ label, description, required, kind, options, memberNames, memberIds, systemName });
+    }
+    return out;
+  });
+}
+
+/**
+ * The Ashby form as questions: the generic field list with every control
+ * that belongs to a grouped entry replaced by the one question it is part
+ * of, and every question the generic walk could not see added.
+ *
+ * Pure, given the entries and the raw fields, so the rule is testable
+ * without a browser. Rules, in order:
+ *  - a radio entry with two or more labelled options is one single-select
+ *    question (radio-group); its key is the question text, except Ashby's
+ *    system EEO groups, which keep their shared control name as key so the
+ *    fill's rule about those fields keeps applying;
+ *  - a checkbox entry with two or more labelled options is one pick-many
+ *    question (checkbox-group), keyed by its text;
+ *  - a button entry is one Yes/No question (ashby-button-group);
+ *  - a combobox entry is one option-picker question (ashby-combobox);
+ *  - every generic field whose name or id belongs to such an entry, or
+ *    whose only identity is the entry's own text, an option's text or the
+ *    entry's description, is dropped as the duplicate it is;
+ *  - everything else is kept exactly as discovered.
+ * Option text and question text are preserved verbatim (whitespace and a
+ * trailing asterisk trimmed). Two questions with identical text are keyed
+ * apart with "(2)", never merged.
+ */
+export function assembleAshbyFields(raw: LiveField[], entries: AshbyEntry[]): LiveField[] {
+  const built: LiveField[] = [];
+  const dropNames = new Set<string>();
+  const dropIds = new Set<string>();
+  const dropTexts = new Set<string>();
+  const usedKeys = new Set<string>(raw.map((f) => f.key));
+  const keyFor = (base: string): string => {
+    let key = base;
+    for (let n = 2; usedKeys.has(key); n++) key = `${base} (${n})`;
+    usedKeys.add(key);
+    return key;
+  };
+  for (const e of entries) {
+    const opts = e.options.filter((o) => o.label);
+    const labels: string[] = [];
+    const optionSelectors: Record<string, string> = {};
+    for (const o of opts) { if (labels.includes(o.label)) continue; labels.push(o.label); optionSelectors[o.label] = o.selector; }
+    const common = {
+      label: e.label, type: "select" as FormField["type"], required: e.required, options: labels,
+      unlabelled: false, groupKey: e.label, associated: [] as string[], name: null,
+    };
+    if ((e.kind === "radio" || e.kind === "checkbox") && labels.length >= 2) {
+      const key = e.systemName ? keyFor(e.systemName) : keyFor(e.label);
+      built.push({ ...common, key, htmlType: e.kind === "radio" ? "radio-group" : "checkbox-group",
+        selector: optionSelectors[labels[0]!] || e.label, selectorKind: optionSelectors[labels[0]!] ? "name" : "label", optionSelectors });
+    } else if (e.kind === "buttons" && labels.length >= 2) {
+      built.push({ ...common, key: keyFor(e.label), htmlType: "ashby-button-group", selector: e.label, selectorKind: "label" });
+    } else if (e.kind === "combobox") {
+      built.push({ ...common, key: keyFor(e.label), options: [], htmlType: "ashby-combobox", selector: e.label, selectorKind: "label" });
+    } else {
+      continue;                                    // a plain control: the generic field stands
+    }
+    for (const n of e.memberNames) dropNames.add(n);
+    for (const i of e.memberIds) dropIds.add(i);
+    dropTexts.add(e.label);
+    if (e.description) dropTexts.add(e.description);
+    for (const l of labels) dropTexts.add(l);
+  }
+  const kept = raw.filter((f) => {
+    const keyName = String(f.key).split("=")[0]!;
+    if (f.name && dropNames.has(f.name)) return false;
+    if (dropNames.has(keyName) || dropIds.has(keyName)) return false;
+    // Weakly identified (label-only, or a checkbox named by its own option
+    // text) and carrying nothing but text an entry already owns.
+    const weak = f.selectorKind === "label" || (f.name != null && f.name === f.label);
+    if (weak && (dropTexts.has(f.label) || dropTexts.has(String(f.key)))) return false;
+    if ((f.type as string) === "checkbox-group" && dropTexts.has(String(f.key))) return false;
+    return true;
+  });
+  return [...kept, ...built];
+}
+
+/**
+ * The one normalization both preparation and filling apply to an Ashby
+ * form: the file-dropzone phantom dropped, then the field entries read from
+ * the live page and assembled over the generic snapshot.
+ */
+export async function normalizeAshbyFields(page: any, raw: LiveField[]): Promise<LiveField[]> {
+  return assembleAshbyFields(dropFileHeaderArtifacts(raw), await readAshbyEntries(page));
+}

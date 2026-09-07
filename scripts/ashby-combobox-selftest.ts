@@ -8,7 +8,7 @@
  * click + read-back is exercised by the supervised --validate run.
  */
 import { chromium } from "playwright";
-import { mayFetchWhileFilling, isBenignBlocked, blockedIndicatesSubmission, classifyUploadOp } from "../lib/browser/submitGuard.ts";
+import { mayFetchWhileFilling, isBenignBlocked, blockedIndicatesSubmission, classifyUploadOp, classifyAshbyOp } from "../lib/browser/submitGuard.ts";
 import { markAshbyComboboxes, readAshbyComboboxes } from "../lib/browser/ashbyForm.ts";
 
 let bad = 0;
@@ -19,7 +19,10 @@ console.log("guard: only the geo read and the resume-upload handle are allowed w
 ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocation`) === true, "the geo autocomplete read is allowed");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocation&x=1`) === true, "  ...with trailing params too");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiCreateFileUploadHandle`) === false, "the upload ops are NOT statically allowed (context-gated, not blanket)");
-ok(mayFetchWhileFilling(`${BASE}?op=ApiSetFormValue`) === false, "per-field autosave is NOT allowed (stays blocked)");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiSetFormValue`) === true, "per-field autosave IS allowed: Ashby validates a submission against the server-side draft it writes");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiSubmitSingleApplicationFormAction`) === false, "the application submit mutation is NOT allowed");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiSearchSchoolByCanonicalName`) === true, "a school lookup is allowed");
+ok(mayFetchWhileFilling(`${BASE}?op=ApiSetFormValueToFile`) === false, "the set-to-file finalize stays context-gated, not statically allowed");
 ok(mayFetchWhileFilling(`${BASE}?op=SubmitApplicationForm`) === false, "a submit-like operation is NOT allowed (stays blocked)");
 ok(mayFetchWhileFilling(`${BASE}?op=CreateApplication`) === false, "any other application mutation is NOT allowed");
 ok(mayFetchWhileFilling(`${BASE}?op=ApiAutocompleteGeoLocationEvil`) === false, "a look-alike geo op is not allowed (anchored match)");
@@ -43,6 +46,9 @@ ok(isBenignBlocked(`${BASE}?op=ApiSetFormValue`) === true, "a blocked ApiSetForm
 ok(isBenignBlocked(`${BASE}?op=ApiAutocompleteGeoLocation`) === true, "a blocked geo fetch is known-benign");
 ok(isBenignBlocked(`${BASE}?op=SubmitApplicationForm`) === false, "the submit mutation is NOT benign");
 ok(isBenignBlocked(`${BASE}?op=SomethingUnknown`) === false, "an unknown op is NOT benign");
+ok(isBenignBlocked(`${BASE}?op=ApiSubmitSingleApplicationFormAction`) === false, "the real submit mutation is NOT benign");
+ok(isBenignBlocked(`${BASE}?op=ApiCreateFileUploadHandle`) === false, "an upload op outside its window is NOT benign");
+ok(isBenignBlocked(`${BASE}`) === false, "a POST to the endpoint with no op is NOT benign");
 ok(blockedIndicatesSubmission([`${BASE}?op=ApiSetFormValue`]) === false, "blocked ApiSetFormValue alone -> does NOT trip submission detection");
 ok(blockedIndicatesSubmission([`${BASE}?op=ApiAutocompleteGeoLocation`]) === false, "blocked geo fetch alone -> does NOT trip");
 ok(blockedIndicatesSubmission([`${BASE}?op=SubmitApplicationForm`]) === true, "blocked submit mutation -> STILL trips (fails closed)");
@@ -119,3 +125,16 @@ try {
 
 console.log(bad ? `\n${bad} FAILED` : `\nashby-combobox-selftest: ALL PASS`);
 process.exit(bad ? 1 : 0);
+
+console.log("\nclassifyAshbyOp: the endpoint is one, the op decides:");
+ok(classifyAshbyOp(`${BASE}?op=ApiSubmitSingleApplicationFormAction`) === "submit", "ApiSubmitSingleApplicationFormAction -> submit");
+ok(classifyAshbyOp(`${BASE}?op=ApiSubmitMultipleFormsAction`) === "submit", "any ApiSubmit* -> submit");
+ok(classifyAshbyOp(`${BASE}?op=ApiSetFormValue`) === "benign", "ApiSetFormValue -> benign");
+ok(classifyAshbyOp(`${BASE}?op=ApiAutofillApplicationFormWithUploadedResume`) === "benign", "the resume autofill parse -> benign");
+ok(classifyAshbyOp(`${BASE}?op=ApiCreateFileUploadHandle`) === "unknown", "upload handle -> not classified here (window-gated)");
+ok(classifyAshbyOp(`${BASE}?op=ApiSetFormValueToFile`) === "unknown", "set-to-file -> not classified here (window-gated)");
+ok(classifyAshbyOp(`${BASE}?op=lowercase`) === "unknown", "a malformed op -> unknown (fails closed)");
+ok(classifyAshbyOp(`${BASE}?op=ApiCreateApplication`) === "unknown", "a well-formed op that is not on the allow-list -> unknown (fails closed)");
+ok(classifyAshbyOp(`${BASE}?op=ApiAutocompleteGeoLocationEvil`) === "unknown", "a look-alike of an allowed op -> unknown");
+ok(classifyAshbyOp(`${BASE}`) === "unknown", "no op -> unknown (fails closed)");
+ok(classifyAshbyOp("https://boards.greenhouse.io/api/x?op=ApiSetFormValue") === null, "another host/path -> not an Ashby op");

@@ -42,6 +42,21 @@ const SYNONYMS: Record<string, string[]> = {
 
 const DECLINE = /\b(decline|do not wish|don'?t wish|prefer not|not to (?:answer|say|disclose|identify)|i (?:do not|don'?t) wish|wish not to|choose not)\b/i;
 
+/** Whether an offered option is the form's own "prefer not to answer". */
+export function isDeclineOption(text: string): boolean { return DECLINE.test(String(text ?? "")); }
+
+/**
+ * A voluntary self-identification question: the EEO categories plus the
+ * broader self-ID surveys employers add (age bracket, communities,
+ * orientation, neurodivergence). Only ever used to decide whether an
+ * OPTIONAL, unanswered question may take the form's decline option.
+ */
+export function isVoluntarySelfIdField(label: string): boolean {
+  const t = String(label ?? "");
+  return isDemographicField(t)
+    || /\b(?:your (?:current )?age|age (?:range|bracket|group)|communit(?:y|ies) (?:do you|you) (?:belong|identify)|identify (?:with|as)|gender identity|sexual orientation|neurodiverg|lgbtq|first[- ]generation|socio-?economic)\b/i.test(t);
+}
+
 /**
  * Disability self-identification is a standard Yes / No / decline
  * question, and the stored answer states the fact: "No, I do not have a
@@ -95,6 +110,13 @@ export function resolveEeoOption(answer: string, options: string[], fieldLabel?:
 
   const exact = opts.find((o) => norm(o) === want);
   if (exact) return { kind: "EXACT", option: exact };
+  // The federal race categories carry a qualifier the answer does not:
+  // "White (Not Hispanic or Latino)" is the category "White". The
+  // qualifier is dropped for comparison only; the option is returned as
+  // the employer wrote it.
+  const bare = (o: string) => norm(o).replace(/\s*\((?:not )?hispanic or latino\)$/, "").trim();
+  const bareExact = opts.filter((o) => bare(o) === want);
+  if (bareExact.length === 1) return { kind: "EXACT", option: bareExact[0]! };
 
   // A synonym of the answer that the control actually offers, taken in
   // preference order so the plainest equivalent wins.

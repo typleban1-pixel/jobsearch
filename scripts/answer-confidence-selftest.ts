@@ -146,8 +146,14 @@ console.log("\nsensitive answers are given only from an explicit stored response
   const unmatched = resolveField(f("Please describe your background", { type: "text" }), ctx);
   check("a question the catalog does not recognise does not reach the banked answer",
     unmatched.confidence === "BLOCKED" && unmatched.answer === null, `${unmatched.confidence} "${unmatched.answer}"`);
-  const wrongOptions = resolveField(f("Gender", { type: "select", options: ["Man", "Woman"] }), ctx);
-  check("a banked answer the control does not offer blocks rather than approximating",
+  // "Male" offered as "Man" is the same standard category, and the person
+  // asked that such an equivalence be used (lib/browser/eeo.ts); anything
+  // beyond that short list still blocks rather than approximating.
+  const synonym = resolveField(f("Gender", { type: "select", options: ["Man", "Woman"] }), ctx);
+  check("a banked demographic answer offered under its standard synonym is used",
+    synonym.confidence === "HUMAN_CONFIRMED" && synonym.answer === "Man", `${synonym.confidence} "${synonym.answer}"`);
+  const wrongOptions = resolveField(f("Gender", { type: "select", options: ["Agender", "Bigender"] }), ctx);
+  check("a banked answer the control does not offer, with no standard synonym, blocks rather than approximating",
     wrongOptions.confidence === "BLOCKED" && wrongOptions.answer === null, `${wrongOptions.confidence} "${wrongOptions.answer}"`);
 }
 

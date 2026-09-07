@@ -113,6 +113,61 @@ const REQUEST_ALLOW = [
 ];
 
 /**
+ * Ashby's whole application runs over ONE endpoint, /api/non-user-graphql,
+ * every call a POST distinguished only by its `op`. So on Ashby the
+ * question layer 3 asks -- "could this POST be a submission?" -- has to be
+ * answered by operation name, and the answer is known precisely: the
+ * operations that submit anything are the ApiSubmit* mutations
+ * (ApiSubmitSingleApplicationFormAction is the one an application form
+ * fires). Everything else the form sends while a person fills it is
+ * bookkeeping on a draft: ApiSetFormValue autosaves each field into the
+ * server-side form render, ApiSearchSchoolByCanonicalName and
+ * ApiAutocompleteGeoLocation look options up, the consent ops record a
+ * cookie choice.
+ *
+ * The autosave is not optional. Ashby validates a submission against the
+ * SERVER'S copy of the form, the one ApiSetFormValue writes, so a fill that
+ * blocked those calls produced a form that showed every value and was
+ * rejected at submit with "Missing entry for required field: Name" -- four
+ * times on the same application before the cause was found. Letting the
+ * draft save is exactly what a person typing into the form does; it is not
+ * a submission and nothing reaches a recruiter until ApiSubmit* is sent.
+ *
+ * Fail closed on shape: a POST to the endpoint with no recognisable op is
+ * neither allowed here nor benign, so it is blocked and counts as a
+ * possible submission attempt at the end of the run. The upload ops keep
+ * their own, narrower rule (classifyUploadOp): permitted only inside the
+ * approved-artifact upload window.
+ */
+export type AshbyOpClass = "submit" | "benign" | "unknown";
+export function classifyAshbyOp(url: string): AshbyOpClass | null {
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  if (!/\/api\/non-user-graphql$/i.test(u.pathname)) return null;
+  const op = u.searchParams.get("op") ?? "";
+  if (/^ApiSubmit/.test(op)) return "submit";
+  return ASHBY_BENIGN_OPS.has(op) ? "benign" : "unknown";
+}
+
+/**
+ * The operations an Ashby application form is known to send while a person
+ * fills it, read from the form's own scripts and from watching a form being
+ * filled. An allow-list, not a pattern: an op not named here is unknown,
+ * blocked, and counted as a possible submission at the end of the run.
+ */
+const ASHBY_BENIGN_OPS = new Set([
+  "ApiSetFormValue",                            // autosave one field into the server-side draft
+  "ApiRemoveFileFromFormValue",                 // clear a file field on the draft
+  "ApiAutofillApplicationFormWithUploadedResume", // the parse Ashby runs after a resume upload
+  "ApiAutocompleteGeoLocation",                 // location option lookup
+  "ApiSearchSchoolByCanonicalName",             // school option lookup
+  "ApiJobPosting", "ApiJobPostingForApplicationRequest",
+  "ApiOrganizationFromHostedJobsPageName", "ApiOnBehalfOfHeader",
+  "ApiGetConsent", "ApiRecordCookieConsent", "ApiUpdateConsent",
+  "ApiGetAutomatedProcessingLegalText",
+]);
+
+/**
  * The two operations of Ashby's resume upload, gated to the moment the fill
  * is actually uploading the approved artifact -- NOT a blanket allowance.
  *
@@ -144,7 +199,7 @@ export function classifyUploadOp(
  * without standing up a browser.
  */
 export function mayFetchWhileFilling(url: string): boolean {
-  return REQUEST_ALLOW.some((r) => r.test(url));
+  return REQUEST_ALLOW.some((r) => r.test(url)) || classifyAshbyOp(url) === "benign";
 }
 
 /**
@@ -165,7 +220,7 @@ const BENIGN_WHEN_BLOCKED = [
 
 /** Whether a blocked request is a known-benign op (never the submit mutation). */
 export function isBenignBlocked(url: string): boolean {
-  return BENIGN_WHEN_BLOCKED.some((r) => r.test(url));
+  return BENIGN_WHEN_BLOCKED.some((r) => r.test(url)) || classifyAshbyOp(url) === "benign";
 }
 
 /**
@@ -250,6 +305,14 @@ export class SubmitGuard {
       }
       const url = request.url();
       if (REQUEST_ALLOW.some((r) => r.test(url))) return route.continue();
+      // Ashby: a draft autosave or an option lookup proceeds; an ApiSubmit*
+      // mutation never does while armed, whatever origin it goes to.
+      const ashby = classifyAshbyOp(url);
+      if (ashby === "benign") return route.continue();
+      if (ashby === "submit") {
+        guard.blockedRequests.push({ method, url: url.slice(0, 300), at: Date.now() });
+        return route.abort("blockedbyclient");
+      }
       // The two-step resume upload, permitted ONLY inside an open upload
       // window (the fill sending the approved artifact) and, for the
       // finalize, only after the handle was created. Everything else on the

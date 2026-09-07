@@ -649,12 +649,18 @@ async function composeOpenEndedAnswers(
 
   for (const c of candidates) {
     const isPersonality = c.cls.kind === "PERSONALITY";
+    // One question's draft failing (the model ran past its output limit,
+    // the API refused) leaves THAT field blocked with the reason; it does
+    // not abandon a preparation whose every other field is answered.
     const res = await composeGroundedAnswer({
       llm, question: c.r.field.label, kind: c.cls.kind as "PERSONALITY" | "GROUNDED_OPEN_ENDED",
       facts: isPersonality ? personality : grounded.facts,
       charLimit: null, applicantName,
       jobContext: isPersonality ? undefined : grounded.jobContext,
-    });
+    }).catch((e: Error) => ({ ok: false as const, answer: null, reason: `the model could not draft this answer: ${e.message.slice(0, 160)}`, usage: [] }));
+    if (!res.ok) {
+      resolved[c.i] = { ...c.r, blockedReason: `${c.r.blockedReason ?? "no rule produces an answer for this field"}. ${res.reason ?? ""}`.trim() };
+    }
     if (res.ok && res.answer) {
       resolved[c.i] = {
         ...c.r, answer: res.answer, confidence: "AI_DRAFTED_GROUNDED",
