@@ -292,6 +292,12 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
 
   if (/review/i.test(step.heading)) {
     console.log("REVIEW reached. Stopping here; nothing is submitted.");
+    // The answer table catches up with the form (see workday-reconcile-review.ts):
+    // rows the experience fill settled, optional blanks, and the status.
+    const { spawnSync } = await import("node:child_process");
+    const r = spawnSync(process.execPath, ["scripts/workday-reconcile-review.ts", ID, "--commit"], { cwd: process.cwd(), env: process.env, encoding: "utf8" });
+    console.log((r.stdout || "").trim().split("\n").map((l) => `  ${l}`).join("\n"));
+    if (r.status !== 0) console.log(`  reconcile failed: ${(r.stderr || "").trim().slice(0, 300)}`);
     break;
   }
 
