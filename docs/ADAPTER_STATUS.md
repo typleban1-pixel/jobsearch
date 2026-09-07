@@ -10,8 +10,8 @@ was the alternative.
 | Provider | Ingest | Application automation |
 | --- | --- | --- |
 | Greenhouse | production | **production, frozen** |
-| Lever | production | not started |
-| Ashby | production | not started |
+| Lever | production | assisted (fill + readback; a person clicks submit past hCaptcha) |
+| Ashby | production | **production candidate** — rehearsed on seven live forms 2026-09-07; proving on real submissions |
 
 ---
 
@@ -110,7 +110,81 @@ Ingest is production (1,465 jobs). Application automation is not
 implemented. `apply_url` already points at the real form
 (`jobs.lever.co/{token}/{id}/apply`), so no URL derivation is needed.
 
-## Ashby — not started
+## Ashby — production candidate
 
-Ingest is production (407 jobs). Application automation is not implemented,
-and is not next.
+Ingest is production. Application automation shares the Greenhouse engine
+(`lib/browser/fill.ts`, `scripts/submit-application.ts`); the Ashby-specific
+parts live in `lib/browser/ashbyForm.ts` and `lib/browser/submitGuard.ts`.
+
+### What was actually wrong
+
+Four live submit attempts on 2026-09-05 were rejected by Ashby with
+"Missing entry for required field: Name" while every field was visibly
+filled and read back as committed. Ashby autosaves each field change to a
+server-side draft (`ApiSetFormValue` on `/api/non-user-graphql`) and
+validates the submission against THAT draft. SubmitGuard's request layer
+blocked those autosaves as "benign when blocked", so the draft was empty.
+
+### Form model
+
+Every question is one `_fieldEntry_` container: a `_label_` node (class
+`_required_` marks required), an optional `_description_`, and controls:
+
+| Control | Rendered as | Discovered as |
+| --- | --- | --- |
+| text / textarea / file | a named input | the generic field |
+| single-select | radios named `{qid}_{optid}`, one name per option | `radio-group` keyed by the question |
+| system EEO | radios sharing one name `…__systemfield_eeoc_*` | `radio-group` keyed by that name |
+| pick-many | checkboxes NAMED BY OPTION TEXT ("Other" recurs) | `checkbox-group` keyed by the question |
+| Yes / No | two `button[aria-pressed]` + a hidden backing checkbox | `ashby-button-group` |
+| location, self-ID | one anonymous react-select `[role=combobox]` | `ashby-combobox` |
+
+`normalizeAshbyFields` builds one field per entry and drops the generic
+duplicates; preparation and the fill both use it, so the form reviewed is
+the form filled.
+
+### Supported
+
+- **Guard by operation name.** `classifyAshbyOp` allow-lists the form's
+  known non-submitting operations (autosave, geo and school lookups, the
+  resume autofill parse, consent) and blocks every `ApiSubmit*` mutation
+  while armed. An operation not on the list is blocked and counts as a
+  possible submission attempt. The two upload ops stay gated to the
+  approved-artifact upload window.
+- **Hydration and commit proof.** Fills wait for the React form to mount;
+  text is committed through the framework and verified against the
+  field's own store, a render tick later.
+- **Upload first, then wait for the autofill parse to settle.**
+- **Location pickers** are matched as geography: the city is tried, then
+  the profile's state, then its country (employers configure pickers that
+  offer only one kind of place); the committed value is read from Ashby's
+  field state. A coarse prepared answer ("United States") fills a city
+  picker with the profile's own city.
+- **Pick-many** answers may name several options ("A; B"); exact option
+  text only, country-name equivalence as the fallback.
+- **Self-identification.** Confirmed answers are entered, with standard
+  synonyms and the federal "(Not Hispanic or Latino)" qualifier
+  tolerated. An optional self-ID question nobody answered takes the form's
+  own decline option. An unanswered system EEO field is left blank.
+- **Rehearsal.** `scripts/fill-application.ts <app> --validate` runs the
+  whole fill without approval and never clicks; the run output's
+  `submission guards:` line must read "nothing attempted".
+
+### Intentional handoffs
+
+| Situation | Outcome |
+| --- | --- |
+| Multi-step form (Next with no Submit) | `AMBIGUOUS_NAVIGATION` |
+| A required question with no confident answer | `REQUIRED_FIELD_BLOCKED` |
+| A picker that offers nothing equal to the answer | `READBACK_MISMATCH` |
+| An option without a unique selector | `SELECTOR_AMBIGUOUS` |
+| A video or recording upload | blocked; not automatable |
+| Visible CAPTCHA | `CAPTCHA` |
+
+### Proof
+
+Rehearsed to HANDOFF on 2026-09-07 with no guard hits: Fieldguide (location
+picker, pick-many, three EEO groups, radio group), Modern Treasury,
+Roboflow, Verse Medical (pronoun radio group, three button groups), Ashby's
+own form (textareas, city picker, self-ID). The acceptance bar set by the
+user: five applications submitted by the program.
