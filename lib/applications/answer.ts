@@ -594,8 +594,14 @@ function answerFromHumanFeedback(field: FormField, ctx: ResolveContext, blockedR
 
   // Sensitive questions are answered from a deliberately stored
   // preference or not at all. Feedback does not open a second door.
+  // The person's OWN answer to this same employer's question is not a
+  // generalisation: "Have you ever been employed
+  // by Northern Trust or any affiliates?" answered once for Northern Trust
+  // holds for Northern Trust. So a sensitive intent may recall only an
+  // answer scoped that narrowly, never one scoped to the intent.
   const intent = INTENTS.find((i) => i.key === intentKey);
-  if (!intent || intent.neverFill || intent.category === "D_SENSITIVE") return blockedResult;
+  if (!intent || intent.neverFill) return blockedResult;
+  const sensitive = intent.category === "D_SENSITIVE";
 
   const recalled = recallAnswer({
     intentKey,
@@ -607,12 +613,16 @@ function answerFromHumanFeedback(field: FormField, ctx: ResolveContext, blockedR
   }, ctx.learned!);
 
   if ("blocked" in recalled) {
+    if (sensitive) return blockedResult;
     return { ...blockedResult,
       blockedReason: `${blockedResult.blockedReason} ${recalled.blocked}.`,
       considered: [...blockedResult.considered,
         { rowId: null, what: "previously confirmed answers", whyRejected: recalled.blocked }] };
   }
 
+  // Employer- or job-scoped only. Wording-scoped would let "Gender", asked
+  // identically everywhere, bypass the bank that deliberately holds it.
+  if (sensitive && !["EMPLOYER", "JOB"].includes(recalled.scope)) return blockedResult;
   const fit = fitOption(field, recalled.answer);
   if (!fit.ok) {
     return { ...blockedResult,

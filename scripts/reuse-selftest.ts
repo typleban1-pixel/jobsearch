@@ -154,6 +154,25 @@ console.log("\n4. reuse, on a later application");
 }
 
 // ============================================================
+// ============================================================
+console.log("\n4b. a sensitive question recalls the person's own answer for THIS employer only");
+{
+  const NT = "Have you ever been an employee of either Northern Trust or any affiliates of Northern Trust?";
+  const own = stored({ id: "c-nt", intentKey: "previously_employed_here", normalizedQuestion: null, answer: "No",
+    scope: "EMPLOYER", employer: "Northern Trust", provider: "WORKDAY", jobId: "job-nt" });
+  const store = { mappings: [], contextual: [own] };
+  const here = ctx({ learned: store, application: { provider: "WORKDAY", employer: "Northern Trust", jobId: "job-nt-2", conditions: {} } });
+  const r = resolveField(f(NT, { type: "select", options: ["Yes", "No"] }), here);
+  check("the same employer's question is answered from his own earlier answer",
+    r.confidence === "HUMAN_CONFIRMED" && r.answer === "No", `${r.confidence} ${r.blockedReason ?? ""}`);
+  const elsewhere = ctx({ learned: store, application: { provider: "WORKDAY", employer: "Lorain County Community College", jobId: "job-l", conditions: {} } });
+  const r2 = resolveField(f("Have you ever been an employee of either Lorain County Community College or any affiliates?", { type: "select", options: ["Yes", "No"] }), elsewhere);
+  check("another employer's version stays blocked", r2.confidence === "BLOCKED", r2.confidence);
+  const generalised = { mappings: [], contextual: [stored({ id: "c-gen", intentKey: "previously_employed_here", normalizedQuestion: null, answer: "No", scope: "INTENT" })] };
+  const r3 = resolveField(f(NT, { type: "select", options: ["Yes", "No"] }), ctx({ learned: generalised, application: { provider: "WORKDAY", employer: "Northern Trust", jobId: "j", conditions: {} } }));
+  check("an intent-scoped reply never answers a sensitive question", r3.confidence === "BLOCKED", r3.confidence);
+}
+
 console.log("\n5. a question the catalog does know");
 
 {
