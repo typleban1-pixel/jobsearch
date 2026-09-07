@@ -293,14 +293,18 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   const ATS_LABEL: Record<string, string> = { WORKDAY: "Workday", GREENHOUSE: "Greenhouse", LEVER: "Lever", ASHBY: "Ashby" };
   const provider = String(job!.source ?? "");
   const providerLabel = ATS_LABEL[provider] ?? provider;
-  const { data: atsRow } = await db.from("ats_policy").select("capability").eq("provider", provider).maybeSingle();
+  const { data: atsRow } = await db.from("ats_policy").select("capability,paused").eq("provider", provider).maybeSingle();
   // ASSISTED_SUBMIT (Lever): the system prepares, fills and reads the form
   // back locally, and a human completes the anti-bot + final submit. It is
   // never approved into the autonomous submit-listener (which requires a
   // PRODUCTION provider), so the review page must not offer "Approve" or a
   // plain "Apply on the employer's site" -- it explains the finish step.
   const assisted = atsRow?.capability === "ASSISTED_SUBMIT";
-  const automatable = provider === "GREENHOUSE" && !app.blocked_reason;
+  // Whether the worker submits this provider is the policy row's business
+  // (PRODUCTION and not paused), not a hard-coded provider name: Ashby went
+  // to production on 2026-09-07 and this page kept saying "finish it on
+  // Ashby". A parked reason on the row still hands it to the person.
+  const automatable = atsRow?.capability === "PRODUCTION" && !atsRow?.paused && !app.blocked_reason;
   const applyUrl = (job as any)!.application_form_url ?? job!.url ?? null;
   const formNotRead = discoveredFields === 0;
   // A qualification/candidacy refusal means approval is genuinely prohibited:
