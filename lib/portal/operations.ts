@@ -272,52 +272,57 @@ export interface Counters {
 }
 
 export async function loadCounters(db: SupabaseClient): Promise<Counters> {
-  const [jobs, companies, apps, answers, runs, pipelines, candidacy] = await Promise.all([
-    paged<any>(db, "jobs", "id,status,eligibility", (q) => q),
-    paged<any>(db, "companies", "id,ats_token,has_chicagoland_presence,hires_remote_us", (q) => q),
+  // Head-only counts and two small tables, all in parallel.
+  //
+  // This used to page the ENTIRE jobs (19,651 rows), companies (4,231),
+  // job_candidacy (11,223), application_answers and fill-run tables -- 42
+  // round trips and 36,332 rows, 4.7-6.8 seconds -- to produce fourteen
+  // numbers for a header. A count is a count; nothing here needs the rows.
+  const count = async (table: string, refine: (q: any) => any = (q) => q): Promise<number> =>
+    (await refine(db.from(table).select("id", { count: "exact", head: true }))).count ?? 0;
+
+  const [
+    openJobs, eligible, candidates, stretches, validatedBoards, chicagoland, remoteUs,
+    apps, blocked, fillRuns, pipeline,
+  ] = await Promise.all([
+    count("jobs", (q) => q.eq("status", "OPEN")),
+    count("jobs", (q) => q.eq("status", "OPEN").eq("eligibility", "ELIGIBLE")),
+    // Among currently ranked jobs -- the population the Jobs list actually
+    // shows, which is what a candidate/stretch count should describe.
+    // job_card_summary is display-only and rebuilt by the pipeline; before
+    // its first build these read 0 rather than fail the page.
+    count("job_card_summary", (q) => q.eq("candidacy_verdict", "APPLICATION_CANDIDATE")).catch(() => 0),
+    count("job_card_summary", (q) => q.eq("candidacy_verdict", "STRETCH")).catch(() => 0),
+    count("companies", (q) => q.not("ats_token", "is", null)),
+    count("companies", (q) => q.eq("has_chicagoland_presence", true)),
+    count("companies", (q) => q.eq("hires_remote_us", true)),
     paged<any>(db, "applications", "id,status,submitted_at", (q) => q),
-    paged<any>(db, "application_answers", "id,application_id,confidence_state", (q) => q),
-    paged<any>(db, "application_fill_runs", "id,application_id,outcome,started_at", (q) => q, "started_at", false),
-    paged<any>(db, "pipeline_runs", "id,kind,started_at", (q) => q, "started_at", false).catch(() => []),
-    paged<any>(db, "job_candidacy", "id,job_id,verdict", (q) => q).catch(() => []),
+    // Only BLOCKED answers decide "needs answers"; the rest of the table is
+    // irrelevant to this count, so it is not read.
+    paged<any>(db, "application_answers", "id,application_id,confidence_state", (q) => q.eq("confidence_state", "BLOCKED")),
+    paged<any>(db, "application_fill_runs", "application_id", (q) => q),
+    db.from("pipeline_runs").select("kind,started_at").order("started_at", { ascending: false }).limit(1).maybeSingle()
+      .then((r: any) => r.data ?? null, () => null),
   ]);
 
-  const open = jobs.filter((j) => j.status === "OPEN");
-  const liveJobs = new Set(open.filter((j) => j.eligibility === "ELIGIBLE").map((j) => j.id));
   // One definition, shared with the queue and with Apply. Deriving this
   // from application.status counted work that had already been done.
-  const blockedApps = applicationsNeedingAnswers(answers as any);
-  // Live means still in play, not merely unsubmitted.
-  //
-  // This was `!a.submitted_at`, which correctly excluded submitted
-  // applications and wrongly kept abandoned ones. Six abandoned drafts
-  // still carried unresolved blocked answers from before they were
-  // abandoned, so the header advertised six applications needing answers
-  // that nobody could act on and that the queue rightly showed as
-  // nothing. Closing an application ends its claim on attention.
+  const blockedApps = applicationsNeedingAnswers(blocked as any);
+  // Live means still in play, not merely unsubmitted: a closed application
+  // ends its claim on attention even if it still carries blocked answers.
   const live = apps.filter((a) => !a.submitted_at && !CLOSED_STATUSES.has(a.status));
-  const latestRun = new Map<string, any>();
-  for (const r of runs) if (!latestRun.has(r.application_id)) latestRun.set(r.application_id, r);
+  const withRun = new Set(fillRuns.map((r) => r.application_id as string));
 
   return {
-    openJobs: open.length,
-    eligible: open.filter((j) => j.eligibility === "ELIGIBLE").length,
-    // Counted against live jobs only. job_candidacy keeps its history, so
-    // a verdict outlives the posting it was about: counting the table
-    // directly reported 897 candidacy rows against 885 eligible jobs.
-    candidates: candidacy.filter((c) => c.verdict === "APPLICATION_CANDIDATE" && liveJobs.has(c.job_id)).length,
-    stretches: candidacy.filter((c) => c.verdict === "STRETCH" && liveJobs.has(c.job_id)).length,
-    validatedBoards: companies.filter((c) => c.ats_token).length,
-    chicagoland: companies.filter((c) => c.has_chicagoland_presence).length,
-    remoteUs: companies.filter((c) => c.hires_remote_us).length,
+    openJobs, eligible, candidates, stretches, validatedBoards, chicagoland, remoteUs,
     queued: live.filter((a) => QUEUED.has(a.status)).length,
     needsAnswers: live.filter((a) => blockedApps.has(a.id)).length,
     awaitingReview: live.filter((a) => a.status === "AWAITING_REVIEW").length,
     readyToSubmit: live.filter((a) => a.status === "READY_TO_SUBMIT").length,
-    handoffs: live.filter((a) => latestRun.has(a.id)).length,
+    handoffs: live.filter((a) => withRun.has(a.id)).length,
     submitted: apps.filter((a) => a.submitted_at).length,
-    lastPipelineRun: pipelines[0]?.started_at ?? null,
-    lastPipelineKind: pipelines[0]?.kind ?? null,
+    lastPipelineRun: pipeline?.started_at ?? null,
+    lastPipelineKind: pipeline?.kind ?? null,
   };
 }
 

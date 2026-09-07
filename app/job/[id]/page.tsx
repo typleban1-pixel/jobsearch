@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { redirect } from "next/navigation";
-import { loadJobCards } from "../../../lib/portal/db.ts";
+import { loadJobCardById } from "../../../lib/portal/db.ts";
 import { currentSession } from "../../../lib/portal/session.ts";
 import {
-  describeArrangement, describeFreshness, describeLocations, describeSalary, uncertaintyBand, sortCards,
+  describeArrangement, describeFreshness, describeLocations, describeSalary, uncertaintyBand,
 } from "../../../lib/portal/present.ts";
 import { matchLabel } from "../../../lib/portal/matchScore.ts";
 
@@ -17,36 +17,29 @@ export default async function JobDetail(props: { params: Promise<{ id: string }>
   const session = await currentSession();
   if (!session) redirect("/login");
   const db = session.client;
-  const cards = await loadJobCards(db);
-  const card = cards.find((c) => c.id === id);
-  if (!card) notFound();
 
-  // Sibling variants of the same opening. Applying through one of these
-  // blocks the others, so they belong on screen together.
-  const siblings = cards.filter((c) => c.openingId === card.openingId && c.id !== card.id);
-  const { data: opening } = await db.from("openings")
-    .select("identity_method,provider_opening_key").eq("id", card.openingId).maybeSingle();
-  const { data: desc } = await db.from("job_descriptions")
-    .select("description_text").eq("job_id", card.id).maybeSingle();
+  // One card, read from the precomputed summary, with its rank-of-N counts
+  // and sibling variants -- six small requests. This page used to rebuild
+  // EVERY ranked card (~53k rows, 8-15s) to display one job and find its
+  // position; the position is now a count of what sorts above it.
+  const [detail, descRes] = await Promise.all([
+    loadJobCardById(db, id),
+    db.from("job_descriptions").select("description_text").eq("job_id", id).maybeSingle(),
+  ]);
+  if (!detail) notFound();
+  const { card, siblings, matchRank, fitRank, evidenceRank, total } = detail;
+  const desc = descRes.data;
 
-  const returnTo = `/job/${card.id}`;
-
-  // One live application per requisition, so the control disappears once
-  // any variant of this opening has one.
-  const { data: live } = await db.from("applications")
-    .select("id,status").eq("canonical_opening_id", card.openingId)
-    .not("status", "in", "(REJECTED,WITHDRAWN,ABANDONED)").limit(1);
+  // Keyed by opening, so these wait only for the card, not for each other.
+  const [{ data: opening }, { data: live }] = await Promise.all([
+    db.from("openings").select("identity_method,provider_opening_key").eq("id", card.openingId).maybeSingle(),
+    // One live application per requisition, so the control disappears once
+    // any variant of this opening has one.
+    db.from("applications").select("id,status").eq("canonical_opening_id", card.openingId)
+      .not("status", "in", "(REJECTED,WITHDRAWN,ABANDONED)").limit(1),
+  ]);
   const liveApplication = live?.[0] ?? null;
-
-  // Rank by the authoritative Match Score, exactly as /jobs does, so this
-  // page and the list can never disagree. The raw-Fit and by-evidence
-  // positions are kept below only as internal diagnostics, clearly labelled
-  // and visually subordinate; they are not the user-facing rank.
-  const matchRank = sortCards(cards, "match").findIndex((c) => c.id === card.id) + 1;
-  const fitRank = [...cards].sort((a, b) => b.fit - a.fit).findIndex((c) => c.id === card.id) + 1;
-  const evidenceRank = [...cards]
-    .sort((a, b) => b.creditedCount - a.creditedCount || b.fit - a.fit)
-    .findIndex((c) => c.id === card.id) + 1;
+  const returnTo = `/job/${card.id}`;
 
   return (
     <main className="wrap">
@@ -102,8 +95,8 @@ export default async function JobDetail(props: { params: Promise<{ id: string }>
         <h3>Why it ranked here</h3>
         <table className="detail">
           <tbody>
-            <tr><th>Match Score</th><td className="num"><b>{card.match.provisional ? "~" : ""}{card.match.score}/100</b> · {matchLabel(card.match.score, card.match.provisional)} · rank {matchRank} of {cards.length}</td></tr>
-            <tr><th className="muted">Fit (Formula 3 · internal diagnostic)</th><td className="num muted"><b>{card.fit}</b> · not the user-facing ranking · internal positions only: {fitRank} of {cards.length} by Fit, {evidenceRank} by evidence</td></tr>
+            <tr><th>Match Score</th><td className="num"><b>{card.match.provisional ? "~" : ""}{card.match.score}/100</b> · {matchLabel(card.match.score, card.match.provisional)} · rank {matchRank} of {total}</td></tr>
+            <tr><th className="muted">Fit (Formula 3 · internal diagnostic)</th><td className="num muted"><b>{card.fit}</b> · not the user-facing ranking · internal positions only: {fitRank} of {total} by Fit, {evidenceRank} by evidence</td></tr>
             <tr><th className="muted">from evidence (coverage)</th><td className="num muted">{signed(card.coveragePoints)}{card.coverage !== null && ` · coverage ${(card.coverage * 100).toFixed(1)}%`}</td></tr>
             <tr><th className="muted">title family</th><td className="num muted">{signed(card.titleMatchPoints)}</td></tr>
             <tr><th className="muted">seniority</th><td className="num muted">{signed(card.seniorityPoints)}</td></tr>

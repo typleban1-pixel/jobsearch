@@ -203,6 +203,12 @@ steps.push(await run("score", ["scripts/score.ts", "--commit"]));
 // that selects work by candidacy silently selects nothing until this
 // runs, which is exactly the failure an automation policy would hide.
 steps.push(await run("candidacy", ["scripts/score-candidacy.ts", "--write"]));
+// The Jobs list, precomputed. Runs after score and candidacy because both
+// change what a card says; the portal reads job_card_summary instead of
+// rebuilding every card from ~53k rows per page view (8-15s -> one bounded
+// query). --conditions=react-server lets the portal's `server-only` data
+// module load under plain node; args go straight to process.execPath.
+steps.push(await run("card-summaries", ["--conditions=react-server", "scripts/materialize-job-cards.ts", "--commit"]));
 steps.push(await run("churn", ["scripts/churn.ts", "--commit"]));
 
 // The application worker runs last and only on the daily pass: it needs

@@ -80,10 +80,12 @@ const ANSWER_COLS =
   "id,application_id,field_key,field_label,question_text,answer_text,is_required," +
   "confidence_state,block_kind,blocked_reason,evidence_ids,considered_evidence,promote_to_bank,category";
 
-export async function loadApplications(db: SupabaseClient): Promise<ApplicationSummary[]> {
+export async function loadApplications(db: SupabaseClient, opts: { id?: string } = {}): Promise<ApplicationSummary[]> {
+  // `id` scopes the read to one application so a detail page never loads
+  // the whole board to find one row. Same mapping either way.
   const apps = await paged<any>(db, "applications",
     "id,job_id,job_version_id,status,all_fields_confident,human_approved,submission_mode,prepared_at,created_at,resume_id,form_snapshot_hash,submitted_at,human_approved_at,submit_requested_at,submit_started_at",
-    (q) => q.eq("is_test", false), "created_at");
+    (q) => (opts.id ? q.eq("is_test", false).eq("id", opts.id) : q.eq("is_test", false)), "created_at");
   if (!apps.length) return [];
 
   const answers = await paged<any>(db, "application_answers", ANSWER_COLS,
@@ -153,50 +155,57 @@ export interface ApplicationDetail {
 }
 
 export async function loadApplication(db: SupabaseClient, id: string): Promise<ApplicationDetail | null> {
-  const all = await loadApplications(db);
-  const summary = all.find((a) => a.id === id);
+  // One application, read directly, in two waves.
+  //
+  // This used to load EVERY application and .find() the one asked for, then
+  // make eight dependent round trips one after another (answers, then the
+  // row, then the resume, then its claims, then the master, then its claims,
+  // then the profile rows). Nothing in the first wave depends on anything
+  // else; the second wave depends only on what the first returned.
+  const [summaries, answerRows, appRes, masterRes] = await Promise.all([
+    loadApplications(db, { id }),
+    paged<any>(db, "application_answers", ANSWER_COLS, (q) => q.eq("application_id", id)),
+    db.from("applications").select("form_snapshot,resume_id").eq("id", id).single(),
+    // The master resume, so a reviewer can see what tailoring changed.
+    db.from("resumes").select("id,label").eq("is_master", true).maybeSingle(),
+  ]);
+  const summary = summaries[0];
   if (!summary) return null;
-
-  const answers = (await paged<any>(db, "application_answers", ANSWER_COLS,
-    (q) => q.eq("application_id", id))).map(toAnswer);
-
-  const { data: app } = await db.from("applications").select("form_snapshot,resume_id").eq("id", id).single();
+  const answers = answerRows.map(toAnswer);
+  const app = appRes.data as any;
   const snapshot = app?.form_snapshot as any;
+  const master = masterRes.data as any;
+  const masterVersion = master ? Number(String(master.label).match(/profile version (\d+)/)?.[1] ?? 0) : 0;
 
-  let accepted: ResumeClaimRow[] = [], rejected: ResumeClaimRow[] = [];
-  let artifact: ApplicationDetail["artifact"] = null;
-  if (app?.resume_id) {
-    const { data: r } = await db.from("resumes")
-      .select("artifact_sha256,artifact_bytes,renderer_version").eq("id", app.resume_id).maybeSingle();
-    if (r?.artifact_sha256) {
-      artifact = { sha256: r.artifact_sha256, bytes: r.artifact_bytes ?? 0, rendererVersion: r.renderer_version };
-    }
-    const claims = await paged<any>(db, "resume_claims",
-      "claim,evidence_ids,source_text,generation,grounding_checks", (q) => q.eq("resume_id", app.resume_id));
-    const rows = claims.map((c) => ({
-      claim: c.claim, evidenceIds: c.evidence_ids ?? [], sourceText: c.source_text,
-      generation: c.generation, grounding: c.grounding_checks,
-    }));
-    accepted = rows.filter((r) => r.grounding?.ok !== false);
-    rejected = rows.filter((r) => r.grounding?.ok === false);
-  }
+  const none = Promise.resolve([] as any[]);
+  const [resumeRes, claimRows, masterClaimRows, profileRows] = await Promise.all([
+    app?.resume_id
+      ? db.from("resumes").select("artifact_sha256,artifact_bytes,renderer_version").eq("id", app.resume_id).maybeSingle()
+      : Promise.resolve({ data: null as any }),
+    app?.resume_id
+      ? paged<any>(db, "resume_claims", "claim,evidence_ids,source_text,generation,grounding_checks", (q) => q.eq("resume_id", app.resume_id))
+      : none,
+    master ? paged<any>(db, "resume_claims", "claim", (q) => q.eq("resume_id", master.id)) : none,
+    master ? paged<any>(db, "profile_version_rows", "row_id,source_table,row_data", (q) => q.eq("profile_version", masterVersion), "row_id") : none,
+  ]);
 
-  // The master resume, so a reviewer can see what tailoring changed.
-  const { data: master } = await db.from("resumes").select("id,label").eq("is_master", true).maybeSingle();
-  let masterClaims: string[] = [];
-  let evidenceText = new Map<string, string>();
-  if (master) {
-    masterClaims = (await paged<any>(db, "resume_claims", "claim", (q) => q.eq("resume_id", master.id)))
-      .map((c) => c.claim as string);
-    const version = Number(String(master.label).match(/profile version (\d+)/)?.[1] ?? 0);
-    const rows = await paged<any>(db, "profile_version_rows", "row_id,source_table,row_data",
-      (q) => q.eq("profile_version", version), "row_id");
-    for (const r of rows) {
-      const d = r.row_data;
-      const t = [d.summary, d.detail, d.approved_wording, d.name, d.employer, d.institution]
-        .filter(Boolean).join(" ");
-      if (t) evidenceText.set(r.row_id, t);
-    }
+  const r = resumeRes.data as any;
+  const artifact: ApplicationDetail["artifact"] = r?.artifact_sha256
+    ? { sha256: r.artifact_sha256, bytes: r.artifact_bytes ?? 0, rendererVersion: r.renderer_version }
+    : null;
+  const rows: ResumeClaimRow[] = claimRows.map((c) => ({
+    claim: c.claim, evidenceIds: c.evidence_ids ?? [], sourceText: c.source_text,
+    generation: c.generation, grounding: c.grounding_checks,
+  }));
+  const accepted = rows.filter((x) => x.grounding?.ok !== false);
+  const rejected = rows.filter((x) => x.grounding?.ok === false);
+  const masterClaims = masterClaimRows.map((c) => c.claim as string);
+  const evidenceText = new Map<string, string>();
+  for (const pr of profileRows) {
+    const d = pr.row_data;
+    const t = [d.summary, d.detail, d.approved_wording, d.name, d.employer, d.institution]
+      .filter(Boolean).join(" ");
+    if (t) evidenceText.set(pr.row_id, t);
   }
 
   return {

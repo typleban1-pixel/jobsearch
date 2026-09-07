@@ -1,7 +1,9 @@
+import Link from "next/link";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { loadJobCards, loadUniverseCounts } from "../../lib/portal/db.ts";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadJobCardPage, loadUniverseCounts, type InterestTab } from "../../lib/portal/db.ts";
 import { currentSession } from "../../lib/portal/session.ts";
-import { applyFilters, sortCards, DEFAULT_FILTERS, type Filters } from "../../lib/portal/present.ts";
 import { JobCardView } from "../JobCardView.tsx";
 import { JobsQueue } from "./JobsQueue.tsx";
 import { PrimaryNav } from "../PrimaryNav.tsx";
@@ -17,49 +19,57 @@ const TABS = [
   { key: "dismissed", label: "Not interested" },
   { key: "all", label: "All" },
 ] as const;
-type TabKey = (typeof TABS)[number]["key"];
 
 const nf = new Intl.NumberFormat("en-US");
+const PER_PAGE = 50;
+
+/**
+ * What the page is showing, and what it is not. Three head-only counts,
+ * streamed in after the list: the cards are the page, and they must never
+ * wait on a statistic. Grows toward "ranked" as extraction (#269) clears the
+ * "being evaluated" backlog.
+ */
+async function UniverseLine({ db }: { db: SupabaseClient }) {
+  const { count } = await db.from("job_card_summary").select("job_id", { count: "exact", head: true });
+  const universe = await loadUniverseCounts(db, count ?? 0);
+  return (
+    <p className="universe">
+      <b>{nf.format(universe.ranked)}</b> ranked for you
+      {universe.awaiting > 0 && (
+        <> <span className="sep">·</span> <b>{nf.format(universe.awaiting)}</b> still being evaluated</>
+      )}
+      {universe.excludedByGates > 0 && (
+        <> <span className="sep">·</span> <span className="muted">{nf.format(universe.excludedByGates)} ruled out by your location/eligibility</span></>
+      )}
+    </p>
+  );
+}
 
 export default async function Page(props: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await props.searchParams;
   const one = (k: string) => (Array.isArray(sp[k]) ? sp[k]![0] : sp[k]) as string | undefined;
 
   const q = (one("q") ?? "").trim();
-  const interest = (TABS.find((t) => t.key === one("interest"))?.key ?? "active") as TabKey;
-
-  // The authoritative view: every currently viable job, best opportunity
-  // first, with the model's rejects and Ty's decided rows gated out. The
-  // ranking dimensions (candidacy, fit, opportunity, salary, uncertainty,
-  // gaps) still exist and still drive the order -- they are just not knobs
-  // the reader turns. candidacy stays "actionable" so hard-gate rejects
-  // never surface; interest is the one selector, shown as tabs.
-  const filters: Filters = {
-    ...DEFAULT_FILTERS, q, interest, candidacy: "actionable",
-  };
+  const interest = (TABS.find((t) => t.key === one("interest"))?.key ?? "active") as InterestTab;
+  const requestedPage = Math.max(1, Number(one("p") ?? 1) || 1);
 
   const session = await currentSession();
   if (!session) redirect("/login");
+  const db = session.client;
 
-  const all = await loadJobCards(session.client);
-  const universe = await loadUniverseCounts(session.client, all.length);
-  // One authoritative ordering: the calibrated 0-100 Match Score, highest
-  // first, so #1 is the best viable match currently evaluated. Eligibility
-  // gating still happens upstream (an ineligible job is not made viable by
-  // a high score); the evidence-first Formula 3 ranking now only breaks
-  // ties beneath Match Score and remains available as a diagnostic sort.
-  const matching = sortCards(applyFilters(all, filters), "match");
-
-  // Paginated because rendering hundreds of cards produced a multi-megabyte
-  // document. The whole set is still ranked; only the slice on screen is
-  // rendered, and the rank number is the position in the full ranking so
-  // #1 means the single best job, whatever page it lands on.
-  const PER_PAGE = 50;
-  const pageNum = Math.max(1, Number(one("p") ?? 1) || 1);
-  const pageCount = Math.max(1, Math.ceil(matching.length / PER_PAGE));
-  const current = Math.min(pageNum, pageCount);
-  const startIndex = (current - 1) * PER_PAGE;
-  const shown = matching.slice(startIndex, startIndex + PER_PAGE);
+  // The list is one bounded query against the precomputed job_card_summary
+  // (see lib/portal/db.ts): the actionable gate, the tab, the search and the
+  // Match Score ordering are applied in the database, and only this page's
+  // 50 cards come back. This replaced rebuilding every ranked card from ~53k
+  // rows on each request. If the summary has not been built yet, say so
+  // rather than fail.
+  let result: Awaited<ReturnType<typeof loadJobCardPage>> | null = null;
+  let notReady: string | null = null;
+  try {
+    result = await loadJobCardPage(db, { interest, q, page: requestedPage, perPage: PER_PAGE });
+  } catch (e) {
+    notReady = e instanceof Error ? e.message : String(e);
+  }
 
   const withParams = (over: Record<string, string | number | undefined>) => {
     const p = new URLSearchParams();
@@ -73,6 +83,12 @@ export default async function Page(props: { searchParams: Promise<Record<string,
     return s ? `/jobs?${s}` : "/jobs";
   };
 
+  const total = result?.total ?? 0;
+  const shown = result?.cards ?? [];
+  const current = result?.page ?? 1;
+  const pageCount = result?.pageCount ?? 1;
+  const startIndex = result?.startIndex ?? 0;
+
   return (
     <main className="jobs">
       <header className="applyhead">
@@ -80,68 +96,72 @@ export default async function Page(props: { searchParams: Promise<Record<string,
         <PrimaryNav current="jobs" />
       </header>
 
-      {/* What the page is showing, and what it is not. Grows toward
-          "ranked" as extraction (#269) clears the "being evaluated" backlog. */}
-      <p className="universe">
-        <b>{nf.format(universe.ranked)}</b> ranked for you
-        {universe.awaiting > 0 && (
-          <> <span className="sep">·</span> <b>{nf.format(universe.awaiting)}</b> still being evaluated</>
-        )}
-        {universe.excludedByGates > 0 && (
-          <> <span className="sep">·</span> <span className="muted">{nf.format(universe.excludedByGates)} ruled out by your location/eligibility</span></>
-        )}
-      </p>
+      <Suspense fallback={<p className="universe muted">counting the universe…</p>}>
+        <UniverseLine db={db} />
+      </Suspense>
 
       <div className="jobsbar">
+        {/* Links, not anchors: a tab or page change is a soft navigation that
+            keeps the shell and the current list on screen until the next
+            one arrives, and prefetches on hover. */}
         <nav className="tabs" aria-label="List">
           {TABS.map((t) => (
-            <a key={t.key} href={withParams({ interest: t.key, p: undefined })}
+            <Link key={t.key} href={withParams({ interest: t.key, p: undefined })}
                className={t.key === interest ? "tab active" : "tab"}>
               {t.label}
-            </a>
+            </Link>
           ))}
         </nav>
         <form className="search" method="get">
           {interest !== "active" && <input type="hidden" name="interest" value={interest} />}
           <input name="q" defaultValue={q} placeholder="Search title or company" aria-label="Search title or company" />
-          {q && <a className="clear" href={withParams({ q: undefined, p: undefined })}>clear</a>}
+          {q && <Link className="clear" href={withParams({ q: undefined, p: undefined })}>clear</Link>}
         </form>
       </div>
 
-      <p className="count">
-        {matching.length === 0
-          ? "Nothing here yet"
-          : `${nf.format(matching.length)} ${interest === "active" ? "in your queue" : "job" + (matching.length === 1 ? "" : "s")}`}
-        {matching.length > PER_PAGE
-          && ` · showing ${nf.format(startIndex + 1)}–${nf.format(startIndex + shown.length)}`}
-      </p>
+      {notReady ? (
+        <div className="empty">
+          <p>The ranked list is being prepared.</p>
+          <p className="muted small">
+            The card summary has not been built yet (run the pipeline&apos;s card-summaries step, or
+            <code> scripts/materialize-job-cards.ts --commit</code>). {notReady}
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="count">
+            {total === 0
+              ? "Nothing here yet"
+              : `${nf.format(total)} ${interest === "active" ? "in your queue" : "job" + (total === 1 ? "" : "s")}`}
+            {total > PER_PAGE
+              && ` · showing ${nf.format(startIndex + 1)}–${nf.format(startIndex + shown.length)}`}
+          </p>
 
-      {shown.length === 0
-        ? (
-          <div className="empty">
-            <p>{q ? "No jobs match that search." : interest === "saved" ? "You haven't saved any jobs yet."
-              : interest === "dismissed" ? "You haven't set any jobs aside." : "No ranked jobs yet."}</p>
-            {universe.awaiting > 0 && interest === "active" && !q && (
-              <p className="muted">{nf.format(universe.awaiting)} more jobs are still being evaluated and will appear here as they're scored.</p>
+          {shown.length === 0
+            ? (
+              <div className="empty">
+                <p>{q ? "No jobs match that search." : interest === "saved" ? "You haven't saved any jobs yet."
+                  : interest === "dismissed" ? "You haven't set any jobs aside." : "No ranked jobs yet."}</p>
+              </div>
+            )
+            : (
+              <JobsQueue>
+                {shown.map((c, i) => (
+                  <JobCardView key={c.id} card={c}
+                    rank={interest === "active" ? startIndex + i + 1 : null}
+                    returnTo={withParams({ p: current })} />
+                ))}
+              </JobsQueue>
             )}
-          </div>
-        )
-        : (
-          <JobsQueue>
-            {shown.map((c, i) => (
-              <JobCardView key={c.id} card={c}
-                rank={interest === "active" ? startIndex + i + 1 : null}
-                returnTo={withParams({ p: current })} />
-            ))}
-          </JobsQueue>
-        )}
 
-      {pageCount > 1 && (
-        <nav className="pager">
-          {current > 1 && <a href={withParams({ p: current - 1 })}>← previous</a>}
-          <span>page {current} of {pageCount}</span>
-          {current < pageCount && <a href={withParams({ p: current + 1 })}>next →</a>}
-        </nav>
+          {pageCount > 1 && (
+            <nav className="pager">
+              {current > 1 && <Link href={withParams({ p: current - 1 })}>← previous</Link>}
+              <span>page {current} of {pageCount}</span>
+              {current < pageCount && <Link href={withParams({ p: current + 1 })}>next →</Link>}
+            </nav>
+          )}
+        </>
       )}
     </main>
   );

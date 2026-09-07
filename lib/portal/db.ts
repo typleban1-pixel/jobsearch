@@ -519,3 +519,185 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
   }
   return cards;
 }
+
+// ---------------------------------------------------------------------------
+// The precomputed list: job_card_summary.
+//
+// loadJobCards() above is the authoritative card build and now runs in the
+// pipeline (scripts/materialize-job-cards.ts), not per request. The portal
+// reads the result through the two functions below: one bounded, indexed,
+// sorted, paginated query for the list, one row (plus tiny rank counts) for
+// a detail page. User state -- interest and application status -- is never
+// stored in the summary; it is overlaid live from its small source tables so
+// a save or a submission shows immediately.
+// ---------------------------------------------------------------------------
+
+export type InterestTab = "active" | "saved" | "dismissed" | "all";
+
+export interface JobCardPage {
+  /** This page, in rank order, with interest/application state overlaid. */
+  cards: JobCard[];
+  /** Rows matching the tab + search across every page. */
+  total: number;
+  /** Every currently ranked job, regardless of tab. What "ranked for you" reports. */
+  ranked: number;
+  page: number;
+  pageCount: number;
+  perPage: number;
+  startIndex: number;
+}
+
+/** Live user state, keyed by opening, from the two small tables that carry it. */
+async function loadOverlays(db: SupabaseClient) {
+  const [interestRes, appsRes] = await Promise.all([
+    db.from("job_interest").select("canonical_opening_id,state"),
+    // Same read loadJobCards makes: a submitted application wins over a
+    // draft one for the same opening, so a repost never reads as "in
+    // progress" once it has been sent.
+    db.from("applications").select("status,submitted_at,canonical_opening_id"),
+  ]);
+  const interestByOpening = new Map<string, string>();
+  for (const i of (interestRes.data ?? []) as any[]) interestByOpening.set(i.canonical_opening_id, i.state);
+  const appliedByOpening = new Map<string, string>();
+  for (const a of (appsRes.data ?? []) as any[]) {
+    if (!a.canonical_opening_id) continue;
+    const prior = appliedByOpening.get(a.canonical_opening_id);
+    if (!prior || a.submitted_at) appliedByOpening.set(a.canonical_opening_id, a.status);
+  }
+  return { interestByOpening, appliedByOpening };
+}
+
+function overlay(card: JobCard, o: Awaited<ReturnType<typeof loadOverlays>>): JobCard {
+  const v = o.interestByOpening.get(card.openingId) ?? null;
+  return {
+    ...card,
+    interest: (v as JobCard["interest"]) ?? null,
+    activeInterest: v === "SAVED" || v === "NOT_INTERESTED" ? v : null,
+    applicationStatus: o.appliedByOpening.get(card.openingId) ?? null,
+  };
+}
+
+/** PostgREST `in` lists are comma-separated inside parentheses. */
+const inList = (ids: string[]) => `(${ids.join(",")})`;
+
+/**
+ * One page of the Jobs list.
+ *
+ * Mirrors applyFilters()+sortCards("match") exactly, in SQL: the actionable
+ * gate (candidacy REJECT hidden, unassessed kept visible), the interest tab,
+ * the title/company search, and the Match Score ordering. The parity
+ * selftest (scripts/portal-card-summary-selftest.ts) holds the two paths
+ * to the same ordered ids.
+ */
+export async function loadJobCardPage(
+  db: SupabaseClient,
+  opts: { interest: InterestTab; q: string; page: number; perPage?: number },
+): Promise<JobCardPage> {
+  const perPage = opts.perPage ?? 50;
+  const overlays = await loadOverlays(db);
+
+  const saved: string[] = [], dismissed: string[] = [];
+  for (const [opening, state] of overlays.interestByOpening) {
+    if (state === "SAVED") saved.push(opening);
+    else if (state === "NOT_INTERESTED") dismissed.push(opening);
+  }
+  const withInterest = [...saved, ...dismissed];
+
+  const empty = (ranked: number): JobCardPage =>
+    ({ cards: [], total: 0, ranked, page: 1, pageCount: 1, perPage, startIndex: 0 });
+
+  const rankedCount = db.from("job_card_summary").select("job_id", { count: "exact", head: true });
+
+  // A tab whose interest set is empty has nothing to show; do not ask.
+  if ((opts.interest === "saved" && saved.length === 0) || (opts.interest === "dismissed" && dismissed.length === 0)) {
+    return empty((await rankedCount).count ?? 0);
+  }
+
+  let qb = db.from("job_card_summary").select("card", { count: "exact" })
+    // actionable: REJECT hidden; a job with no verdict stays visible.
+    .or("candidacy_verdict.is.null,candidacy_verdict.neq.REJECT");
+  if (opts.interest === "active" && withInterest.length) qb = qb.not("opening_id", "in", inList(withInterest));
+  if (opts.interest === "saved") qb = qb.in("opening_id", saved);
+  if (opts.interest === "dismissed") qb = qb.in("opening_id", dismissed);
+  // Commas and parentheses are PostgREST syntax inside an or-filter.
+  const q = opts.q.replace(/[,()]/g, " ").trim();
+  if (q) qb = qb.or(`title.ilike.%${q}%,company.ilike.%${q}%`);
+
+  // The page is asked for with the filters applied, so the rank number is
+  // the position in the full filtered ranking, not in the slice.
+  const requested = Math.max(1, opts.page || 1);
+  const from = (requested - 1) * perPage;
+  const [pageRes, ranked] = await Promise.all([
+    qb.order("match_score", { ascending: false })
+      .order("match_provisional", { ascending: true })
+      .order("fit_score", { ascending: false })
+      .order("job_id", { ascending: true })
+      .range(from, from + perPage - 1),
+    rankedCount,
+  ]);
+  if (pageRes.error) throw new Error(`job_card_summary: ${pageRes.error.message}`);
+
+  const total = pageRes.count ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / perPage));
+  const page = Math.min(requested, pageCount);
+  // Asked past the end: re-read the last page rather than show nothing.
+  let rows = (pageRes.data ?? []) as any[];
+  if (page !== requested) {
+    const last = await qb.order("match_score", { ascending: false }).order("match_provisional", { ascending: true })
+      .order("fit_score", { ascending: false }).order("job_id", { ascending: true })
+      .range((page - 1) * perPage, page * perPage - 1);
+    rows = (last.data ?? []) as any[];
+  }
+  return {
+    cards: rows.map((r) => overlay(r.card as JobCard, overlays)),
+    total, ranked: ranked.count ?? 0, page, pageCount, perPage, startIndex: (page - 1) * perPage,
+  };
+}
+
+export interface JobCardDetail {
+  card: JobCard;
+  /** Other published variants of the same opening. */
+  siblings: JobCard[];
+  /** Position by Match Score among every ranked job, and how many there are. */
+  matchRank: number;
+  fitRank: number;
+  evidenceRank: number;
+  total: number;
+}
+
+/** One job for its detail page: its card, siblings, and rank-of-N counts. */
+export async function loadJobCardById(db: SupabaseClient, jobId: string): Promise<JobCardDetail | null> {
+  const { data: row, error } = await db.from("job_card_summary")
+    .select("card,opening_id,match_score,fit_score,credited_count").eq("job_id", jobId).maybeSingle();
+  if (error) throw new Error(`job_card_summary: ${error.message}`);
+  if (!row) return null;
+
+  const count = async (refine: (q: any) => any): Promise<number> =>
+    (await refine(db.from("job_card_summary").select("job_id", { count: "exact", head: true }))).count ?? 0;
+
+  // Rank = rows that sort strictly above this one, plus one -- under the
+  // list's exact ordering (match desc, firm before provisional, fit desc,
+  // job_id), so the number here is the position the list shows.
+  const m = row.match_score, p = Boolean((row.card as any)?.match?.provisional), f = row.fit_score ?? 0;
+  const above = [
+    `match_score.gt.${m}`,
+    ...(p ? [`and(match_score.eq.${m},match_provisional.eq.false)`] : []),
+    `and(match_score.eq.${m},match_provisional.eq.${p},fit_score.gt.${f})`,
+    `and(match_score.eq.${m},match_provisional.eq.${p},fit_score.eq.${f},job_id.lt.${jobId})`,
+  ].join(",");
+
+  const [overlays, sibs, aboveMatch, total, aboveFit, aboveEvidence] = await Promise.all([
+    loadOverlays(db),
+    db.from("job_card_summary").select("card").eq("opening_id", row.opening_id).neq("job_id", jobId),
+    count((q) => q.or(above)),
+    count((q) => q),
+    count((q) => q.gt("fit_score", row.fit_score ?? 0)),
+    count((q) => q.gt("credited_count", row.credited_count ?? 0)),
+  ]);
+
+  return {
+    card: overlay(row.card as JobCard, overlays),
+    siblings: ((sibs.data ?? []) as any[]).map((s) => overlay(s.card as JobCard, overlays)),
+    matchRank: aboveMatch + 1, fitRank: aboveFit + 1, evidenceRank: aboveEvidence + 1, total,
+  };
+}
