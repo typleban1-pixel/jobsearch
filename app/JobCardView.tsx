@@ -35,12 +35,19 @@ export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; re
 
   // Two reasons for, one against: the strongest direct evidence and the
   // most important gap, both already computed by the ranking.
-  const reasonsFor = card.directConcepts.slice(0, 2);
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  const reasonsFor = card.directConcepts.slice(0, 2).map(cap);
   const gaps = [
     ...card.credentialFamiliesUnmet.map((f) => `No ${f.toLowerCase()} credential`),
-    ...card.attention.genuineGaps,
+    ...card.attention.genuineGaps.map(cap),
   ];
   const reasonAgainst = gaps[0] ?? null;
+  // "Remote (US) · Remote" says it twice; the arrangement is shown only when
+  // the location line does not already carry the word.
+  const place = describeLocations(card.locations, card.locationRaw);
+  const arrangement = describeArrangement(card.remotePolicy);
+  const showArrangement = !/arrangement unstated/i.test(arrangement)
+    && !place.toLowerCase().includes(arrangement.toLowerCase().split(" ")[0]!);
   const dimmed = card.activeInterest === "NOT_INTERESTED";
 
   return (
@@ -52,8 +59,8 @@ export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; re
             <h2 id={`job-${card.id}-title`}><Link href={`/job/${card.id}`}>{card.title}</Link></h2>
             <p className="jobcard-company">{card.company}</p>
             <p className="jobcard-facts">
-              <span>{describeLocations(card.locations, card.locationRaw)}</span>
-              <span>{describeArrangement(card.remotePolicy)}</span>
+              <span>{place}</span>
+              {showArrangement && <span>{arrangement}</span>}
               {salary && <span>{salary}</span>}
             </p>
           </div>
