@@ -12,6 +12,7 @@
  */
 import { matchIntent, INTENTS, type Intent } from "./intents.ts";
 import { isDemographicField, resolveEeoOption, isDeclineOption, isVoluntarySelfIdField } from "../browser/eeo.ts";
+import { normalizeCountryName } from "../browser/geography.ts";
 import { resolveYearsQuestion, type EmploymentRecord } from "../scoring/experienceDuration.ts";
 import { normalizeQuestion } from "../feedback/classify.ts";
 import { recallAnswer, recallIntent, type RecallStore } from "../feedback/recall.ts";
@@ -573,6 +574,20 @@ function resolveExperienceYears(
 /** A question asking for the NAME of whoever referred the applicant. */
 export const REFERRER_NAME = /\bwho (?:were you )?referred\b|\breferred (?:to|by)\b[^?]*\b(?:who|whom|name)\b|\bname of (?:the |your )?(?:employee|person|referrer|contact)\b|\breferr(?:er|al)(?:'s)? (?:name|email)\b|\bwho referred you\b/i;
 
+const COUNTRY_REGION: Record<string, string> = {
+  US: "North America", USA: "North America", "UNITED STATES": "North America", CA: "North America", CAN: "North America", CANADA: "North America", MX: "North America", MEXICO: "North America",
+  BR: "South America", AR: "South America", CL: "South America", CO: "South America", PE: "South America",
+  GB: "Europe", UK: "Europe", DE: "Europe", FR: "Europe", IE: "Europe", NL: "Europe", ES: "Europe", IT: "Europe", PT: "Europe", SE: "Europe", CH: "Europe", PL: "Europe",
+  IN: "Asia", SG: "Asia", JP: "Asia", KR: "Asia", CN: "Asia", AU: "Oceania", NZ: "Oceania",
+};
+/** World regions and countries a "where are you based" question may name. */
+const WHERE_BASED_REGIONS = ["North America", "South America", "Latin America", "Central America", "Europe", "Asia", "Africa", "Oceania",
+  "United States", "the US", "Canada", "Mexico", "United Kingdom", "the UK", "EMEA", "APAC", "LATAM", "the EU", "European Union"];
+function regionOfCountry(country: unknown): string | null {
+  const c = String(country ?? "").trim().toUpperCase().replace(/\./g, "");
+  return COUNTRY_REGION[c] ?? null;
+}
+
 export function resolveField(field: FormField, ctx: ResolveContext): ResolvedField {
   const result = resolveFieldFromTruth(field, ctx);
   if (result.confidence !== "BLOCKED" || result.refused) return result;
@@ -735,6 +750,61 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
   // residence field is exactly the conflation this exists to prevent.
   if (optionsLookLikeDialCodes(field.options)) {
     return resolvePhoneCountry(field, ctx, "options are calling codes");
+  }
+
+  // "Who referred you?" on a posting this system found for itself.
+  //
+  // Nobody did. The job came from the employer's own job board through
+  // ingest, so an OPTIONAL referrer-name field is left blank as not
+  // applicable rather than parked as a question, and never answered from
+  // any stored "how did you hear" preference (which is how "Samsara
+  // Careers Site" was once typed in as the name of a Fieldguide referrer).
+  // Decided before intent matching, because the wording also reads as a
+  // name question and as a sourcing question and used to block as
+  // ambiguous. A required one still blocks: a form that insists on a
+  // referrer wants a person to decide.
+  if (REFERRER_NAME.test(field.label) && !field.required && ctx.application?.jobId) {
+    return { field, intentKey: "referrer_name", matchedBy: "a referrer's name, on a posting found by this system",
+      answer: null, confidence: "DERIVED", blockKind: null, blockedReason: null,
+      evidenceIds: [ctx.application.jobId],
+      considered: [{ rowId: null, what: "the posting was discovered on the employer's job board by this system; no one referred the applicant",
+        whyRejected: "n/a: the field is left blank as not applicable" }],
+      refused: false };
+  }
+
+  // "Are you based in North America or South America?" A continent or
+  // world region offered as an option is answered from the profile's
+  // country, by a fixed table, for a question about where the applicant
+  // is based. Nothing is inferred beyond the country already on record.
+  if (/\b(?:based|located|reside|live|residing|living)\b/i.test(field.label) && (field.options?.length ?? 0) >= 2) {
+    const region = regionOfCountry(ctx.profile?.country);
+    const country = normalizeCountryName(String(ctx.profile?.country ?? ""));
+    if (region) {
+      const opts = field.options ?? [];
+      const lower = (o: string) => o.trim().toLowerCase();
+      // The regions offered as options: pick the one the profile is in.
+      const hit = opts.filter((o) => lower(o) === region.toLowerCase()
+        || lower(o).startsWith(region.toLowerCase() + " ") || lower(o).startsWith(region.toLowerCase() + ","));
+      if (hit.length === 1) {
+        return { field, intentKey: "region_of_residence", matchedBy: `the profile's country (${ctx.profile.country}) lies in ${region}`,
+          answer: hit[0]!, confidence: "DERIVED", blockKind: null, blockedReason: null,
+          evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+      }
+      // "Are you based in North America or South America?" with Yes / No:
+      // yes exactly when the profile's region or country is one the
+      // question names.
+      const yes = opts.find((o) => /^yes\b/i.test(o.trim())), no = opts.find((o) => /^no\b/i.test(o.trim()));
+      if (yes && no && opts.length <= 3) {
+        const named = WHERE_BASED_REGIONS.filter((r) => new RegExp(`\\b${r.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(field.label));
+        if (named.length) {
+          const inside = named.some((r) => r.toLowerCase() === region.toLowerCase() || normalizeCountryName(r) === country);
+          return { field, intentKey: "region_of_residence",
+            matchedBy: `the question names ${named.join(" / ")}; the profile's country (${ctx.profile.country}) is ${inside ? "" : "not "}among them`,
+            answer: inside ? yes : no, confidence: "DERIVED", blockKind: null, blockedReason: null,
+            evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+        }
+      }
+    }
   }
 
   const m = matchIntent(field.label, field.key);
@@ -941,24 +1011,6 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
     }
     return blocked(field, intent.key, matchedBy, "UNKNOWN",
       "this asks for something specific to this employer, which the profile cannot supply on its own.");
-  }
-
-  // 3a. "Who referred you?" on a posting this system found for itself.
-  //
-  // Nobody did. The job came from the employer's own job board through
-  // ingest, so an OPTIONAL referrer-name field is left blank as not
-  // applicable rather than parked as a question, and never answered from
-  // any stored "how did you hear" preference (which is how "Samsara
-  // Careers Site" was once typed in as the name of a Fieldguide referrer).
-  // A required one still blocks: a form that insists on a referrer is a
-  // form that wants a person to decide.
-  if (REFERRER_NAME.test(field.label) && !field.required && ctx.application?.jobId) {
-    return { field, intentKey: "referrer_name", matchedBy: `${matchedBy}; a referrer's name, on a posting found by this system`,
-      answer: null, confidence: "DERIVED", blockKind: null, blockedReason: null,
-      evidenceIds: [ctx.application.jobId],
-      considered: [{ rowId: null, what: "the posting was discovered on the employer's job board by this system; no one referred the applicant",
-        whyRejected: "n/a: the field is left blank as not applicable" }],
-      refused: false };
   }
 
   // 3b. A low-stakes recruiting/attribution survey question ("how did you

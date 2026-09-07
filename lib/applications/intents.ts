@@ -130,8 +130,8 @@ export const INTENTS: Intent[] = [
   { key: "linkedin_url", description: "LinkedIn profile URL", category: "A_VERIFIED_FACT",
     patterns: [/\blinkedin\b/i] },
   { key: "portfolio_url", description: "Portfolio or personal website URL", category: "A_VERIFIED_FACT",
-    patterns: [/\b(portfolio|personal website|personal site|your website)\b/i,
-               /\blinks? to (?:any )?(?:other )?(?:assets|work|samples|projects|materials)\b|\bwork samples?\b|\bsamples? of your work\b/i] },
+    // One regex: hits() requires EVERY pattern in the list to match.
+    patterns: [/\b(portfolio|personal website|personal site|your website)\b|\blinks? to (?:any )?(?:other )?(?:assets|work|samples|projects|materials)\b|\bwork samples?\b|\bsamples? of your work\b/i] },
   { key: "github_url", description: "GitHub profile URL", category: "A_VERIFIED_FACT",
     patterns: [/\bgit ?hub\b/i] },
   { key: "resume_upload", description: "Resume or CV file", category: "A_VERIFIED_FACT",
