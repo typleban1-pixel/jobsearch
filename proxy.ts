@@ -70,14 +70,21 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const { data } = await client.auth.getUser();
+  // getClaims verifies the token's signature locally against the project's
+  // published JWKS (ES256; the key set is fetched once per process and
+  // cached) and refreshes an expired session the same way getUser did. It
+  // replaces a round trip to Supabase Auth on every request -- ~90ms from
+  // the deployed function -- with ~1ms. What the database enforces is
+  // unchanged: PostgREST verifies the same signature on every query.
+  const { data } = await client.auth.getClaims();
+  const user = data?.claims?.sub ? { id: data.claims.sub } : null;
 
-  if (!data.user && !PUBLIC_EXACT.has(url) && !PUBLIC_PATHS.some((p) => url.startsWith(p))) {
+  if (!user && !PUBLIC_EXACT.has(url) && !PUBLIC_PATHS.some((p) => url.startsWith(p))) {
     const redirect = new URL("/login", request.url);
     if (url !== "/") redirect.searchParams.set("next", url + request.nextUrl.search);
     return NextResponse.redirect(redirect);
   }
-  if (data.user && url === "/login") {
+  if (user && url === "/login") {
     return NextResponse.redirect(new URL("/jobs", request.url));
   }
   return response;

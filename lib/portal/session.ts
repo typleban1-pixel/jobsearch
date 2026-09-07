@@ -8,9 +8,9 @@ export interface Session { userId: string; email: string | null; client: Supabas
 /**
  * The signed-in owner, or null.
  *
- * Uses getUser(), which revalidates the token against Supabase, rather
- * than getSession(), which trusts whatever the cookie says. A cookie is
- * something the client sends.
+ * Verifies the token (see verified()) rather than trusting getSession(),
+ * which returns whatever the cookie says. A cookie is something the client
+ * sends.
  *
  * Being signed in is not the same as being the owner: is_app_owner()
  * decides what any session can actually see, so a valid session for a
@@ -18,16 +18,29 @@ export interface Session { userId: string; email: string | null; client: Supabas
  */
 export async function currentSession(): Promise<Session | null> {
   const client = await cookieClient();
-  const { data, error } = await client.auth.getUser();
-  if (error || !data.user) return null;
-  return { userId: data.user.id, email: data.user.email ?? null, client };
+  return verified(client, await client.auth.getClaims());
+}
+
+/**
+ * The session a verified token describes, or null.
+ *
+ * getClaims() checks the token's signature against the project's JWKS
+ * locally (cached per process) instead of asking Supabase Auth on every
+ * request; it still refreshes an expired session. This is the same check
+ * PostgREST applies to every query, so what a session can read is decided
+ * exactly as before -- by RLS, against a signature-verified token.
+ */
+function verified(client: SupabaseClient, res: Awaited<ReturnType<SupabaseClient["auth"]["getClaims"]>>): Session | null {
+  const claims = res.data?.claims;
+  if (res.error || !claims?.sub) return null;
+  return { userId: claims.sub, email: (claims.email as string | undefined) ?? null, client };
 }
 
 /**
  * The session check and the page's own reads, issued together.
  *
- * getUser() is a network round trip to Supabase Auth; every page paid it
- * before its first data request left. The reads run under the same cookie
+ * The session check used to be a network round trip to Supabase Auth that
+ * every page paid before its first data request left. The reads run under the same cookie
  * token and RLS decides what they return, so issuing them alongside the
  * check changes nothing about what a session can see: an invalid or missing
  * token reads nothing, and the caller redirects before touching the result.
@@ -37,12 +50,13 @@ export async function currentSession(): Promise<Session | null> {
 export async function withSession<T>(load: (db: SupabaseClient) => Promise<T>): Promise<{ session: Session; result: T } | null> {
   const client = await cookieClient();
   const [auth, settled] = await Promise.all([
-    client.auth.getUser(),
+    client.auth.getClaims(),
     load(client).then((v) => ({ ok: true as const, v }), (e: unknown) => ({ ok: false as const, e })),
   ]);
-  if (auth.error || !auth.data.user) return null;
+  const session = verified(client, auth);
+  if (!session) return null;
   if (!settled.ok) throw settled.e;
-  return { session: { userId: auth.data.user.id, email: auth.data.user.email ?? null, client }, result: settled.v };
+  return { session, result: settled.v };
 }
 
 async function cookieClient(): Promise<SupabaseClient> {
