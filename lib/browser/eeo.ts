@@ -114,7 +114,12 @@ export function resolveEeoOption(answer: string, options: string[], fieldLabel?:
   // "White (Not Hispanic or Latino)" is the category "White". The
   // qualifier is dropped for comparison only; the option is returned as
   // the employer wrote it.
-  const bare = (o: string) => norm(o).replace(/\s*\((?:not )?hispanic or latino\)$/, "").trim();
+  // The choosable label: a glued-on federal definition ("...A person having
+  // origins in...") and the "(Not Hispanic or Latino)" qualifier are not
+  // part of the category the person chose.
+  const bare = (o: string) => norm(o)
+    .replace(/(?<=[)a-z])\s*(?:a person|all persons|individuals|a veteran|persons)\b.*$/, "")
+    .replace(/\s*\((?:not )?hispanic or latino\)$/, "").trim();
   const bareExact = opts.filter((o) => bare(o) === want);
   if (bareExact.length === 1) return { kind: "EXACT", option: bareExact[0]! };
   // A compound category whose FIRST name is the answer: "White or European

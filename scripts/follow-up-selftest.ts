@@ -116,3 +116,30 @@ console.log("portal context");
 
 console.log(bad ? `\n${bad} FAILED` : "\nfollow-up-selftest: ALL PASS");
 process.exit(bad ? 1 : 0);
+
+
+// A follow-up the form declares by structure: "What event did you attend?"
+// is shown only when "How did you first hear about Flexport?" is answered
+// "Event (...)". Flexport lists the child BEFORE its parent.
+{
+  const { resolveFollowUps, followUpContext } = await import("../lib/applications/followUp.ts");
+  const flex = [
+    { key: "li", label: "LinkedIn Profile", type: "text" as const, required: false },
+    { key: "ev", label: "What event did you attend?", type: "select" as const, required: true, options: ["NYU", "Georgia Tech", "USC"] },
+    { key: "src", label: "How did you first hear about Flexport?", type: "select" as const, required: true,
+      options: ["Campus", "Career Platform (LinkedIn, Glassdoor, BuiltIn, etc.)", "Event (Tech Talks at Sea, Conference, Meetup, etc.)", "Flexport Blog"] },
+  ];
+  const blocked = (key: string, label: string) => ({ field: flex.find((f) => f.key === key)!, intentKey: null, matchedBy: "x", answer: null,
+    confidence: "BLOCKED" as const, blockKind: "UNKNOWN" as const, blockedReason: "nothing matches", evidenceIds: [], considered: [], refused: false });
+  const answered = (key: string, answer: string) => ({ ...blocked(key, ""), answer, confidence: "LOW_STAKES_SURVEY" as const, blockKind: null, blockedReason: null });
+  const notEvent = resolveFollowUps(flex, [answered("li", "https://x"), blocked("ev", ""), answered("src", "Career Platform (LinkedIn, Glassdoor, BuiltIn, etc.)")]);
+  const ev = notEvent.resolved.find((r) => r.field.key === "ev")!;
+  ok(ev.confidence !== "BLOCKED" && ev.answer === null, "the event question is blanked when the source was not an event, even though the snapshot marks it required", ev.confidence);
+  ok(/How did you first hear/.test(ev.matchedBy), "and the blank names the parent question", ev.matchedBy);
+  const isEvent = resolveFollowUps(flex, [answered("li", "https://x"), blocked("ev", ""), answered("src", "Event (Tech Talks at Sea, Conference, Meetup, etc.)")]);
+  const ev2 = isEvent.resolved.find((r) => r.field.key === "ev")!;
+  ok(ev2.confidence === "BLOCKED" && /How did you first hear/.test(ev2.blockedReason ?? ""), "when the source WAS an event it stays a question, with the parent named", ev2.blockedReason ?? "");
+  const ctx = followUpContext(flex, "ev", (k) => (k === "src" ? "Event (Tech Talks at Sea, Conference, Meetup, etc.)" : null));
+  ok(ctx?.question === "How did you first hear about Flexport?" && /Event/.test(ctx?.answer ?? ""), "the questions page gets the parent and its answer as context", JSON.stringify(ctx));
+  ok(followUpContext(flex, "li", () => null) === null, "a plain text field is not linked to anything");
+}

@@ -563,7 +563,7 @@ export async function prepareApplication(
   };
 }
 
-function categoryOf(r: ResolvedField): string {
+export function categoryOf(r: ResolvedField): string {
   // A generic low-stakes survey answer is its own category, whatever
   // intent the wording happened to match; it is not the sensitive
   // question the catalog might otherwise classify it as.
@@ -574,7 +574,7 @@ function categoryOf(r: ResolvedField): string {
   return intent?.category ?? "E_UNKNOWN";
 }
 
-function provenanceOf(r: ResolvedField): string {
+export function provenanceOf(r: ResolvedField): string {
   switch (r.confidence) {
     case "VERIFIED": return "PROFILE";
     case "DERIVED": return "CALCULATED";
@@ -765,9 +765,14 @@ export async function loadContext(db: SupabaseClient): Promise<ResolveContext> {
  * anything can be reused for it.
  */
 export async function applicationScope(db: SupabaseClient, jobId: string): Promise<ResolveContext["application"]> {
-  const { data: version } = await db.from("job_versions")
-    .select("city,state,metro,remote_policy").eq("job_id", jobId).eq("is_current", true).single();
-  const { data: job } = await db.from("jobs").select("company_id").eq("id", jobId).single();
+  const [{ data: version }, { data: job }, { data: card }, { data: cand }] = await Promise.all([
+    db.from("job_versions").select("city,state,metro,remote_policy,salary_min,salary_max,salary_period")
+      .eq("job_id", jobId).eq("is_current", true).single(),
+    db.from("jobs").select("company_id").eq("id", jobId).single(),
+    db.from("job_card_summary").select("match_score,match_provisional").eq("job_id", jobId).maybeSingle(),
+    db.from("job_candidacy").select("verdict,hard_met,hard_total").eq("job_id", jobId)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
   const { data: company } = job?.company_id
     ? await db.from("companies").select("name,ats_provider").eq("id", job.company_id).single()
     : { data: null };
@@ -781,6 +786,14 @@ export async function applicationScope(db: SupabaseClient, jobId: string): Promi
       locationState: version?.state ?? null,
       locationMetro: version?.metro ?? null,
       remotePolicy: version?.remote_policy ?? null,
+    },
+    // What the salary-expectation rule weighs: the posted range, the place,
+    // and the current read of the match.
+    posting: {
+      salaryMin: version?.salary_min ?? null, salaryMax: version?.salary_max ?? null, salaryPeriod: version?.salary_period ?? null,
+      remotePolicy: version?.remote_policy ?? null, metro: version?.metro ?? null,
+      matchScore: card?.match_score ?? null, matchProvisional: Boolean(card?.match_provisional),
+      candidacyVerdict: cand?.verdict ?? null, hardMet: cand?.hard_met ?? null, hardTotal: cand?.hard_total ?? null,
     },
   };
 }

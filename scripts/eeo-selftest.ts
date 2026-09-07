@@ -117,3 +117,12 @@ process.exit(bad?1:0);
   const d = resolveEeoOption("European", ALEPH, "How would you describe your ethnic or cultural background?");
   ok(d.kind === "DECLINE", "the second name of a compound category is not matched (only the category's own name)");
 }
+
+{
+  const LEVER = ["Hispanic or LatinoA person of Cuban, Mexican, Puerto Rican, South or Central American, or other Spanish culture or origin regardless of race.",
+    "WhiteA person having origins in any of the original peoples of Europe, the Middle East, or North Africa.",
+    "Black or African AmericanA person having origins in any of the black racial groups of Africa.",
+    "Decline to self-identify"];
+  const c = resolveEeoOption("White", LEVER, "Race");
+  ok(c.kind === "EXACT" && /^WhiteA person/.test((c as any).option), "a definition glued straight onto the label is not part of the category");
+}

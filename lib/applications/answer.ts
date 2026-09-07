@@ -12,6 +12,7 @@
  */
 import { matchIntent, INTENTS, type Intent } from "./intents.ts";
 import { isDemographicField, resolveEeoOption, isDeclineOption, isVoluntarySelfIdField } from "../browser/eeo.ts";
+import { salaryExpectation, pickSalaryOption, type SalaryPosting, type SalaryFit } from "./salaryExpectation.ts";
 import { normalizeCountryName } from "../browser/geography.ts";
 import { resolveYearsQuestion, type EmploymentRecord } from "../scoring/experienceDuration.ts";
 import { normalizeQuestion } from "../feedback/classify.ts";
@@ -179,6 +180,8 @@ export interface ResolveContext {
   application?: {
     provider: string | null; employer: string | null; jobId: string | null;
     conditions: AnswerConditions;
+    /** The posting's own pay, place and fit, for the answers that weigh them (salary expectation). */
+    posting?: SalaryPosting & SalaryFit;
   };
 }
 
@@ -316,8 +319,12 @@ export function disciplineSpellings(value: string): string[] {
  * trimming an option changes which answer is being given.
  */
 export function optionLabel(option: string): string {
-  const defn = /\)\s*(?=(?:A person|All persons|Individuals|A veteran|Persons)\b)/.exec(option);
-  if (defn) return option.slice(0, defn.index + 1).trim();
+  // "White (Not Hispanic or Latino)A person having origins..." and Lever's
+  // "Hispanic or LatinoA person of Cuban, Mexican..." -- the definition is
+  // glued straight onto the label, after a closing parenthesis or after
+  // the label's last letter. Cut where the definition's sentence begins.
+  const defn = /(?<=[\)a-z])\s*(?=(?:A person|All persons|Individuals|A veteran|Persons)\b)/.exec(option);
+  if (defn) return option.slice(0, defn.index).trim();
   return option.trim();
 }
 
@@ -423,40 +430,8 @@ function derive(intent: Intent, p: Record<string, any>, field: FormField):
       if (p.country === "US") return { value: "Yes", because: "the profile records country US" };
       if (p.country) return { value: "No", because: `the profile records country ${p.country}` };
       return { block: "the profile records no country", kind: "UNKNOWN" };
-    case "salary_expectation": {
-      // Salary expectation is a strategic, employer-facing disclosure, not an
-      // ordinary verified fact like a name or work-authorization status.
-      // Stating a number to an employer is a negotiating move, so it is NOT
-      // auto-answered on the strength of the stored target alone: it is
-      // released only when the person has explicitly authorized employer-facing
-      // salary disclosure. Absent that authorization it BLOCKS to review, where
-      // the person decides what to say. Default is not to disclose.
-      if (p.disclose_salary_to_employers !== true) {
-        return { block: "a salary expectation is a strategic employer-facing disclosure; autonomous answering of it is not authorized, so a person supplies it in review", kind: "UNKNOWN" };
-      }
-      // A stored preference, not an inference.
-      //
-      // The blocked reason said "none exists yet" while
-      // salary_target_ideal held 115000. The rule to read it was simply
-      // never written, so a deliberate preference read as an absent one.
-      //
-      // What is still refused: deriving a number from the employer's
-      // posted range, or from a title, or from what the market pays.
-      // That would anchor on their number and put words in his mouth.
-      // Only the figure he set is used.
-      const ideal = p.salary_target_ideal;
-      const min = p.salary_target_min;
-      if (typeof ideal !== "number" && typeof min !== "number") {
-        return { block: "no salary target is stored; it is never inferred from the posting or the market", kind: "UNKNOWN" };
-      }
-      const usd = (n: number) => `$${n.toLocaleString("en-US")}`;
-      if (typeof ideal === "number" && typeof min === "number" && min !== ideal) {
-        return { value: `${usd(min)} to ${usd(ideal)}`,
-                 because: "the salary range recorded on the profile" };
-      }
-      const one = (typeof ideal === "number" ? ideal : min) as number;
-      return { value: usd(one), because: "the salary target recorded on the profile" };
-    }
+    // salary_expectation is answered in resolveFieldFromTruth from the
+    // posting's range and the profile targets (salaryExpectation.ts).
     case "full_name": {
       // Greenhouse asks for first and last separately, so this never came
       // up until a Lever form asked for one combined field and a verified
@@ -587,6 +562,8 @@ function regionOfCountry(country: unknown): string | null {
   const c = String(country ?? "").trim().toUpperCase().replace(/\./g, "");
   return COUNTRY_REGION[c] ?? null;
 }
+
+const numOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 export function resolveField(field: FormField, ctx: ResolveContext): ResolvedField {
   const result = resolveFieldFromTruth(field, ctx);
@@ -1050,6 +1027,32 @@ function resolveFieldFromTruth(field: FormField, ctx: ResolveContext): ResolvedF
     // the profile only when a specific column IS the stored preference;
     // there is no general "look around the profile for something
     // relevant", which is how inference gets in.
+    // Salary expectation: authorized by the person to be answered every
+    // time, from the profile's stored targets weighed against the posting's
+    // own range, the match, and the place. See salaryExpectation.ts.
+    if (intent.key === "salary_expectation") {
+      const p = ctx.profile ?? {};
+      const posting = ctx.application?.posting ?? null;
+      const r = salaryExpectation(
+        { floor: numOrNull(p.salary_hard_floor), min: numOrNull(p.salary_target_min), ideal: numOrNull(p.salary_target_ideal) },
+        posting, posting);
+      if ("block" in r) {
+        return blocked(field, intent.key, matchedBy, "UNKNOWN", r.block,
+          [{ rowId: ctx.profileRowId, what: "the salary targets on the profile", whyRejected: r.block }]);
+      }
+      let value: string | null = r.value;
+      if ((field.options?.length ?? 0) > 0) {
+        value = pickSalaryOption(field.options ?? [], r.annual);
+        if (!value) {
+          return blocked(field, intent.key, matchedBy, "AMBIGUOUS",
+            `the figure ${r.value} could not be placed among the offered options (${(field.options ?? []).slice(0, 6).join(", ")})`,
+            [{ rowId: ctx.profileRowId, what: `derived ${r.value}: ${r.because}`, whyRejected: "no option reads as a salary band" }]);
+        }
+      }
+      return { field, intentKey: intent.key, matchedBy: `${matchedBy}; ${r.because}`, answer: value,
+        confidence: "DERIVED", blockKind: null, blockedReason: null,
+        evidenceIds: [ctx.profileRowId], considered: [], refused: false };
+    }
     if (SENSITIVE_FROM_PROFILE.has(intent.key)) {
       const d = derive(intent, ctx.profile, field);
       if (!("block" in d)) {
