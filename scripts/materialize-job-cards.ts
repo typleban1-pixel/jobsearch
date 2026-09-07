@@ -47,7 +47,7 @@ const rows = cards.map((c) => ({
   first_seen_at: c.firstSeenAt,
   eligibility: c.eligibility,
   // User state is live, never stored (see header).
-  card: { ...c, interest: null, activeInterest: null, applicationStatus: null },
+  card: { ...c, interest: null, activeInterest: null, applicationStatus: null, applicationId: null },
   computed_at: now,
 }));
 

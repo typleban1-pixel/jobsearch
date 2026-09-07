@@ -50,6 +50,10 @@ export default async function JobDetail(props: { params: Promise<{ id: string }>
 
       {liveApplication ? (
         <p className="muted small">
+          {["AWAITING_REVIEW", "READY_TO_SUBMIT", "BLOCKED_NEEDS_INPUT"].includes(liveApplication.status)
+            ? <Link className="btn-primary" href={`/applications/${liveApplication.id}/review`}>Review application</Link>
+            : null}
+          {" "}
           <Link href={`/applications/${liveApplication.id}`}>
             An application for this opening already exists ({liveApplication.status}).
           </Link>

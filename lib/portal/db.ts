@@ -285,6 +285,8 @@ export interface JobCard {
    * Null means no application exists for the opening.
    */
   applicationStatus: string | null;
+  /** The live application's id, so a card can lead to its review. */
+  applicationId: string | null;
   variantCount: number;
 }
 
@@ -530,6 +532,7 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
       educationGatesUnmet: b.educationGatesUnmet ?? 0,
       interest: interestByOpening.get(j.canonical_opening_id) ?? null,
       applicationStatus: appliedByOpening.get(j.canonical_opening_id) ?? null,
+      applicationId: null,
       activeInterest: (() => {
         const v = interestByOpening.get(j.canonical_opening_id) ?? null;
         return v === "SAVED" || v === "NOT_INTERESTED" ? v : null;
@@ -574,17 +577,18 @@ async function loadOverlays(db: SupabaseClient) {
     // Same read loadJobCards makes: a submitted application wins over a
     // draft one for the same opening, so a repost never reads as "in
     // progress" once it has been sent.
-    db.from("applications").select("status,submitted_at,canonical_opening_id"),
+    db.from("applications").select("id,status,submitted_at,canonical_opening_id"),
   ]);
   const interestByOpening = new Map<string, string>();
   for (const i of (interestRes.data ?? []) as any[]) interestByOpening.set(i.canonical_opening_id, i.state);
   const appliedByOpening = new Map<string, string>();
+  const applicationByOpening = new Map<string, string>();
   for (const a of (appsRes.data ?? []) as any[]) {
     if (!a.canonical_opening_id) continue;
     const prior = appliedByOpening.get(a.canonical_opening_id);
-    if (!prior || a.submitted_at) appliedByOpening.set(a.canonical_opening_id, a.status);
+    if (!prior || a.submitted_at) { appliedByOpening.set(a.canonical_opening_id, a.status); applicationByOpening.set(a.canonical_opening_id, a.id); }
   }
-  return { interestByOpening, appliedByOpening };
+  return { interestByOpening, appliedByOpening, applicationByOpening };
 }
 
 function overlay(card: JobCard, o: Awaited<ReturnType<typeof loadOverlays>>): JobCard {
@@ -594,6 +598,7 @@ function overlay(card: JobCard, o: Awaited<ReturnType<typeof loadOverlays>>): Jo
     interest: (v as JobCard["interest"]) ?? null,
     activeInterest: v === "SAVED" || v === "NOT_INTERESTED" ? v : null,
     applicationStatus: o.appliedByOpening.get(card.openingId) ?? null,
+    applicationId: o.applicationByOpening.get(card.openingId) ?? null,
   };
 }
 

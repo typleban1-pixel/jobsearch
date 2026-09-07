@@ -8,6 +8,9 @@ import {
 } from "../lib/portal/present.ts";
 import { matchLabel } from "../lib/portal/matchScore.ts";
 
+/** An application a person can act on from its review page. */
+const REVIEWABLE = new Set(["AWAITING_REVIEW", "READY_TO_SUBMIT", "BLOCKED_NEEDS_INPUT"]);
+
 const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
 
 /** What the verdict means, said the way a person would say it. */
@@ -111,7 +114,9 @@ export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; re
       )}
 
       <div className="jobcard-actions">
-        <Link className="btn-primary" href={`/job/${card.id}`}>Review job</Link>
+        {card.applicationId && REVIEWABLE.has(card.applicationStatus ?? "")
+          ? <Link className="btn-primary" href={`/applications/${card.applicationId}/review`}>Review application</Link>
+          : <Link className="btn-primary" href={`/job/${card.id}`}>Review job</Link>}
         <form method="post" action="/api/interest">
           <input type="hidden" name="openingId" value={card.openingId} />
           <input type="hidden" name="jobId" value={card.id} />

@@ -74,6 +74,8 @@ export interface ReviewData {
   /** Blocking problems, in plain English. Empty means approval may proceed. */
   warnings: string[];
   canApprove: boolean;
+  /** Every remaining warning is the qualification gap: approvable by an explicit choice. */
+  canApproveDespiteGap: boolean;
   /** ASSISTED_SUBMIT provider (Lever): prepared+validated, finished locally by
    *  a human (captcha + submit); never approved into the autonomous listener. */
   assisted: boolean;
@@ -373,6 +375,13 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
       // An assisted (Lever) application is finished locally by a human, never
       // approved into the autonomous submit-listener; "Approve" would be a lie.
       && !assisted,
+    // "Review it and apply manually if you choose" needs somewhere to choose.
+    // When the qualification gap is the only thing standing, the person may
+    // approve anyway; the route records that the gap was accepted.
+    canApproveDespiteGap: warnings.length > 0
+      && guard.refusals.filter((r) => !PRE_APPROVAL.has(r.code)).every((r) => r.code === "MATERIAL_QUALIFICATION_GAP")
+      && !app.submitted_at && !app.human_approved && !app.submit_requested_at
+      && app.submit_outcome !== "AMBIGUOUS" && discoveredFields > 0 && !assisted,
     assisted, assistedFinishCommand,
     discoveredFields, automatable, applyUrl, providerLabel, externalAction, noActionReason,
     technical: {

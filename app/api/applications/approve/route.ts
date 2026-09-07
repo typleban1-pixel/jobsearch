@@ -39,6 +39,9 @@ export async function POST(request: Request): Promise<Response> {
   const form = await request.formData();
   const applicationId = String(form.get("applicationId") ?? "");
   if (!applicationId) return NextResponse.json({ error: "no application id" }, { status: 400 });
+  // The review page's "Approve anyway": the person has read the qualification
+  // gap and chooses to apply. Only that refusal may be waived, and only here.
+  const acceptGap = String(form.get("acceptQualificationGap") ?? "") === "1";
 
   const { data: app } = await db.from("applications").select("*").eq("id", applicationId).maybeSingle();
   if (!app) return NextResponse.json({ error: "no such application" }, { status: 404 });
@@ -87,7 +90,8 @@ export async function POST(request: Request): Promise<Response> {
     otherSubmittedOnOpening: false,
     readbackPassed: true,
   });
-  if (!check.ok) {
+  const gapOnly = check.refusals.length > 0 && check.refusals.every((r) => r.code === "MATERIAL_QUALIFICATION_GAP");
+  if (!check.ok && !(gapOnly && acceptGap)) {
     return NextResponse.json(
       { error: "cannot approve", refusals: check.refusals }, { status: 409 });
   }
@@ -128,7 +132,8 @@ export async function POST(request: Request): Promise<Response> {
     p_application_id: applicationId,
     p_detail: `approved from the review screen by ${auth.user.email ?? auth.user.id}. `
       + `artifact ${resume?.artifact_sha256 ?? "(none)"}, answers ${currentAnswers}, `
-      + `${rows.length} answers. Nothing has been submitted.`,
+      + `${rows.length} answers. Nothing has been submitted.`
+      + (gapOnly && acceptGap ? ` The person chose to apply despite the qualification gap: ${check.refusals[0]!.detail}.` : ""),
   });
   if (auditErr) console.error("approval recorded but the audit event failed:", auditErr.message);
 

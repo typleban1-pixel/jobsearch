@@ -286,6 +286,20 @@ export default async function ReviewPage(props: {
               workflow. It does not mean the application has been submitted yet.
             </p>
           </>
+        ) : r.canApproveDespiteGap ? (
+          <>
+            <form method="post" action="/api/applications/approve">
+              <input type="hidden" name="applicationId" value={r.applicationId} />
+              <input type="hidden" name="acceptQualificationGap" value="1" />
+              <button className="btn-primary big" type="submit">Approve anyway</button>
+            </form>
+            <p className="muted">
+              Your verified evidence does not establish this role&rsquo;s core qualifications, so it will not be
+              sent on its own. Approving here is your decision to apply regardless: it binds this exact resume
+              and these answers, records that you accepted the gap, and hands the application to the same
+              submission path as any other approval.
+            </p>
+          </>
         ) : r.noActionReason ? (
           <>
             {r.externalAction && (
