@@ -295,16 +295,22 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
   }
 
   const raw: any = await snapshotLive(page.mainFrame() as any).catch((e: any) => ({ fields: [], error: String(e) }));
-  // Radio options collapse to one row keyed by their shared name; every
-  // other control keeps its own selector. htmlType is carried across
-  // because the resolver needs to know a dropdown from a text box.
-  const typeBySelector = new Map<string, string>(
-    (raw.fields ?? []).map((f: any) => [String(f.selector ?? f.key ?? ""), String(f.htmlType ?? "text")]));
-  const live = collapseRadioGroups((raw.fields ?? []).map((f: any) => ({
-    label: String(f.label ?? ""), htmlType: String(f.htmlType ?? "text"), name: f.name ?? null,
-    group: f.groupLabel ?? null,
-    selector: String(f.selector ?? f.key ?? ""), required: Boolean(f.required), value: null,
-  }))).map((r: any) => ({ ...r, htmlType: typeBySelector.get(r.key) ?? "text" }));
+  // Controls become questions: radio options collapse to one row keyed by
+  // their shared name; every other control keeps its own selector.
+  // htmlType is carried across because the resolver needs to know a
+  // dropdown from a text box. Used for the first read and every re-read
+  // alike, so the two are compared as questions and a two-option group
+  // never reads as growth.
+  const questionsOf = (snap: any) => {
+    const typeBySelector = new Map<string, string>(
+      (snap.fields ?? []).map((f: any) => [String(f.selector ?? f.key ?? ""), String(f.htmlType ?? "text")]));
+    return collapseRadioGroups((snap.fields ?? []).map((f: any) => ({
+      label: String(f.label ?? ""), htmlType: String(f.htmlType ?? "text"), name: f.name ?? null,
+      group: f.groupLabel ?? null,
+      selector: String(f.selector ?? f.key ?? ""), required: Boolean(f.required), value: null,
+    }))).map((r: any) => ({ ...r, htmlType: typeBySelector.get(r.key) ?? "text" }));
+  };
+  const live = questionsOf(raw);
   // An unlabelled control is not a question. The page header's language
   // and settings menus are listbox buttons with ids and no labels, so
   // they look exactly like a form dropdown to discovery and arrived as
@@ -551,7 +557,7 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
    */
   {
     const again: any = await snapshotLive(page.mainFrame() as any).catch(() => ({ fields: [] }));
-    const namedAgain = (again.fields ?? []).filter((f: any) => String(f.label ?? "").trim().length > 0);
+    const namedAgain = questionsOf(again).filter((f: any) => String(f.question ?? "").trim().length > 0);
     if (namedAgain.length > live.length) {
       passes.set(step.heading, (passes.get(step.heading) ?? 0) + 1);
       if ((passes.get(step.heading) ?? 0) <= 4) {
