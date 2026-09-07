@@ -151,3 +151,19 @@ check("and the raw input is empty, so typed text is not the answer", (committed.
 await browser.close();
 console.log(failures === 0 ? "\nall passed" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);
+
+
+// Chicagoland membership survives how an employer writes the place.
+{
+  const { resolveMetro, municipalityKey } = await import("../lib/ingest/normalize/location.ts");
+  check("a site-code prefix is not part of the town: 3051 Alsip", resolveMetro("3051 Alsip", "IL") === "Chicagoland");
+  check("a country prefix is dropped: USA - Chicago", resolveMetro("USA - Chicago", "IL") === "Chicagoland");
+  check("a neighbourhood resolves to its city: Chinatown - Chicago", resolveMetro("Chinatown - Chicago", "IL") === "Chicagoland");
+  check("and the other way round: Chicago - Loop", resolveMetro("Chicago - Loop", "IL") === "Chicagoland");
+  check("the observed misspelling is corrected: Chicgao", resolveMetro("Chicgao", "IL") === "Chicagoland");
+  check("Bedford Park is Chicagoland", resolveMetro("Bedford Park", "IL") === "Chicagoland");
+  check("Winnetka is Chicagoland", resolveMetro("Winnetka", "IL") === "Chicagoland");
+  check("a Chicagoland name in another state is not: Aurora, CO", resolveMetro("Aurora", "CO") === null);
+  check("an unrelated place stays unresolved", resolveMetro("Springfield", "IL") === null);
+  check("the key never invents a municipality", municipalityKey("1564 - Hartford") === "hartford" && resolveMetro("1564 - Hartford", "IL") === null);
+}

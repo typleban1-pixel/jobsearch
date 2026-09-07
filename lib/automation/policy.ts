@@ -28,7 +28,13 @@ export interface Switches {
 export interface AutomationPolicy {
   autoSubmitCandidacy: string[];
   reviewCandidacy: string[];
-  minFit: number | null;
+  /**
+   * The least Match score (the 0-100 read shown on every job card) a job
+   * may have to be sent without a person reading it. Below it, or with no
+   * confident score at all, the application is prepared and routed to
+   * review. Stored in automation_policy.min_fit.
+   */
+  minMatchScore: number | null;
   allowUnknownSalary: boolean;
   baseSalaryFloor: number;
   maxApplicationsPerDay: number | null;
@@ -50,7 +56,7 @@ export async function readPolicy(db: SupabaseClient): Promise<AutomationPolicy> 
   return {
     autoSubmitCandidacy: data?.auto_submit_candidacy ?? ["APPLICATION_CANDIDATE"],
     reviewCandidacy: data?.review_candidacy ?? ["STRETCH"],
-    minFit: data?.min_fit ?? null,
+    minMatchScore: data?.min_fit ?? null,
     allowUnknownSalary: data?.allow_unknown_salary ?? true,
     baseSalaryFloor: data?.base_salary_floor ?? 85_000,
     maxApplicationsPerDay: data?.max_applications_per_day ?? null,
@@ -81,7 +87,9 @@ export interface Candidate {
   hardMet?: number | null;
   hardTotal?: number | null;
   eligibility: string;
-  fit: number | null;
+  /** The Match score from job_card_summary, and whether it is provisional. */
+  matchScore: number | null;
+  matchProvisional?: boolean;
   /** Employer-published base only. Null means unstated, never zero. */
   baseSalaryMin: number | null;
   allFieldsConfident: boolean;
@@ -203,8 +211,13 @@ export function decide(c: Candidate, p: AutomationPolicy, s: Switches): Disposit
   if (c.baseSalaryMin === null && !p.allowUnknownSalary) {
     return { action: "REVIEW", why: "salary is unstated and policy does not allow unknown salary" };
   }
-  if (p.minFit !== null && (c.fit === null || c.fit < p.minFit)) {
-    return { action: "REVIEW", why: `Fit ${c.fit ?? "unscored"} is below the configured minimum ${p.minFit}` };
+  // The person's rule: only a job the system is confident matches at least
+  // this well is sent unread. A provisional score ("needs more evaluation")
+  // is not confidence, and no score is not a score.
+  if (p.minMatchScore !== null) {
+    if (c.matchScore === null) return { action: "REVIEW", why: `no Match score yet; the policy sends only ${p.minMatchScore}+ unread` };
+    if (c.matchProvisional) return { action: "REVIEW", why: `Match score ~${c.matchScore} is provisional; the policy sends only a confident ${p.minMatchScore}+ unread` };
+    if (c.matchScore < p.minMatchScore) return { action: "REVIEW", why: `Match score ${c.matchScore} is below the ${p.minMatchScore} the policy sends unread` };
   }
 
   // Standing gates, restated so a policy can never be configured around them.

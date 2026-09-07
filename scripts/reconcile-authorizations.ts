@@ -77,7 +77,7 @@ for (const a of candidates) {
     candidacy: r?.verdict ?? null,
     candidacyReasonCode: r?.reason_codes?.[0] ?? null,
     hardMet: r?.hard_met ?? null, hardTotal: r?.hard_total ?? null,
-    eligibility: job.eligibility, fit: null, baseSalaryMin: job.salary_min ?? null,
+    eligibility: job.eligibility, matchScore: null, baseSalaryMin: job.salary_min ?? null,
     allFieldsConfident: Boolean(a.all_fields_confident),
     blockedAnswers: 0, resumeClaimsAllGrounded: true, artifactValid: true,
     submittedToday: 0,

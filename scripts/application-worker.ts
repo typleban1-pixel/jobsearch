@@ -175,6 +175,17 @@ for (const a of apps) {
   work.push({ job, existing: a, disposition: { action: "SUBMIT", why: "you approved this application and asked for it to be run" } });
 }
 
+// The Match score each job shows on its card, from the same precomputed
+// table the Jobs page reads. The policy's minimum is judged against it.
+const matchByJob = new Map<string, { score: number; provisional: boolean }>();
+{
+  const openIds = jobs.filter((j) => j.status === "OPEN").map((j) => j.id);
+  for (let i = 0; i < openIds.length; i += 200) {
+    const { data } = await db.from("job_card_summary").select("job_id,match_score,match_provisional").in("job_id", openIds.slice(i, i + 200));
+    for (const r of (data ?? []) as any[]) if (r.match_score !== null) matchByJob.set(r.job_id, { score: r.match_score, provisional: Boolean(r.match_provisional) });
+  }
+}
+
 for (const job of jobs) {
   if (job.status !== "OPEN") continue;
   const existing = appByJob.get(job.id);
@@ -187,7 +198,8 @@ for (const job of jobs) {
     candidacyReasonCode: candidacyRowOf.get(job.id)?.reason_codes?.[0] ?? null,
     hardMet: candidacyRowOf.get(job.id)?.hard_met ?? null,
     hardTotal: candidacyRowOf.get(job.id)?.hard_total ?? null,
-    eligibility: job.eligibility, fit: null,
+    eligibility: job.eligibility,
+    matchScore: matchByJob.get(job.id)?.score ?? null, matchProvisional: matchByJob.get(job.id)?.provisional ?? false,
     baseSalaryMin: job.salary_min ?? null,
     // Gates that only exist once an application does. Unprepared work is
     // optimistic here and is re-decided after preparation.
@@ -342,7 +354,8 @@ for (const w of work.slice(0, limit)) {
       hardMet: candidacyRowOf.get(w.job.id)?.hard_met ?? null,
       hardTotal: candidacyRowOf.get(w.job.id)?.hard_total ?? null,
       eligibility: w.job.eligibility,
-      fit: null, baseSalaryMin: w.job.salary_min ?? null,
+      matchScore: matchByJob.get(w.job.id)?.score ?? null, matchProvisional: matchByJob.get(w.job.id)?.provisional ?? false,
+      baseSalaryMin: w.job.salary_min ?? null,
       allFieldsConfident: Boolean(app.all_fields_confident),
       blockedAnswers: blockedNow ?? 0,
       resumeClaimsAllGrounded: true,

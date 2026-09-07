@@ -16,7 +16,7 @@ const check = (what: string, ok: boolean, detail = "") => {
 
 const POLICY: AutomationPolicy = {
   autoSubmitCandidacy: ["APPLICATION_CANDIDATE"], reviewCandidacy: ["STRETCH", "MANUAL_REVIEW"],
-  minFit: null, allowUnknownSalary: true, baseSalaryFloor: 85_000,
+  minMatchScore: null, allowUnknownSalary: true, baseSalaryFloor: 85_000,
   maxApplicationsPerDay: null, requireResumeReview: false,
   excludedCompanyIds: [], excludedJobIds: [],
 };
@@ -25,7 +25,7 @@ const OFF: Switches = { globalAutoSubmit: false, byProvider: ON.byProvider };
 
 const job = (over: Partial<Candidate> = {}): Candidate => ({
   jobId: "j", companyId: "c", provider: "GREENHOUSE",
-  candidacy: "APPLICATION_CANDIDATE", eligibility: "ELIGIBLE", fit: 70,
+  candidacy: "APPLICATION_CANDIDATE", eligibility: "ELIGIBLE", matchScore: 70,
   candidacyReasonCode: "MEETS_HARD_REQUIREMENTS", hardMet: 5, hardTotal: 8,
   baseSalaryMin: 120_000, allFieldsConfident: true, blockedAnswers: 0,
   resumeClaimsAllGrounded: true, artifactValid: true, submittedToday: 0, ...over,
@@ -33,6 +33,19 @@ const job = (over: Partial<Candidate> = {}): Candidate => ({
 
 console.log("the happy path");
 check("a clean candidate submits", decide(job(), POLICY, ON).action === "SUBMIT");
+
+// The person's rule of 2026-09-07: unattended submission only at a confident
+// Match score of 30 or higher; anything less is prepared and routed to review.
+{
+  const GATED = { ...POLICY, minMatchScore: 30 };
+  check("match 30 with the 30 minimum submits", decide(job({ matchScore: 30 }), GATED, ON).action === "SUBMIT");
+  check("match 29 with the 30 minimum routes to review", decide(job({ matchScore: 29 }), GATED, ON).action === "REVIEW",
+    decide(job({ matchScore: 29 }), GATED, ON).why);
+  check("a provisional match routes to review whatever the number",
+    decide(job({ matchScore: 80, matchProvisional: true }), GATED, ON).action === "REVIEW");
+  check("no match score routes to review", decide(job({ matchScore: null }), GATED, ON).action === "REVIEW");
+  check("the reason names the Match score, not an internal fit", /Match score/.test(decide(job({ matchScore: 29 }), GATED, ON).why));
+}
 
 console.log("\na switch narrows, and can never widen");
 // The bug: kill switches were checked first, so with auto-submit off

@@ -60,7 +60,51 @@ const CHICAGOLAND = new Set([
   "melrose park","cicero","berwyn","lincolnshire","northfield","riverwoods","rolling meadows",
   "elk grove village","schiller park","franklin park","hammond","gary","merrillville",
   "east chicago","munster","schererville","crown point",
+  // Found unmapped in the live data on 2026-09-07 (Bedford Park alone had
+  // thirteen postings sitting as uncertain), plus the rest of the ring a
+  // Chicago commute reaches.
+  "bedford park","alsip","wheeling","harvey","lemont","matteson","winnetka","channahon","monee",
+  "oak lawn","evergreen park","la grange","la grange park","brookfield","blue island","homewood",
+  "flossmoor","dolton","calumet city","lansing","south holland","oak forest","midlothian",
+  "countryside","western springs","willowbrook","darien","plainfield","new lenox","mokena",
+  "frankfort","lockport","shorewood","minooka","north chicago","lake bluff","zion","round lake",
+  "grayslake","antioch","lindenhurst","lake zurich","wauconda","cary","mchenry","woodstock",
+  "huntley","south elgin","west chicago","winfield","bloomingdale","roselle","hanover park",
+  "streamwood","bartlett","oswego","montgomery","north aurora","sugar grove","yorkville",
+  "glencoe","kenilworth","highwood","lake villa","fox lake","island lake","crest hill",
+  "bridgeview","justice","hickory hills","palos hills","palos heights","orland hills",
+  "tinley park","homer glen","lyons","summit","forest park","river forest","maywood",
+  "bellwood","hillside","broadview","north riverside","riverside","la grange highlands",
+  "glendale heights","carpentersville","east dundee","west dundee","lake in the hills",
+  "hoffman estates","inverness","prospect heights","wheeling","lincolnwood","harwood heights",
+  "norridge","river grove","elmwood park","stone park","northlake","oak brook terrace",
+  "whiting","highland","griffith","dyer","st. john","saint john","valparaiso","portage",
 ]);
+
+/**
+ * The municipality behind how an employer wrote it.
+ *
+ * Postings arrive as "3051 Alsip" (a site code), "USA - Chicago", "Chicago
+ * - Chinatown" or "Chinatown - Chicago" (a neighbourhood), and once as
+ * "Chicgao". Each of those is a Chicagoland place that the plain lookup
+ * missed, so thirty-odd postings sat as uncertain or ineligible. The key
+ * is the municipality name: a leading site code or country prefix is
+ * dropped, a "X - Y" pair resolves to whichever side is a known
+ * municipality, and one observed misspelling is corrected. Nothing here
+ * widens the list; it only recognises members written oddly.
+ */
+export function municipalityKey(city: string): string {
+  let key = city.toLowerCase().replace(/\s+/g, " ").trim();
+  key = key.replace(/^\d{2,6}\s*[-–—:]?\s*/, "");                 // "3051 alsip"
+  key = key.replace(/^(?:usa?|united states|us)\s*[-–—:]\s*/, ""); // "usa - chicago"
+  key = key.replace(/\bchicgao\b/, "chicago");
+  if (CHICAGOLAND.has(key)) return key;
+  // "chinatown - chicago", "chicago - loop": either side may be the town.
+  for (const part of key.split(/\s*[-–—/|(]\s*/).map((p) => p.replace(/\)$/, "").trim())) {
+    if (part && CHICAGOLAND.has(part)) return part;
+  }
+  return key;
+}
 
 const REMOTE_WORD = /\b(remote|work from home|wfh|distributed|virtual)\b/i;
 const HYBRID_WORD = /\bhybrid\b/i;
@@ -198,7 +242,7 @@ function splitTrailingStateCode(input: string): { city: string; state: string } 
 /** Only Chicagoland is resolved today, because it is the only metro any preference depends on. */
 export function resolveMetro(city: string | null, state: string | null): string | null {
   if (!city) return null;
-  const key = city.toLowerCase().replace(/\s+/g, " ").trim();
+  const key = municipalityKey(city);
   if (!CHICAGOLAND.has(key)) return null;
   // Guards against Chicago Heights in another state, and against the
   // several other US cities named Aurora, Naperville and Geneva.
