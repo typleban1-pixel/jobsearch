@@ -35,7 +35,9 @@ export function JobCardView({ card, returnTo, rank = null }: { card: JobCard; re
 
   // Two reasons for, one against: the strongest direct evidence and the
   // most important gap, both already computed by the ranking.
-  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  // "crm" is an acronym, "bachelor degree" a phrase: a short single word is
+  // shown as its initials, anything else with its first letter raised.
+  const cap = (t: string) => (/^[a-z]{2,4}$/.test(t) ? t.toUpperCase() : t.charAt(0).toUpperCase() + t.slice(1));
   const reasonsFor = card.directConcepts.slice(0, 2).map(cap);
   const gaps = [
     ...card.credentialFamiliesUnmet.map((f) => `No ${f.toLowerCase()} credential`),
