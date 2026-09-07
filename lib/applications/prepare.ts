@@ -852,6 +852,12 @@ export interface ComposeInput {
   title: string;
   /** Posting location, used for the header line only. */
   location?: { city?: string | null; state?: string | null; metro?: string | null; remote_policy?: string | null };
+  /**
+   * The posting's own description, for the LAYOUT signals only (an AI or
+   * startup posting leads with RentPup). Never fed to the model and never
+   * used to choose capabilities: those come from the requirements.
+   */
+  postingText?: string | null;
 }
 
 /**
@@ -1044,10 +1050,14 @@ export async function composeFromRequirements(
   // on punctuation: splitting "Themes: a, b, c." reintroduced the title
   // and the word "Themes" as if they were requirements.
   const contextTerms = themes.terms.length ? themes.terms : [title];
+  // The posting's own words go along for the layout signals (an AI or
+  // startup posting leads with RentPup); they take no part in which
+  // capabilities are selected.
+  const postingText = `${title}\n${String(input.postingText ?? "")}`;
   const { doc: assembled, dropped, summaryIncomplete } = assembleTailoredDoc(
     masterDoc,
     result.accepted.map((a) => ({ original: a.original, claim: a.text, evidenceIds: a.evidenceIds, generation: a.generation })),
-    contextTerms, undefined, title,
+    contextTerms, undefined, title, postingText,
   );
 
   // Removing verbatim repetition left nothing usable. Regenerating is the
@@ -1150,10 +1160,12 @@ export async function composeTailoredResume(
 ): Promise<TailoredComposition> {
   const requirements = await paged<RequirementInput>(db, "job_requirements",
     "normalized_term,raw_text,is_hard_requirement", (q) => q.eq("job_id", job.id));
+  const { data: desc } = await db.from("job_descriptions").select("description_text").eq("job_id", job.id).maybeSingle();
   return composeFromRequirements(db, {
     requirements,
     title: version.title ?? job.title,
     location: { city: version.city, state: version.state, metro: version.metro, remote_policy: version.remote_policy },
+    postingText: version.description_text ?? desc?.description_text ?? null,
   }, llm);
 }
 

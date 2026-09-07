@@ -6,7 +6,7 @@
  * isAiPosting decides from the posting's own terms; a doc marked
  * projectsFirst prints Selected Work before Experience in both renderers.
  */
-import { isAiPosting } from "../lib/render/tailoredDoc.ts";
+import { isAiPosting, isStartupPosting } from "../lib/render/tailoredDoc.ts";
 import { renderMarkdown, type ResumeDoc } from "../lib/render/resume.ts";
 import { renderResumeHtml as resumeHtml } from "../lib/render/resumePdf.ts";
 let bad = 0;
@@ -35,3 +35,12 @@ const html2 = resumeHtml(doc);
 ok(html2.indexOf("<h2>Experience</h2>") < html2.indexOf("<h2>Selected Work</h2>"), "pdf html: Experience first by default");
 console.log(bad ? `\n${bad} FAILED` : "\nai-posting-layout-selftest: ALL PASS");
 process.exit(bad ? 1 : 0);
+
+
+// A posting that values startup experience leads with RentPup too, and the
+// signal is read from the posting's own words, not only extracted terms.
+ok(isStartupPosting(["1 year of experience at an early stage tech startup preferred"]), "'early stage tech startup' marks a startup posting");
+ok(isStartupPosting(["You thrive in a fast-paced and dynamic environment"]), "'fast-paced and dynamic environment' marks one");
+ok(isStartupPosting(["comfortable wearing many hats"]), "'wearing many hats' marks one");
+ok(!isStartupPosting(["project coordination", "budget management"]), "ordinary requirements do not");
+ok(isAiPosting(["Aleph is an AI-native platform for Financial Planning & Analysis"]), "'AI-native platform' in the description marks an AI posting");

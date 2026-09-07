@@ -99,16 +99,39 @@ export function isAiPosting(terms: string[]): boolean {
 /** A résumé line that speaks to AI work, in plain recruiter-facing terms. */
 const AI_LINE = /\b(?:ai|ai-assisted|artificial intelligence)\b/i;
 
+/**
+ * A posting that values startup experience: early-stage, fast-paced,
+ * wearing many hats, building from zero. RentPup is exactly that story --
+ * a product taken from concept through launch to paying users -- so such a
+ * posting leads with it, as an AI posting does, and its launch-and-traction
+ * lines are preferred. The person asked for this on 2026-09-07.
+ */
+export const STARTUP_TERMS = /\b(?:start-?ups?|early[- ]stage|seed[- ]stage|series [ab]\b|founding (?:team|member)|0[- ]to[- ]1|zero[- ]to[- ]one|wear(?:ing)? many hats|scrappy|high[- ]growth|fast[- ]paced (?:and dynamic |)environment|built? (?:something |a product )?from (?:scratch|the ground up)|entrepreneur(?:ial|ship)?)\b/i;
+export function isStartupPosting(terms: string[]): boolean {
+  return terms.some((t) => STARTUP_TERMS.test(String(t ?? "")));
+}
+/** A résumé line that shows the startup story: built it, launched it, people pay for it. */
+const STARTUP_LINE = /\b(?:from concept through launch|built and operated|in use by \d+ users|monthly revenue|generat\w+ approximately \$|launch(?:ed)?\b|from concept)/i;
+
 export function assembleTailoredDoc(
   master: ResumeDoc,
   accepted: AcceptedClaim[],
   roleContextTerms: string[],
   budget: DensityBudget = DEFAULT_BUDGET,
   roleTitle = "",
+  /** The posting's title and description, for the layout signals only; never for capability selection. */
+  postingText: string | null = null,
 ): { doc: ResumeDoc; dropped: Array<{ line: string; why: string }>; summaryIncomplete?: boolean } {
   const dropped: Array<{ line: string; why: string }> = [];
   const profile = profileFor(roleTitle, roleContextTerms);
-  const aiPosting = isAiPosting(roleContextTerms);
+  // Detected over the requirement terms AND the posting's own words (title
+  // and description), because a posting can be "an AI-native platform"
+  // with no extracted requirement saying so -- Aleph's was, and its résumé
+  // buried RentPup.
+  const signalTerms = [...roleContextTerms, ...(postingText ? [postingText] : [])];
+  const aiPosting = isAiPosting(signalTerms);
+  const startupPosting = isStartupPosting(signalTerms);
+  const leadWithProjects = aiPosting || startupPosting;
 
   // Matched on the ORIGINATING LINE, not the evidence set.
   //
@@ -225,7 +248,9 @@ export function assembleTailoredDoc(
           : masterLine,
         // For an AI posting, the project's AI lines lead its bullets and
         // are never dropped as irrelevant.
-        score: scoreClaim(masterLine.text, profile) + (aiPosting && AI_LINE.test(masterLine.text) ? 100 : 0), i,
+        score: scoreClaim(masterLine.text, profile)
+          + (aiPosting && AI_LINE.test(masterLine.text) ? 100 : 0)
+          + (startupPosting && STARTUP_LINE.test(masterLine.text) ? 100 : 0), i,
       }))
       .sort((a, b) => b.score - a.score || a.i - b.i);
     const pool: Array<{ line: ResumeLine; score: number }> = [];
@@ -320,9 +345,9 @@ export function assembleTailoredDoc(
     ...projectPools.map((x) => ({
       // An AI posting earns the project up to four claims regardless of tier:
       // this is the section the posting is about.
-      taken: aiPosting ? Math.min(x.pool.length, 4) : Math.min(x.pool.length, projectAllowance(x), budget.maxPerProject),
+      taken: leadWithProjects ? Math.min(x.pool.length, 4) : Math.min(x.pool.length, projectAllowance(x), budget.maxPerProject),
       pool: x.pool,
-      ceiling: aiPosting ? 4 : budget.maxPerProject,
+      ceiling: leadWithProjects ? 4 : budget.maxPerProject,
     })),
   ];
   const roleSlots = slots.slice(0, withScores.length);
@@ -427,7 +452,7 @@ export function assembleTailoredDoc(
     dropped.push({ line: r, why: "stated verbatim as an experience bullet; the bullet carries the evidence" });
   }
 
-  const assembled: ResumeDoc = { ...master, summary: deduped.summary, roles: selection.roles, projects, projectsFirst: aiPosting && projects.length > 0 };
+  const assembled: ResumeDoc = { ...master, summary: deduped.summary, roles: selection.roles, projects, projectsFirst: leadWithProjects && projects.length > 0 };
   assertChronologyIntact(master, assembled);
   return {
     doc: dedupe(assembled, dropped),
