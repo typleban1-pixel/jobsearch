@@ -13,14 +13,34 @@ import { chooseSkill, isCommitted, beginSearch, confirmTyped } from "../lib/work
  * Never an abbreviation or an initialism: those are what concatenated
  * fragments look like, and searching for one cannot find a real skill.
  */
-const CANDIDATES: { term: string; evidence: string }[] = [
-  { term: "Program Management", evidence: "coordinated a college-industry collaboration with 10+ deliverables (LCCC)" },
-  { term: "Project Management", evidence: "resume skill group: Operations and process (Project coordination)" },
-  { term: "Process Improvement", evidence: "configured automated Asana workflows across teams (Holley)" },
-  { term: "Operations", evidence: "Digital Marketing, Product & Operations Specialist (Genius One)" },
-  { term: "Analytics", evidence: "resume skill group: Marketing and ecommerce (Google Analytics)" },
-  { term: "Marketing", evidence: "executed digital marketing and ecommerce work (Genius One)" },
-];
+/**
+ * The skills are the overlap between this posting and the truth profile.
+ *
+ * Scoring already computes it: each requirement the employer stated is
+ * resolved against verified evidence, and a DIRECT resolution means the
+ * profile evidences that concept itself. Those, restricted to skill-class
+ * requirements, are the candidates. Nothing the posting did not mention
+ * is offered, nothing the profile does not evidence is claimed, and
+ * Workday's own list decides which of them exist as skills.
+ *
+ *   node scripts/workday-add-skills.ts <application_id>
+ */
+import { createClient } from "@supabase/supabase-js";
+import { required } from "../lib/env.ts";
+const ID = process.argv[2];
+if (!ID) { console.error("usage: node scripts/workday-add-skills.ts <application_id>"); process.exit(2); }
+const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+const { data: app } = await db.from("applications").select("job_id").eq("id", ID).single();
+const { data: score } = await db.from("job_scores").select("fit_breakdown").eq("job_id", app!.job_id).eq("is_current", true).maybeSingle();
+const detail: any[] = (score as any)?.fit_breakdown?.conceptDetail ?? [];
+const seen = new Set<string>();
+const CANDIDATES: { term: string; evidence: string }[] = detail
+  .filter((c) => c.resolution === "DIRECT" && c.requirementClass !== "EDUCATION" && c.requirementClass !== "CREDENTIAL")
+  .map((c) => ({ term: String(c.label ?? c.concept).trim(), evidence: `the posting asks for it and the profile evidences it directly: ${c.rationale ?? ""}`.trim() }))
+  .filter((c) => c.term.length > 1 && !seen.has(c.term.toLowerCase()) && seen.add(c.term.toLowerCase()));
+console.log(`posting requirements the profile evidences directly (skills): ${CANDIDATES.length}`);
+for (const c of CANDIDATES) console.log(`  ${c.term}`);
+if (!CANDIDATES.length) { console.log("nothing to add: no skill the posting asks for is directly evidenced by the profile"); process.exit(0); }
 
 const b = await chromium.connectOverCDP("http://127.0.0.1:9222");
 const page = b.contexts()[0]!.pages().filter((p: any) => !p.url().startsWith("about:"))[0]!;

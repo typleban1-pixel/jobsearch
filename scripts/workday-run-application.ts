@@ -414,11 +414,36 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
   const here = (toFill ?? []).filter((a: any) => live.some((f: any) => String(f.key) === a.field_key));
   let failed = 0, filled = 0;
   const blockedAcceptance: { q: string; why: string }[] = [];
+  /**
+   * What every control a selector matches currently holds.
+   *
+   * My Experience repeats its blocks -- one School or University per
+   * education entry -- and workday-experience-fill.ts fills them block by
+   * block. A selector that matches several controls, all holding values,
+   * is a section that has been completed by that script, not a question
+   * for this loop; writing to "the" control would be choosing between
+   * blocks. Held values are read from the page, the only authority.
+   */
+  const heldValues = async (key: string): Promise<string[]> => await page.locator(`${key}:visible`)
+    .evaluateAll((els: any[]) => els.map((e) => {
+      const tag = e.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return String(e.value ?? "");
+      const box = e.closest('[data-automation-id="multiSelectContainer"]');
+      if (box) return [...box.querySelectorAll('[data-automation-id="selectedItem"]')].map((x: any) => x.innerText).join(", ");
+      return String(e.innerText ?? "");
+    }).map((v: string) => (/^select one$/i.test(v.trim()) ? "" : v.trim()))).catch(() => [] as string[]);
+
   for (const a of here as any[]) {
     // An agreement is entered into by a person, never filled in from a
     // profile. A stored acceptance for one employer is not consent to
     // another's terms.
     const acc = classifyAcceptance(`${a.question_text} ${a.field_key}`);
+    const held = await heldValues(a.field_key);
+    if (held.length > 1 && held.every((v) => v.length > 0)) {
+      filled++;
+      console.log(`   held ${String(a.question_text).slice(0, 40).padEnd(42)} ${held.length} blocks, all answered on the page`);
+      continue;
+    }
     if (acc.kind === "NEEDS_A_PERSON") {
       console.log(`   STOP ${String(a.question_text).slice(0, 40).padEnd(42)} ${acc.why}`);
       blockedAcceptance.push({ q: String(a.question_text), why: acc.why });
@@ -533,16 +558,8 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
    * required control with a committed value is not a blocker.
    */
   const holdsValue = async (key: string): Promise<boolean> => {
-    const el = page.locator(`${key}:visible`).first();
-    if (!(await el.count().catch(() => 0))) return false;
-    const held: string = await el.evaluate((e: any) => {
-      const tag = e.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return String(e.value ?? "");
-      const box = e.closest('[data-automation-id="multiSelectContainer"]');
-      if (box) return [...box.querySelectorAll('[data-automation-id="selectedItem"]')].map((x: any) => x.innerText).join(", ");
-      return String(e.innerText ?? "");
-    }).catch(() => "");
-    return held.trim().length > 0 && !/^select one$/i.test(held.trim());
+    const held = await heldValues(key);
+    return held.length > 0 && held.every((v) => v.length > 0);
   };
   const candidates = (here as any[]).filter((a) => a.is_required
     && classifyAcceptance(`${a.question_text} ${a.field_key}`).kind === "NOT_ACCEPTANCE"
