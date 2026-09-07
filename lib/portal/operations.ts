@@ -186,38 +186,45 @@ const QUEUED = new Set(["DRAFT", "PREPARING", "AWAITING_REVIEW", "READY_TO_SUBMI
 const SUBMITTED = new Set(["SUBMITTED", "ACKNOWLEDGED", "IN_PROCESS", "INTERVIEWING", "OFFER"]);
 
 export async function loadAtsStatus(db: SupabaseClient): Promise<AtsStatus[]> {
-  const [policies, companies, jobs, apps, runs] = await Promise.all([
-    paged<any>(db, "ats_policy", "provider,paused,paused_reason,capability,capability_note", (q) => q, "provider")
-      .catch(() => [] as any[]),
-    paged<any>(db, "companies", "id,ats_provider,lifecycle,ats_token", (q) => q),
-    paged<any>(db, "jobs", "id,source,status,company_id", (q) => q),
-    paged<any>(db, "applications", "id,job_id,status", (q) => q),
-    paged<any>(db, "application_fill_runs", "id,provider,outcome,started_at,stop_detail", (q) => q, "started_at", false),
+  // Counts asked for as counts. This paged the entire jobs table (19,600
+  // rows, twenty round trips), every company and every fill run to compute
+  // a dozen per-provider numbers; the Settings page took ten seconds.
+  const policies = await paged<any>(db, "ats_policy", "provider,paused,paused_reason,capability,capability_note", (q) => q, "provider")
+    .catch(() => [] as any[]);
+  const providers: string[] = policies.length ? policies.map((p) => p.provider) : ["GREENHOUSE", "LEVER", "ASHBY"];
+  const count = async (q: any): Promise<number> => ((await q).count as number | null) ?? 0;
+
+  // Applications are few (~80) and are joined to their job's provider by an
+  // embedded relation rather than by loading the jobs table.
+  const [apps, ...perProvider] = await Promise.all([
+    paged<any>(db, "applications", "id,status,jobs!inner(source)", (q) => q),
+    ...providers.map((provider) => Promise.all([
+      count(db.from("companies").select("id", { count: "exact", head: true }).eq("ats_provider", provider).not("ats_token", "is", null)),
+      count(db.from("jobs").select("id", { count: "exact", head: true }).eq("source", provider).eq("status", "OPEN")),
+      count(db.from("application_fill_runs").select("id", { count: "exact", head: true }).eq("provider", provider).eq("outcome", "HANDOFF")),
+      db.from("application_fill_runs").select("outcome,stop_detail").eq("provider", provider).neq("outcome", "HANDOFF")
+        .order("started_at", { ascending: false }).limit(3),
+    ])),
   ]);
+  const sourceOf = (a: any): string | null => (Array.isArray(a.jobs) ? a.jobs[0] : a.jobs)?.source ?? null;
 
-  const jobById = new Map(jobs.map((j) => [j.id, j]));
-  const providers = policies.length
-    ? policies.map((p) => p.provider)
-    : ["GREENHOUSE", "LEVER", "ASHBY"];
-
-  return providers.map((provider) => {
+  return providers.map((provider, i) => {
     const policy = policies.find((p) => p.provider === provider);
-    const theseJobs = jobs.filter((j) => j.source === provider);
-    const appsHere = apps.filter((a) => jobById.get(a.job_id)?.source === provider);
-    const runsHere = runs.filter((r) => r.provider === provider);
+    const [companies, openJobs, handoffs, failuresRes] = perProvider[i]!;
+    const appsHere = apps.filter((a) => sourceOf(a) === provider);
     return {
       provider,
       paused: policy ? Boolean(policy.paused) : true,
       pausedReason: policy?.paused_reason ?? null,
       capability: policy?.capability ?? "NONE",
       capabilityNote: policy?.capability_note ?? null,
-      companies: companies.filter((c) => c.ats_provider === provider && c.ats_token).length,
-      openJobs: theseJobs.filter((j) => j.status === "OPEN").length,
+      companies,
+      openJobs,
       applicationsQueued: appsHere.filter((a) => QUEUED.has(a.status)).length,
-      handoffs: runsHere.filter((r) => r.outcome === "HANDOFF").length,
+      handoffs,
       submitted: appsHere.filter((a) => SUBMITTED.has(a.status)).length,
       lastIngest: null,
-      recentFailures: runsHere.filter((r) => r.outcome !== "HANDOFF").slice(0, 3)
+      recentFailures: ((failuresRes.data ?? []) as any[])
         .map((r) => `${r.outcome}: ${(r.stop_detail ?? "").slice(0, 90)}`),
     };
   });
