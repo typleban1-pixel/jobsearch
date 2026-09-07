@@ -66,6 +66,8 @@ ok(classifyOption({ label: "x", instanceId: null, hasSideCharm: false }) === "BR
 // One leaf below is unambiguous; several are not.
 {
   ok(nextStep(LEVEL2, []).action === "SELECT", "a single leaf needs no further instruction");
+  const lone = nextStep([branch("Careers Web Site")], []);
+  ok(lone.action === "SELECT" && lone.label === "Careers Web Site", "a single option under the chosen category is taken even when its markup calls it a category");
   const many = nextStep([leaf("A","1"), leaf("B","2")], []);
   ok(many.action === "STOP", "two leaves without instruction is a stop, not a guess");
   ok(many.action === "STOP" && /does not say which/.test(many.why), "and it says why");

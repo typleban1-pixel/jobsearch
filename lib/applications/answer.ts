@@ -456,6 +456,10 @@ function derive(intent: Intent, p: Record<string, any>, field: FormField):
       return { value: `${p.city}, ${p.state}${p.country ? `, ${p.country}` : ""}`,
                because: "the profile's recorded city, state and country" };
     }
+    case "phone_device_type":
+      // Not recorded anywhere in the profile, and not inferable from the
+      // number. Asked once; the bank reuses the answer across employers.
+      return { block: "the profile does not record whether this number is a mobile, landline or fax; answer it once and it is reused", kind: "UNKNOWN" };
     default:
       return { block: `no deterministic derivation is defined for ${intent.key}`, kind: "UNKNOWN" };
   }

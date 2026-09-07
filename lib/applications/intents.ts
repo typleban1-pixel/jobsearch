@@ -99,10 +99,18 @@ export const INTENTS: Intent[] = [
     patterns: [/\b(preferred name|nickname|what should we call you|preferred first name)\b/i] },
   { key: "email", description: "Email address", category: "A_VERIFIED_FACT",
     patterns: [/\b(e-?mail)\b/i], excludes: [/\bconfirm\b/i, CONSENT] },
+  // Workday's "Phone Device Type" (Mobile / Landline / Fax) matched the
+  // phone intent and was answered with the number itself. It is its own
+  // question, and the profile does not record it, so it is asked once
+  // and then banked.
+  { key: "phone_device_type", description: "Whether the phone number is a mobile, landline or fax", category: "B_CALCULATED",
+    patterns: [/\b(?:phone|telephone|mobile)\s*(?:device\s*)?type\b|\bdevice type\b|\btype of (?:phone|number)\b/i] },
   { key: "phone", description: "Phone number", category: "A_VERIFIED_FACT",
-    // A "phone country code" control wants a dial code, not the number.
+    // A "phone country code" control wants a dial code, not the number,
+    // and a "phone device type" control wants Mobile, not the number.
     patterns: [/\b(phone|mobile|cell|telephone)\b/i],
-    excludes: [CONSENT, /\b(country code|calling code|dial(?:ing)? code|phone country)\b/i] },
+    excludes: [CONSENT, /\b(country code|calling code|dial(?:ing)? code|phone country|country phone|phone code)\b/i,
+               /\b(?:phone|telephone|mobile|device)\s*(?:device\s*)?type\b/i] },
   { key: "address_line", description: "Street address", category: "A_VERIFIED_FACT",
     patterns: [/\b(street address|address line|mailing address|home address|^address$)/i],
     excludes: [/\b(e-?mail|website|url|ip)\b/i, /\bcity\b/i, /\b(state|province)\b/i, /\b(zip|postal)\b/i] },
@@ -118,7 +126,7 @@ export const INTENTS: Intent[] = [
     // "Country code" is a dial code, not a residence. Without excluding
     // it both intents matched and the field blocked as ambiguous.
     patterns: [/\bcountry\b/i],
-    excludes: [/\b(citizenship|birth|origin)\b/i, /\bauthori[sz]ed\b|\beligible to work\b|\bsponsor\w*\b|\bright to work\b/i, /\bwhere are you\b|\bcurrently (?:located|based)\b|\bwhat city and state\b|\bcity and state do you\b/i, /\b(country code|calling code|dial(?:ing)? code|phone country)\b/i] },
+    excludes: [/\b(citizenship|birth|origin)\b/i, /\bauthori[sz]ed\b|\beligible to work\b|\bsponsor\w*\b|\bright to work\b/i, /\bwhere are you\b|\bcurrently (?:located|based)\b|\bwhat city and state\b|\bcity and state do you\b/i, /\b(country code|calling code|dial(?:ing)? code|phone country|country phone|phone code)\b/i] },
   { key: "linkedin_url", description: "LinkedIn profile URL", category: "A_VERIFIED_FACT",
     patterns: [/\blinkedin\b/i] },
   { key: "portfolio_url", description: "Portfolio or personal website URL", category: "A_VERIFIED_FACT",
@@ -168,7 +176,8 @@ export const INTENTS: Intent[] = [
     // A control asking for a dial code is recognised by its OPTIONS
     // rather than its label, in answer.ts. These patterns catch the
     // forms that say what they mean; Greenhouse's says only "Country".
-    patterns: [/\b(country code|calling code|dial(?:ing)? code|phone country|country for your phone)\b/i] },
+    // Workday words it "Country Phone Code".
+    patterns: [/\b(country code|calling code|dial(?:ing)? code|phone country|country phone|phone code|country for your phone)\b/i] },
   { key: "current_employer", description: "Current or most recent employer", category: "B_CALCULATED",
     patterns: [/\b(current|present|most recent|previous) (?:company|employer)\b|\b(?:current|recent) or (?:previous|former) employer\b|\bwho is your (?:current|present)\b/i],
     excludes: [/\bever been\b|\bpreviously been employed\b|\brelative/i] },

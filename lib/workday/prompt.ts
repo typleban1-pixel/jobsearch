@@ -103,6 +103,11 @@ export function nextStep(options: OptionNode[], remaining: string[]): Step {
     // matched it exactly or in the tenant's wording.
     return c.kind === "LEAF" ? { action: "SELECT", label: c.label, viaPath: true } : { action: "DESCEND", label: c.label, viaPath: true };
   }
+  // One option under the category the path chose is unambiguous whatever
+  // its markup says: Northern Trust's "Careers Web Site" carries no
+  // instance id and read as a category, yet clicking it commits. The
+  // click's outcome is verified from the control either way.
+  if (options.length === 1) return { action: "SELECT", label: options[0]!.label, viaPath: false };
   const leaves = options.filter((o) => classifyOption(o) === "LEAF");
   if (leaves.length === 1) return { action: "SELECT", label: leaves[0]!.label, viaPath: false };
   return { action: "STOP",

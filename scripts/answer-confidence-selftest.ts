@@ -240,6 +240,16 @@ try {
     String(matchIntent("Full name", "name").intent?.key));
   check("split first-name controls are unaffected",
     matchIntent("First Name", "first_name").intent?.key === "legal_first_name");
+  // Workday's phone block: three questions, three intents, none ambiguous.
+  check("Country Phone Code is the dial code, not the number or the residence",
+    matchIntent("Country Phone Code", "countryPhoneCode").intent?.key === "phone_country",
+    String(matchIntent("Country Phone Code", "countryPhoneCode").intent?.key));
+  check("Phone Device Type is its own question",
+    matchIntent("Phone Device Type", "phoneType").intent?.key === "phone_device_type",
+    String(matchIntent("Phone Device Type", "phoneType").intent?.key));
+  check("Phone Number is still the number",
+    matchIntent("Phone Number", "phoneNumber").intent?.key === "phone",
+    String(matchIntent("Phone Number", "phoneNumber").intent?.key));
   check("split last-name controls are unaffected",
     matchIntent("Last Name", "last_name").intent?.key === "legal_last_name");
   // The dangerous neighbour: a signature control labelled "Name".
