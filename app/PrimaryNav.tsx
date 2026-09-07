@@ -12,7 +12,7 @@ import { loadAttentionCount } from "../lib/portal/attention.ts";
  * person, never how many exist: it streams in after the nav so no page
  * waits on it, and a page that already knows the number passes it.
  */
-export type NavKey = "apply" | "jobs" | "resume-builder" | "submitted" | "settings";
+export type NavKey = "apply" | "jobs" | "outreach" | "resume-builder" | "submitted" | "settings";
 
 async function AttentionCount() {
   const session = await currentSession();
@@ -25,6 +25,7 @@ export function PrimaryNav({ current, attention }: { current: NavKey; attention?
   const items = [
     { key: "jobs", href: "/jobs", label: "Jobs" },
     { key: "apply", href: "/apply", label: "Applications" },
+    { key: "outreach", href: "/outreach", label: "Outreach" },
     { key: "resume-builder", href: "/resume-builder", label: "Resume Builder" },
     { key: "submitted", href: "/submitted", label: "Submitted" },
     { key: "settings", href: "/settings", label: "Settings" },

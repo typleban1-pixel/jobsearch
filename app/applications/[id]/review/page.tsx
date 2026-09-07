@@ -76,6 +76,29 @@ export default async function ReviewPage(props: {
         </p>
       </section>
 
+      {/* The posting itself, as the reference while approving: what it
+          asks for and what it says, with the original a click away. */}
+      <section className="posting" aria-labelledby="posting-h">
+        <h3 id="posting-h">The posting</h3>
+        <p className="facts">
+          {r.location && <span>{r.location}</span>}
+          {r.workArrangement && <span>{r.workArrangement}</span>}
+          {r.salary && <span>{r.salary}</span>}
+          {r.posting.postedAt && <span>Posted {new Date(r.posting.postedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
+          <span>Found via {r.posting.source}</span>
+          {r.jobUrl && <a href={r.jobUrl} target="_blank" rel="noopener noreferrer">View original &#8599;</a>}
+        </p>
+        {r.posting.requirements.length > 0 && (
+          <>
+            <p className="muted small">What it asks for ({r.posting.requirements.length}):</p>
+            <ul className="reqs">{r.posting.requirements.map((q) => <li key={q}>{q}</li>)}</ul>
+          </>
+        )}
+        {r.posting.descriptionFull
+          ? <p className="desc">{r.posting.descriptionFull}</p>
+          : <p className="muted small">No description was captured for this posting.</p>}
+      </section>
+
       {/* A submission that has happened is terminal: its outcome takes
           precedence over any pre-submit readiness. Only when nothing has been
           submitted (terminalState NONE) do the readiness warnings show. */}
@@ -250,20 +273,6 @@ export default async function ReviewPage(props: {
         );
       })()}
 
-      <details className="tech jobdetails">
-        <summary>About the job and the match</summary>
-        <p className="muted">
-          {r.mainGap ? <>Main gap: {r.mainGap} is not established.</> : "No role-defining gap was found against the requirements this posting states."}
-        </p>
-        {r.keyRequirements.length > 0 && (
-          <>
-            <p className="muted">Requirements this posting states:</p>
-            <ul>{r.keyRequirements.map((q) => <li key={q}>{q}</li>)}</ul>
-          </>
-        )}
-        <p className="desc">{r.descriptionExcerpt}{r.descriptionExcerpt.length >= 700 ? "\u2026" : ""}</p>
-        {r.jobUrl && <a className="btn-quiet" href={r.jobUrl} target="_blank" rel="noopener noreferrer">View original posting \u2197</a>}
-      </details>
 
       {r.submitOutcome === "AMBIGUOUS" && (
         <section className="pane ambiguous">
@@ -395,6 +404,19 @@ export default async function ReviewPage(props: {
         ) : null}
         <div className="secondary">
           <a className="btn-quiet" href="/apply">Back to Applications</a>
+          {/* A follow-up to the recruiter, composed from the approved
+              résumé and the posting; it lands on Outreach to copy. */}
+          <form method="post" action="/api/outreach/draft">
+            <input type="hidden" name="applicationId" value={r.applicationId} />
+            <button type="submit" className="btn-quiet">Send a note to the recruiter &rarr;</button>
+          </form>
+          {!r.submittedAt && (
+            <form method="post" action="/api/applications/abandon">
+              <input type="hidden" name="applicationId" value={r.applicationId} />
+              <input type="hidden" name="returnTo" value="/apply" />
+              <button type="submit" className="qapp-remove-btn" aria-label="Not interested: remove this application">Not interested · remove this application</button>
+            </form>
+          )}
         </div>
       </section>
 

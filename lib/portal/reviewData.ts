@@ -41,6 +41,8 @@ export interface ReviewData {
   descriptionExcerpt: string;
   keyRequirements: string[];
   jobUrl: string | null;
+  /** The posting as a reference while approving: everything it stated. */
+  posting: { descriptionFull: string; requirements: string[]; postedAt: string | null; source: string };
 
   /** Human phase, deliberately not the internal status. */
   phase: "PREPARED" | "APPROVED" | "SUBMITTED";
@@ -153,8 +155,10 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
       db.from("job_candidacy").select("verdict,reason,reason_codes,hard_met,hard_total,created_at,core_gaps,occupational,direct_matches")
         .eq("job_id", app.job_id).order("created_at", { ascending: false }).limit(1),
       db.from("job_descriptions").select("description_text").eq("job_id", app.job_id).maybeSingle(),
+      // Every requirement the posting states, hard ones first: the review
+      // page shows them all as the reference while approving.
       db.from("job_requirements").select("raw_text,is_hard_requirement")
-        .eq("job_id", app.job_id).eq("is_hard_requirement", "HARD").limit(6),
+        .eq("job_id", app.job_id).order("is_hard_requirement", { ascending: true }),
     ]);
 
   const answers = (answersRaw ?? []);
@@ -350,8 +354,14 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     strongEvidence: [],
     mainGap: gaps.length ? gaps.join(", ") : null,
     descriptionExcerpt: description.slice(0, 700),
-    keyRequirements: (reqs ?? []).map((r: any) => String(r.raw_text)).slice(0, 6),
+    keyRequirements: (reqs ?? []).filter((r: any) => r.is_hard_requirement === "HARD").map((r: any) => String(r.raw_text)).slice(0, 6),
     jobUrl: job!.url ?? null,
+    posting: {
+      descriptionFull: description,
+      requirements: [...new Set((reqs ?? []).map((r: any) => String(r.raw_text)).filter(Boolean))],
+      postedAt: (job as any)!.posted_at ?? null,
+      source: providerLabel,
+    },
     phase,
     terminalState,
     submissionMode: app.submission_mode ?? null,
