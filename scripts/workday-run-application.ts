@@ -300,7 +300,17 @@ for (let pageNo = 1; signedIn && reachable && pageNo <= MAX_PAGES; pageNo++) {
     break;
   }
 
-  const raw: any = await snapshotLive(page.mainFrame() as any).catch((e: any) => ({ fields: [], error: String(e) }));
+  // Workday renders a step's controls after the heading. Reading the
+  // moment the heading changed found nothing on Voluntary Disclosures and
+  // the run tried to advance past five unanswered controls. Wait for the
+  // page to be ready, then for the form to hold something, briefly.
+  await waitForWorkdayReady(page, 30_000).catch(() => undefined);
+  let raw: any = { fields: [] };
+  for (let i = 0; i < 6; i++) {
+    raw = await snapshotLive(page.mainFrame() as any).catch((e: any) => ({ fields: [], error: String(e) }));
+    if ((raw.fields ?? []).length) break;
+    await page.waitForTimeout(700);
+  }
   // Controls become questions: radio options collapse to one row keyed by
   // their shared name; every other control keeps its own selector.
   // htmlType is carried across because the resolver needs to know a
