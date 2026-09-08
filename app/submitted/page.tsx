@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { currentSession } from "../../lib/portal/session.ts";
+import { loadMatchScores } from "../../lib/portal/db.ts";
+import { matchLabel } from "../../lib/portal/matchScore.ts";
 import { PrimaryNav } from "../PrimaryNav.tsx";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +35,13 @@ export default async function SubmittedPage() {
   const jobById = new Map((jobs ?? []).map((j: any) => [j.id, j]));
   const nameById = new Map((companies ?? []).map((c: any) => [c.id, c.name]));
   const confirmedCount = rows.filter((a) => a.confirmation_email_received || a.confirmation_reference).length;
+  // The match score comes from the precomputed card summary. Applications
+  // logged from an external posting were never scored and simply carry no
+  // badge, which is honest: the score is a fit estimate, not a fact of the
+  // submission.
+  const matchScores = jobs && (jobs as any[]).length
+    ? await loadMatchScores(session.client, (jobs as any[]).map((j: any) => j.id))
+    : new Map();
 
   return (
     <main className="apply">
@@ -62,10 +71,19 @@ export default async function SubmittedPage() {
             const when = new Date(a.submitted_at!).toLocaleString("en-US", {
               month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
             });
+            const match = job ? matchScores.get(job.id) : null;
             return (
               <li className="approw" key={a.id}>
                 <div className="approw-main">
-                  <p className="approw-title">{job?.title ?? "Unknown role"}</p>
+                  <p className="approw-title">
+                    {job?.title ?? "Unknown role"}
+                    {match && (
+                      <span className={`approw-match${match.provisional ? " provisional" : ""}`}
+                        title={`${matchLabel(match.score, match.provisional)}${match.note ? ` — ${match.note}` : ""}`}>
+                        {match.provisional ? "~" : ""}{match.score}<span className="of">/100</span>
+                      </span>
+                    )}
+                  </p>
                   <p className="approw-company">{nameById.get(job?.company_id) ?? "Unknown"}</p>
                   <p className="approw-summary">
                     Submitted {when}
