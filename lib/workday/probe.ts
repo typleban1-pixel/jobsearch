@@ -211,11 +211,48 @@ export async function clickSubmit(page: Page, automationId: string, timeout = 25
  * fill() sets the value directly; it is never logged, never returned,
  * and the caller holds it only for the length of this call.
  */
-export async function signIn(page: Page, email: string, password: string): Promise<void> {
+export async function signIn(page: Page, email: string, password: string): Promise<string> {
   await fillVisible(page, SEL.email, email);
   await fillVisible(page, SEL.password, password);
-  await clickSubmit(page, "signInSubmitButton");
-  await settleAfterCredential(page);
+  return submitCredentialForm(page, "signInSubmitButton");
+}
+
+/** The credential form is still on screen with no verdict from the tenant. */
+async function credentialFormStillOpen(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const q = (id: string) => document.querySelector(`[data-automation-id="${id}"]`);
+    const visible = (e: Element | null) => Boolean(e && e.getClientRects().length > 0);
+    const asking = visible(q("password")) || visible(q("verifyPassword"));
+    const loading = visible(q("loading"));
+    const errored = [...document.querySelectorAll('[role="alert"], [data-automation-id*="rror"]')]
+      .some((e) => /incorrect|invalid|already exists|verify|required/i.test((e as HTMLElement).innerText));
+    return asking && !loading && !errored;
+  }).catch(() => false);
+}
+
+/**
+ * Submits a credential form and returns how it finally took.
+ *
+ * Three ways, in the order a person would try them. The overlay click is
+ * what worked on Northern Trust. On the University of Chicago tenant the
+ * same click landed and nothing happened: no error, no spinner, the
+ * modal still open with both fields filled (evidence in .workday-auth,
+ * 2026-09-08). Enter from the password box is the second thing a person
+ * does; the button's own click handler is the last resort. Each attempt
+ * is given a few seconds to produce a verdict before the next.
+ */
+export async function submitCredentialForm(page: Page, automationId: string, timeout = 25_000): Promise<string> {
+  await clickSubmit(page, automationId, timeout).catch(() => undefined);
+  await settleAfterCredential(page, 8_000);
+  if (!(await credentialFormStillOpen(page))) return "overlay click";
+  const field = automationId === "createAccountSubmitButton" ? SEL.verifyPassword : SEL.password;
+  await page.locator(`${field}:visible`).first().press("Enter", { timeout: 5_000 }).catch(() => undefined);
+  await settleAfterCredential(page, 8_000);
+  if (!(await credentialFormStillOpen(page))) return "enter key";
+  await page.evaluate((id) => { (document.querySelector(`[data-automation-id="${id}"]`) as HTMLElement | null)?.click(); }, automationId)
+    .catch(() => undefined);
+  await settleAfterCredential(page, timeout);
+  return (await credentialFormStillOpen(page)) ? "none took" : "button handler";
 }
 
 /**
@@ -268,8 +305,7 @@ export async function createAccount(page: Page, email: string, password: string)
   if (await page.locator(`${SEL.verifyPassword}:visible`).count()) {
     await fillVisible(page, SEL.verifyPassword, password);
   }
-  await clickSubmit(page, "createAccountSubmitButton");
-  await settleAfterCredential(page);
+  await submitCredentialForm(page, "createAccountSubmitButton");
 }
 
 /**

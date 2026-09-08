@@ -27,7 +27,7 @@ import type { Page } from "playwright";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WorkdayTenant } from "./tenant.ts";
 import { urlBelongsToTenant } from "./tenant.ts";
-import { observe, waitForWorkdayReady, SEL, signIn as doSignIn, clickWorkdayButton, clickSubmit, acceptLegalNotice } from "./probe.ts";
+import { observe, waitForWorkdayReady, SEL, signIn as doSignIn, clickWorkdayButton, submitCredentialForm, acceptLegalNotice } from "./probe.ts";
 import { generatePassword, keychainRef, storePassword, readPassword } from "./keychain.ts";
 import { ensureTenant, recordCredential } from "./store.ts";
 import type { AuthDeps } from "./authenticate.ts";
@@ -89,7 +89,8 @@ export function unattendedDeps(o: UnattendedOptions): AuthDeps {
     },
     signIn: async (email, password) => {
       log("signing in with the stored credential");
-      await doSignIn(page, email, password);
+      const how = await doSignIn(page, email, password);
+      log(`sign-in form submitted (${how})`);
     },
     readCredential: () => readPassword(ref),
     createAccount: async (email) => {
@@ -126,7 +127,8 @@ export function unattendedDeps(o: UnattendedOptions): AuthDeps {
       // The submit is the creation form's own button, by automation id:
       // the utility bar has no "Create Account", but clicking by name is
       // how the sign-in submit was once confused with the utility one.
-      await clickSubmit(page, "createAccountSubmitButton", 20_000);
+      const how = await submitCredentialForm(page, "createAccountSubmitButton", 20_000);
+      log(`creation form submitted (${how})`);
       await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
       await waitForWorkdayReady(page, 25_000).catch(() => undefined);
       // What the tenant said, so a creation that did not take is
