@@ -220,7 +220,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
     humanApprovedAt: app.human_approved_at ?? null,
     authorizationMode: app.authorization_mode ?? null,
     allFieldsConfident: Boolean(app.all_fields_confident),
-    blockedAnswers: blockedAll,
+    blockedAnswers: blocked,   // required-blocked only, matching the submitter (submit-application uses requiredBlocked); an optional blank never blocks approval
     requiredUnanswered: unansweredRequired,
     jobVersionIsCurrent: Boolean(version?.is_current),
     storedArtifactSha256: resume?.artifact_sha256 ?? null,
@@ -394,7 +394,8 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
       fieldKey: a.field_key,
       question: a.question_text || a.field_label || a.field_key,
       answer: a.answer_text,
-      source: a.confidence_state === "BLOCKED" ? "Needs your answer"
+      source: (a.confidence_state === "BLOCKED" && (a.is_required ?? true)) ? "Needs your answer"
+        : a.confidence_state === "BLOCKED" ? "Optional \u2014 left blank"
         : a.provenance === "USER_RESPONSE" ? "Answered by you"
         : a.confidence_state === "HUMAN_CONFIRMED" ? "From an answer you gave before"
         : a.provenance === "PROFILE" || a.provenance === "EMPLOYMENT_RECORD" ? "Filled from your verified profile"
@@ -404,8 +405,12 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
         : a.confidence_state === "VERIFIED" ? "Filled from your verified profile" : "",
       required: Boolean(a.is_required),
       sensitive: SENSITIVE.test(`${a.field_label ?? ""} ${a.question_text ?? ""}`),
-      state: (a.confidence_state === "BLOCKED" ? "BLOCKED" : a.answer_text === null || a.answer_text === "" ? "BLANK" : "ANSWERED") as ReviewAnswer["state"],
-      blockedReason: a.confidence_state === "BLOCKED" ? (a.blocked_reason ?? null) : null,
+      // Only a REQUIRED blocked answer is a real blocker ("needs your
+      // answer"). An OPTIONAL one -- a voluntary self-id signature, a
+      // deferred demographic -- is left blank on purpose and never holds
+      // up approval or submission (the submitter already skips it).
+      state: (a.confidence_state === "BLOCKED" && (a.is_required ?? true) ? "BLOCKED" : a.answer_text === null || a.answer_text === "" ? "BLANK" : "ANSWERED") as ReviewAnswer["state"],
+      blockedReason: (a.confidence_state === "BLOCKED" && (a.is_required ?? true)) ? (a.blocked_reason ?? null) : null,
     })).sort((x, y) => (Number(y.state === "BLOCKED") - Number(x.state === "BLOCKED")) || (Number(y.required) - Number(x.required))),
     resumeChecks, applicationChecks, finalChecks,
     warnings,

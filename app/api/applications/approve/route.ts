@@ -81,7 +81,7 @@ export async function POST(request: Request): Promise<Response> {
     humanApprovedAt: new Date().toISOString(),
     authorizationMode: "HUMAN_APPROVED",
     allFieldsConfident: Boolean(app.all_fields_confident),
-    blockedAnswers: rows.filter((a: any) => a.confidence_state === "BLOCKED").length,
+    blockedAnswers: rows.filter((a: any) => (a.is_required ?? true) && a.confidence_state === "BLOCKED").length,   // required-blocked only; an optional blank never blocks approval
     requiredUnanswered: rows.filter((a: any) => a.is_required && a.answer_text == null).length,
     jobVersionIsCurrent: Boolean(version?.is_current),
     storedArtifactSha256: resume?.artifact_sha256 ?? null,
