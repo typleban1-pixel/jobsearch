@@ -102,8 +102,8 @@ if (AUTO) {
   // window. Nothing is typed for them and no account is created.
   console.log(`\n  This window is the automated profile. In it, CREATE YOUR ACCOUNT or SIGN IN`);
   console.log(`  for ${company!.name} (${tenant.host}). Nothing is typed for you.`);
-  console.log(`  Waiting up to 20 minutes for a signed-in session...\n`);
-  for (let i = 0; i < 400; i++) {
+  console.log(`  Waiting up to 40 minutes for a signed-in session (create the account and verify your email here)...\n`);
+  for (let i = 0; i < 800; i++) {   // ~40 minutes: account creation plus email verification by hand
     const o = await observe(page, tenant).catch(() => null);
     if (o?.state === "SIGNED_IN") { authenticated = true; log(`signed in (${page.url()})`); break; }
     if (i % 10 === 0) log(`  still ${o?.state ?? "unreadable"}; sign in in the open window`);
