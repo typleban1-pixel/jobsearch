@@ -99,6 +99,13 @@ export interface ReviewData {
   automatable: boolean;
   /** The employer's own application URL, for the manual/external path. */
   applyUrl: string | null;
+  /**
+   * For account-based ATSes (Workday etc.): whether an account + login still
+   * needs to be set up before the worker can apply, and where to do it.
+   * Null for account-less providers (Greenhouse/Lever/Ashby). Drives the
+   * approve-time two-tab prompt (create account + save login).
+   */
+  accountSetup: { needed: boolean; applyUrl: string | null; companyId: string } | null;
   providerLabel: string;
   /**
    * The single next action when the automated in-portal path is not
@@ -318,6 +325,15 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   // Ashby". A parked reason on the row still hands it to the person.
   const automatable = atsRow?.capability === "PRODUCTION" && !atsRow?.paused && !app.blocked_reason;
   const applyUrl = (job as any)!.application_form_url ?? job!.url ?? null;
+  // Account-based ATS: does this employer still need an account + login stored
+  // before the worker could sign in? Drives the approve-time two-tab prompt.
+  const ACCOUNT_ATS = new Set(["WORKDAY"]);
+  let accountSetup: ReviewData["accountSetup"] = null;
+  if (ACCOUNT_ATS.has(provider.toUpperCase())) {
+    const { data: cred } = await db.from("portal_credentials")
+      .select("company_id").eq("company_id", job!.company_id).maybeSingle();
+    accountSetup = { needed: !cred, applyUrl, companyId: job!.company_id as string };
+  }
   const formNotRead = discoveredFields === 0;
   // A qualification/candidacy refusal means approval is genuinely prohibited:
   // the honest state is not "cannot be approved" with no control (a dead end
@@ -429,7 +445,7 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
       && !app.submitted_at && !app.human_approved && !app.submit_requested_at
       && app.submit_outcome !== "AMBIGUOUS" && discoveredFields > 0 && !assisted,
     assisted, assistedFinishCommand,
-    discoveredFields, automatable, applyUrl, providerLabel, externalAction, noActionReason,
+    discoveredFields, automatable, applyUrl, accountSetup, providerLabel, externalAction, noActionReason,
     technical: {
       applicationId, jobId: app.job_id,
       canonicalOpeningId: job!.canonical_opening_id ?? null,

@@ -1,4 +1,5 @@
 import type { ReviewData, ReviewCheck } from "../../lib/portal/reviewData.ts";
+import { ApproveButton } from "./ApproveButton.tsx";
 
 /**
  * The review, expanded inline on the Apply board.
@@ -71,10 +72,7 @@ export function InlineReview({ r }: { r: ReviewData }) {
 
         <div className="approw-review-actions">
           {r.canApprove ? (
-            <form method="post" action="/api/applications/approve">
-              <input type="hidden" name="applicationId" value={r.applicationId} />
-              <button className="btn-primary" type="submit">Approve &amp; continue &rarr;</button>
-            </form>
+            <ApproveButton applicationId={r.applicationId} accountSetup={r.accountSetup} />
           ) : (
             <p className="muted">This cannot be approved until the points above are resolved.</p>
           )}

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { currentSession } from "../../../../lib/portal/session.ts";
 import { loadReview, type ReviewCheck } from "../../../../lib/portal/reviewData.ts";
 import { PrimaryNav } from "../../../PrimaryNav.tsx";
+import { ApproveButton } from "../../../apply/ApproveButton.tsx";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -368,10 +369,7 @@ export default async function ReviewPage(props: {
           </>
         ) : r.canApprove ? (
           <>
-            <form method="post" action="/api/applications/approve">
-              <input type="hidden" name="applicationId" value={r.applicationId} />
-              <button className="btn-primary big" type="submit">Approve &amp; continue &rarr;</button>
-            </form>
+            <ApproveButton applicationId={r.applicationId} accountSetup={r.accountSetup} />
             <p className="muted">
               Approval means this resume and these answers may proceed to the final submission
               workflow. It does not mean the application has been submitted yet.
