@@ -33,15 +33,16 @@ async function encryptToWorker(publicKeyB64: string, secret: string): Promise<st
 }
 
 export function CredentialsForm({
-  workerKey, employers, presetCompanyId,
+  workerKey, employers, presetCompanyId, defaultUsername,
 }: {
   workerKey: WorkerKey | null;
   employers: EmployerOption[];
   presetCompanyId: string | null;
+  defaultUsername: string;
 }) {
   const router = useRouter();
   const [companyId, setCompanyId] = useState(presetCompanyId ?? "");
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(defaultUsername);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +75,7 @@ export function CredentialsForm({
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) { setError(body.error ?? "Could not save."); setBusy(false); return; }
-      setPassword(""); setUsername("");
+      setPassword(""); setUsername(defaultUsername);
       router.refresh();
     } catch {
       setError("Encryption failed in the browser. Reload and try again.");

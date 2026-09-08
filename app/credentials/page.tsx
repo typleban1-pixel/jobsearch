@@ -22,6 +22,11 @@ export default async function CredentialsPage(
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
   const workerKey: WorkerKey | null = keyRow ? { id: keyRow.id, public_key: keyRow.public_key } : null;
 
+  // Prefill the login with the job-search email; almost always the Workday
+  // username. Editable per employer.
+  const { data: prof } = await db.from("profile").select("email_job_search").maybeSingle();
+  const defaultUsername = (prof?.email_job_search as string | null) ?? "";
+
   // Employers with open account-based jobs — the ones that need a login.
   const jobRows: Array<{ company_id: string | null }> = [];
   for (let f = 0; ; f += 1000) {
@@ -60,7 +65,7 @@ export default async function CredentialsPage(
       </p>
 
       <h2>Add or replace a login</h2>
-      <CredentialsForm workerKey={workerKey} employers={employers} presetCompanyId={preset} />
+      <CredentialsForm workerKey={workerKey} employers={employers} presetCompanyId={preset} defaultUsername={defaultUsername} />
 
       <h2>Saved logins</h2>
       {(creds ?? []).length === 0 ? (
