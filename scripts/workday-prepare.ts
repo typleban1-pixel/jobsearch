@@ -1,12 +1,14 @@
 /**
  * Prepares one Workday application end to end, unattended, in one browser.
  *
- *   node --env-file=.env.local scripts/workday-prepare.ts <application_id> [--keep-open]
+ *   node --env-file=.env.local scripts/workday-prepare.ts <application_id> [--keep-open] [--auto-signin]
  *
  * The sequence a person ran by hand for Northern Trust, in order, in the
- * one browser process that holds the tenant's session: authenticate
- * (creating the account and verifying the address when the tenant asks,
- * under the person's recorded authorisation), tailor and bind the
+ * one browser process that holds the tenant's session. By default the
+ * PERSON creates the account or signs in in the opened window -- typing a
+ * password to authenticate and creating an account are theirs to do -- and
+ * this waits for a signed-in session before doing anything. Then: tailor
+ * and bind the
  * résumé, open the application and fill its single controls, fill the
  * repeated Work Experience and Education blocks, upload the exact
  * artifact, add the evidenced skills, and run on to the Review page,
@@ -24,14 +26,14 @@ import { chromium } from "playwright";
 import { required } from "../lib/env.ts";
 import { launchApplicationContext } from "../lib/browser/launch.ts";
 import { tenantFromToken, candidateHomeUrl } from "../lib/workday/tenant.ts";
-import { waitForWorkdayReady } from "../lib/workday/probe.ts";
+import { waitForWorkdayReady, observe } from "../lib/workday/probe.ts";
 import { authenticateTenant } from "../lib/workday/authenticate.ts";
 import { unattendedDeps, acceptLegalIfAuthorised } from "../lib/workday/unattended.ts";
 import { loadTenants, ensureTenant, recordObservation } from "../lib/workday/store.ts";
 
 const ID = process.argv[2];
 const KEEP_OPEN = process.argv.includes("--keep-open");
-if (!ID) { console.error("usage: workday-prepare.ts <application_id> [--keep-open]"); process.exit(2); }
+if (!ID) { console.error("usage: workday-prepare.ts <application_id> [--keep-open] [--auto-signin]"); process.exit(2); }
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 const log = (m: string) => console.log(`${new Date().toISOString().slice(11, 19)}  ${m}`);
 
@@ -70,20 +72,50 @@ const page = ctx.pages().find((p: any) => !p.url().startsWith("about:")) ?? awai
 page.setDefaultTimeout(40_000);
 
 // ---- authenticate -----------------------------------------------------
+//
+// Two ways in. --manual-signin (the default, and the only one the safety
+// rules allow) opens the window and waits for the PERSON to create the
+// account or sign in: creating an account and typing a password to
+// authenticate are the person's to do, not this system's, whatever
+// authorisation is on file. The old auto path (typing a stored
+// credential, ticking consent, creating the account) is kept behind
+// --auto-signin only, and is not used.
 await page.goto(candidateHomeUrl(tenant), { waitUntil: "domcontentloaded" });
 await waitForWorkdayReady(page, 30_000).catch(() => undefined);
-const legal = await acceptLegalIfAuthorised(page);
-if (legal !== "ABSENT") log(`legal notice: ${legal}`);
 const prior = (await loadTenants(db).catch(() => new Map())).get(tenant.host);
-const auth = await authenticateTenant(tenant, unattendedDeps({
-  db, page, tenant, companyId: company!.id, companyName: company!.name, applicationId: ID, email, log: (l) => log(`  ${l}`),
-}), { creationEnabled: true, maxSteps: 8, everAuthenticated: Boolean(prior?.last_authenticated_at), priorAccountState: (prior?.account_state ?? "UNKNOWN") as any });
-await ensureTenant(db, tenant, company!.id);
-await recordObservation(db, { host: tenant.host, pageState: auth.finalState, sessionState: auth.sessionState,
-  accountState: auth.accountState, handoffReason: auth.reason, authenticated: auth.outcome === "AUTHENTICATED" });
-log(`authentication: ${auth.outcome}  path ${auth.path.join(" -> ")}${auth.reason ? `  (${auth.reason})` : ""}`);
-if (auth.outcome !== "AUTHENTICATED") {
-  await park("authenticate", auth.reason ?? auth.outcome);
+const AUTO = process.argv.includes("--auto-signin");
+
+let authenticated = false;
+if (AUTO) {
+  const legal = await acceptLegalIfAuthorised(page);
+  if (legal !== "ABSENT") log(`legal notice: ${legal}`);
+  const auth = await authenticateTenant(tenant, unattendedDeps({
+    db, page, tenant, companyId: company!.id, companyName: company!.name, applicationId: ID, email, log: (l) => log(`  ${l}`),
+  }), { creationEnabled: true, maxSteps: 8, everAuthenticated: Boolean(prior?.last_authenticated_at), priorAccountState: (prior?.account_state ?? "UNKNOWN") as any });
+  await ensureTenant(db, tenant, company!.id);
+  await recordObservation(db, { host: tenant.host, pageState: auth.finalState, sessionState: auth.sessionState,
+    accountState: auth.accountState, handoffReason: auth.reason, authenticated: auth.outcome === "AUTHENTICATED" });
+  log(`authentication: ${auth.outcome}  path ${auth.path.join(" -> ")}${auth.reason ? `  (${auth.reason})` : ""}`);
+  authenticated = auth.outcome === "AUTHENTICATED";
+} else {
+  // Wait for the person to reach a signed-in candidate session in THIS
+  // window. Nothing is typed for them and no account is created.
+  console.log(`\n  This window is the automated profile. In it, CREATE YOUR ACCOUNT or SIGN IN`);
+  console.log(`  for ${company!.name} (${tenant.host}). Nothing is typed for you.`);
+  console.log(`  Waiting up to 20 minutes for a signed-in session...\n`);
+  for (let i = 0; i < 400; i++) {
+    const o = await observe(page, tenant).catch(() => null);
+    if (o?.state === "SIGNED_IN") { authenticated = true; log(`signed in (${page.url()})`); break; }
+    if (i % 10 === 0) log(`  still ${o?.state ?? "unreadable"}; sign in in the open window`);
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  await ensureTenant(db, tenant, company!.id).catch(() => undefined);
+  await recordObservation(db, { host: tenant.host, pageState: authenticated ? "SIGNED_IN" : "SIGNED_OUT",
+    sessionState: authenticated ? "VALID" : "UNKNOWN", accountState: authenticated ? "EXISTS" : (prior?.account_state ?? "UNKNOWN") as any,
+    handoffReason: authenticated ? null : "no signed-in session appeared in the manual window", authenticated }).catch(() => undefined);
+}
+if (!authenticated) {
+  await park("authenticate", AUTO ? "auto sign-in did not reach a session" : "no signed-in session appeared in the manual window");
   if (!KEEP_OPEN) await ctx.close().catch(() => undefined);
   process.exit(3);
 }
