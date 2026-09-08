@@ -27,7 +27,11 @@ import { compareToFloor } from "./salary.ts";
 // the large "US city, work arrangement unstated" bucket often hides genuine
 // remote roles that simply never stated it in a parsed field, and those are
 // now ruled out too. Kept as a rule flag so it can be turned off.
-export const ELIGIBILITY_VERSION = 3;
+// 4: off-target function is a pass-level hard negative (OFF_TARGET_FUNCTION),
+// applied by scripts/eligibility.ts and eligibility-refresh.ts, so a
+// location-eligible role outside the target functions is ruled out rather
+// than left "eligible but unranked" (the portal's "still being evaluated").
+export const ELIGIBILITY_VERSION = 4;
 
 export type EligibilityStatus = "ELIGIBLE" | "UNCERTAIN" | "INELIGIBLE";
 
@@ -53,7 +57,11 @@ export type EligibilityReason =
   | "ONSITE_OUTSIDE_TARGET_METRO"
   | "HYBRID_OUTSIDE_TARGET_METRO"
   // strictLocation (v3): could not confirm fully-remote-US or target metro.
-  | "UNCONFIRMED_REMOTE_OR_METRO";
+  | "UNCONFIRMED_REMOTE_OR_METRO"
+  // Role-shape hard negative applied in the pass (not the geo gate): the
+  // title names a function outside the candidate's target set. Keeps
+  // location-eligible off-target roles out of "being evaluated" limbo.
+  | "OFF_TARGET_FUNCTION";
 
 export interface EligibilityVerdict {
   status: EligibilityStatus;

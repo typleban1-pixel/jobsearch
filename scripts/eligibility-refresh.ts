@@ -14,6 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 import { required } from "../lib/env.ts";
 import { assessEligibility, ELIGIBILITY_VERSION, PROPOSED_RULES } from "../lib/scoring/eligibility.ts";
 import { assessRoleShape } from "../lib/scoring/roleShape.ts";
+import { isTargetFunction, isPlausibleJob } from "../lib/discovery/plausibleFilter.ts";
 import { loadCompensationByOpening, salaryInputForJob, hasStatedCompensation }
   from "../lib/scoring/openingCompensation.ts";
 
@@ -105,7 +106,7 @@ for (const j of jobs) {
     ...(({ salaryMin, salaryMax }) => ({ salaryMin, salaryMax }))(salaryInputForJob(j, compByOpening)),
   });
 
-  const v = shape.flags.length > 0
+  let v = shape.flags.length > 0
     ? { status: "INELIGIBLE" as const, reason: shape.flags[0]!, detail: shape.detail.join("; ") }
     : assessEligibility({
     city: j.city, state: j.state, country: j.country, metro: j.metro,
@@ -115,6 +116,12 @@ for (const j of jobs) {
     locations: locationsByJob.get(j.id) ?? [],
     ...salaryInputForJob(j, compByOpening),
   }, PROPOSED_RULES);
+  // Off-target function is a hard negative here too, so the refresh cannot
+  // reopen a location-eligible role whose title is outside the target set.
+  if (v.status !== "INELIGIBLE" && !(isTargetFunction(j.title) && isPlausibleJob({ title: j.title }).plausible)) {
+    v = { status: "INELIGIBLE" as const, reason: "OFF_TARGET_FUNCTION",
+          detail: `title outside target functions: ${String(j.title).slice(0, 60)}` };
+  }
   for (const f of shape.flags) roleShapeCounts[f] = (roleShapeCounts[f] ?? 0) + 1;
 
   if (v.status !== j.eligibility || v.reason !== j.eligibility_reason) {

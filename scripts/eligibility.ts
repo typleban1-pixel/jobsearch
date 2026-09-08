@@ -12,6 +12,16 @@ import {
   assessEligibility, ELIGIBILITY_VERSION, PROPOSED_RULES,
   type EligibilityStatus, type EligibilityReason,
 } from "../lib/scoring/eligibility.ts";
+import { isTargetFunction, isPlausibleJob } from "../lib/discovery/plausibleFilter.ts";
+
+// A location-eligible job whose title is outside the candidate's target
+// functions is ruled out here, at the pass, rather than left "eligible but
+// unranked" (which the portal reports as "still being evaluated"). Same rule
+// the ranked-list card filter uses, applied one level up so the bucket is
+// honest. Only ever downgrades a surviving verdict; never overturns a
+// location/salary/role-shape INELIGIBLE.
+const isOffTargetFunction = (title: string): boolean =>
+  !(isTargetFunction(title) && isPlausibleJob({ title }).plausible);
 
 const commit = process.argv.includes("--commit");
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"),
@@ -100,17 +110,20 @@ const verdicts = jobs.map((j) => {
                           detail: "role shape, decided from the description; not revisited by the geography pass" },
              preserved: true };
   }
-  return {
-    job: j,
-    v: assessEligibility({
-      city: j.city, state: j.state, country: j.country, metro: j.metro,
-      remotePolicy: j.remote_policy, remoteRestriction: j.remote_geographic_restriction,
-      locationRaw: j.location_raw,
-      locations: locationsByJob.get(j.id) ?? [],
-      ...salaryInputForJob(j, compByOpening),
-    }),
-    preserved: false,
-  };
+  let v = assessEligibility({
+    city: j.city, state: j.state, country: j.country, metro: j.metro,
+    remotePolicy: j.remote_policy, remoteRestriction: j.remote_geographic_restriction,
+    locationRaw: j.location_raw,
+    locations: locationsByJob.get(j.id) ?? [],
+    ...salaryInputForJob(j, compByOpening),
+  });
+  // Off-target function: rule out an otherwise-surviving job whose title is
+  // not a target function, so it lands in "ruled out" rather than limbo.
+  if (v.status !== "INELIGIBLE" && isOffTargetFunction(j.title)) {
+    v = { status: "INELIGIBLE", reason: "OFF_TARGET_FUNCTION",
+          detail: `title outside target functions: ${String(j.title).slice(0, 60)}` };
+  }
+  return { job: j, v, preserved: false };
 });
 console.log(`role-shape verdicts preserved untouched: ${verdicts.filter((x) => x.preserved).length}`);
 
