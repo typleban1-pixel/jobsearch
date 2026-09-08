@@ -32,6 +32,7 @@ export default async function SubmittedPage() {
 
   const jobById = new Map((jobs ?? []).map((j: any) => [j.id, j]));
   const nameById = new Map((companies ?? []).map((c: any) => [c.id, c.name]));
+  const confirmedCount = rows.filter((a) => a.confirmation_email_received || a.confirmation_reference).length;
 
   return (
     <main className="apply">
@@ -39,6 +40,14 @@ export default async function SubmittedPage() {
         <h1>Submitted</h1>
         <PrimaryNav current="submitted" />
       </header>
+
+      {rows.length > 0 && (
+        <p className="statusline" aria-label="Summary">
+          <b>{rows.length}</b> submitted
+          <span className="sep" aria-hidden="true"> &middot; </span>
+          <b>{confirmedCount}</b> confirmed by the employer
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <section className="caughtup">
