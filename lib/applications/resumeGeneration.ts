@@ -108,7 +108,12 @@ export async function generateResume(
   // 2. Compose through the ONE shared, grounding-checked engine. A pasted
   //    posting with no recoverable title still composes against themes.
   const composeTitle = title || "the role";
-  const c = await composeFromRequirements(db, { requirements, title: composeTitle }, llm);
+  // The pasted posting's own prose drives the layout signals, exactly as a
+  // stored job's description does on the application path: an AI or
+  // startup posting leads with RentPup even when the AI/startup emphasis
+  // lives in prose that never became an extracted requirement (the Aleph
+  // case). Layout only; capabilities still come from the requirements.
+  const c = await composeFromRequirements(db, { requirements, title: composeTitle, postingText: descriptionText }, llm);
   if (c.provenanceFailure) {
     return { ok: false, errorCategory: "GROUNDING_FAILED", errorDetail: c.provenanceFailure.slice(0, 300) };
   }
