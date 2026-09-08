@@ -36,9 +36,15 @@ import { observe, waitForWorkdayReady } from "../lib/workday/probe.ts";
 import { authenticateTenant } from "../lib/workday/authenticate.ts";
 import { unattendedDeps } from "../lib/workday/unattended.ts";
 import { syncCredentialToKeychain } from "../lib/worker/resolveCredential.ts";
+import { submitReadiness } from "../lib/worker/submitReadiness.ts";
 
 const applicationId = process.argv[2];
-if (!applicationId) { console.error("usage: workday-apply-auto.ts <application_id>"); process.exit(2); }
+if (!applicationId) { console.error("usage: workday-apply-auto.ts <application_id> [--submit]"); process.exit(2); }
+// Default is discovery only. --submit clicks Submit AFTER reaching Review, and
+// only if the readiness gate passes (approved, nothing BLOCKED). A supervised
+// run should pass --submit and watch the one click; the unattended scheduler
+// only ever passes it once you have validated a supervised submit works.
+const doSubmit = process.argv.includes("--submit");
 
 const db = createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
 
@@ -105,13 +111,28 @@ console.log(`signed in. Discovering the application form (fills what it can, rec
 // 3. Reuse the existing fill: attach to THIS signed-in browser and walk the
 //    form to Review. Same process family keeps the session cookie alive.
 const here = dirname(fileURLToPath(import.meta.url));
-const child = spawn(process.execPath, [join(here, "workday-run-application.ts"), applicationId, "--attach"], { stdio: "inherit" });
-const code: number = await new Promise((r) => child.on("close", (c) => r(c ?? 0)));
+const runChild = spawn(process.execPath, [join(here, "workday-run-application.ts"), applicationId, "--attach"], { stdio: "inherit" });
+const fillCode: number = await new Promise((r) => runChild.on("close", (c) => r(c ?? 0)));
+
+let exitCode = fillCode;
+if (fillCode !== 0) {
+  console.log(`\nDiscovery run exited ${fillCode}; not submitting. Check the output above.`);
+} else if (!doSubmit) {
+  console.log(`\nDiscovery finished. Answer any BLOCKED questions on /apply/questions. Re-run with --submit (or let the scheduled run) to submit.`);
+} else {
+  // --submit: click only if the fill is genuinely complete. The browser is
+  // still open at Review; workday-submit attaches to it and records the click
+  // before it happens, then reads the employer's confirmation.
+  const gate = await submitReadiness(db, applicationId);
+  if (!gate.ready) {
+    console.log(`\nNOT submitting — ${gate.reasons.join("; ")}.`);
+    console.log(`The browser is at Review with nothing sent. Resolve the above and re-run --submit.`);
+  } else {
+    console.log(`\nreadiness OK (approved, nothing BLOCKED). Submitting — evidence-first, one click…\n`);
+    const subChild = spawn(process.execPath, [join(here, "workday-submit.ts"), applicationId, "--approved-by-person"], { stdio: "inherit" });
+    exitCode = await new Promise((r) => subChild.on("close", (c) => r(c ?? 0)));
+  }
+}
 
 await ctx.close().catch(() => undefined);
-console.log(
-  code === 0
-    ? `\nDiscovery run finished. Answer any BLOCKED questions on /apply/questions, then the scheduled run can submit.`
-    : `\nDiscovery run exited ${code}; check the output above.`,
-);
-process.exit(code);
+process.exit(exitCode);
