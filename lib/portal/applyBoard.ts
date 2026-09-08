@@ -219,7 +219,11 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
   // can do.
   for (const a of apps) {
     if (a.submitted_at) continue;
-    const blocked = (byApp.get(a.id) ?? []).filter((x) => x.confidence_state === "BLOCKED").length;
+    // Only REQUIRED blocked answers hold an application in a needs-input
+    // state. An optional blocked field (a voluntary self-id signature, an
+    // optional "how did you hear") is the person's to skip, not work the
+    // system is waiting on.
+    const blocked = (byApp.get(a.id) ?? []).filter((x) => x.confidence_state === "BLOCKED" && x.is_required).length;
     const shouldBe = staleBlockedStatus(a.status, blocked, isEmployerFormHandoff(a.blocked_reason));
     if (!shouldBe) continue;
     const { error } = await db.from("applications").update({ status: shouldBe }).eq("id", a.id);
@@ -235,7 +239,13 @@ export async function loadApplyBoard(db: SupabaseClient): Promise<ApplyBoard> {
     const j = jobById.get(a.job_id);
     if (!j) continue;
     const mine = byApp.get(a.id) ?? [];
-    const blockedAnswers = mine.filter((x) => x.confidence_state === "BLOCKED").length;
+    // Required blocked answers only: an optional blocked field is not
+    // something that "needs you". Counting optional ones made the board
+    // say "2 questions need your answer" while the questions page, which
+    // lists only needs-input applications, showed nothing (a Synapticure
+    // application whose two blocked answers were the voluntary disability
+    // self-id signature and its date).
+    const blockedAnswers = mine.filter((x) => x.confidence_state === "BLOCKED" && x.is_required).length;
     const verdict = latestVerdict.get(a.job_id) ?? null;
 
     // The same guard the submit path runs, so a row can never offer
