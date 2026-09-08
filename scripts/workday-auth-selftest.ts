@@ -433,6 +433,22 @@ console.log("\n8. creation and verification through the caller's dependencies (2
       r.outcome === "HANDOFF" && !t.seen.includes("createAccount"), `${r.outcome} ${t.seen.join(",")}`);
   }
   {
+    // UChicago answers a creation with its sign-in form. The new
+    // credential is typed once; a refusal of that still stops.
+    const t = script(["SIGN_IN_FORM", "INVALID_CREDENTIALS", "SIGN_IN_FORM", "SIGNED_IN"]);
+    t.deps.readCredential = async () => "stored-but-never-used";
+    t.deps.createAccount = async () => { t.seen.push("createAccount"); };
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true, everAuthenticated: false, maxSteps: 8 });
+    check("a creation answered by the sign-in form gets one sign-in with the new credential",
+      r.outcome === "AUTHENTICATED" && t.seen.join(",") === "signIn,createAccount,signIn", `${r.outcome} ${t.seen.join(",")}`);
+    const u = script(["SIGN_IN_FORM", "INVALID_CREDENTIALS", "SIGN_IN_FORM", "INVALID_CREDENTIALS", "SIGN_IN_FORM"]);
+    u.deps.readCredential = async () => "stored-but-never-used";
+    u.deps.createAccount = async () => { u.seen.push("createAccount"); };
+    const r2 = await authenticateTenant(tenant, u.deps, { creationEnabled: true, everAuthenticated: false, maxSteps: 8 });
+    check("and a second refusal after creation is a handoff, never a second creation",
+      r2.outcome === "HANDOFF" && u.seen.filter((x) => x === "createAccount").length === 1 && u.seen.filter((x) => x === "signIn").length === 2, `${r2.outcome} ${u.seen.join(",")}`);
+  }
+  {
     const t = script(["SIGN_IN_FORM", "INVALID_CREDENTIALS", "ACCOUNT_EXISTS"]);
     t.deps.readCredential = async () => "stored-but-never-used";
     t.deps.createAccount = async () => { t.seen.push("createAccount"); };

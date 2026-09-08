@@ -242,17 +242,42 @@ async function credentialFormStillOpen(page: Page): Promise<boolean> {
  * is given a few seconds to produce a verdict before the next.
  */
 export async function submitCredentialForm(page: Page, automationId: string, timeout = 25_000): Promise<string> {
+  // A verdict is the form closing, an error appearing, OR the page
+  // moving: UChicago answers a creation by navigating to /login with the
+  // sign-in form open, which "still open" alone reads as no verdict.
+  const startUrl = page.url();
+  const settled = async () => page.url() !== startUrl || !(await credentialFormStillOpen(page));
   await clickSubmit(page, automationId, timeout).catch(() => undefined);
   await settleAfterCredential(page, 8_000);
-  if (!(await credentialFormStillOpen(page))) return "overlay click";
+  if (await settled()) return "overlay click";
   const field = automationId === "createAccountSubmitButton" ? SEL.verifyPassword : SEL.password;
   await page.locator(`${field}:visible`).first().press("Enter", { timeout: 5_000 }).catch(() => undefined);
   await settleAfterCredential(page, 8_000);
-  if (!(await credentialFormStillOpen(page))) return "enter key";
+  if (await settled()) return "enter key";
   await page.evaluate((id) => { (document.querySelector(`[data-automation-id="${id}"]`) as HTMLElement | null)?.click(); }, automationId)
     .catch(() => undefined);
   await settleAfterCredential(page, timeout);
-  return (await credentialFormStillOpen(page)) ? "none took" : "button handler";
+  return (await settled()) ? "button handler" : "none took";
+}
+
+/**
+ * What the page is saying, for the run log and the evidence folder:
+ * alerts, error messages, field validation, and a screenshot. No field
+ * value is ever read.
+ */
+export async function captureVerdict(page: Page, dir: string, label: string): Promise<string[]> {
+  const said: string[] = await page.evaluate(() =>
+    [...document.querySelectorAll('[role="alert"], [data-automation-id*="rror"], [data-automation-id="errorMessage"], [aria-invalid="true"] ~ *, [id$="-error"]')]
+      .filter((e) => e.getClientRects().length > 0)
+      .map((e) => ((e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()).filter(Boolean)).catch(() => []);
+  try {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    mkdirSync(dir, { recursive: true });
+    await page.screenshot({ path: join(dir, `${label}.png`), fullPage: false }).catch(() => undefined);
+    writeFileSync(join(dir, `${label}.json`), JSON.stringify({ url: page.url(), title: await page.title().catch(() => null), said: [...new Set(said)] }, null, 2));
+  } catch { /* evidence is best effort */ }
+  return [...new Set(said)];
 }
 
 /**

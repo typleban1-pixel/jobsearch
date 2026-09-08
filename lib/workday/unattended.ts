@@ -27,7 +27,7 @@ import type { Page } from "playwright";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WorkdayTenant } from "./tenant.ts";
 import { urlBelongsToTenant } from "./tenant.ts";
-import { observe, waitForWorkdayReady, SEL, signIn as doSignIn, clickWorkdayButton, submitCredentialForm, acceptLegalNotice } from "./probe.ts";
+import { observe, waitForWorkdayReady, SEL, signIn as doSignIn, clickWorkdayButton, submitCredentialForm, captureVerdict, acceptLegalNotice } from "./probe.ts";
 import { generatePassword, keychainRef, storePassword, readPassword } from "./keychain.ts";
 import { ensureTenant, recordCredential } from "./store.ts";
 import type { AuthDeps } from "./authenticate.ts";
@@ -57,6 +57,7 @@ export function unattendedDeps(o: UnattendedOptions): AuthDeps {
   const ref = keychainRef(o.tenant.host);
   const { page, tenant } = o;
   let verificationRequestedAt = new Date();
+  const evidenceDir = `.workday-auth/${tenant.host}-${new Date().toISOString().replace(/[:.]/g, "-")}`;
 
   const tickConsent = async (): Promise<boolean> => {
     if (!CONSENT_AUTHORISATION) return false;
@@ -90,7 +91,8 @@ export function unattendedDeps(o: UnattendedOptions): AuthDeps {
     signIn: async (email, password) => {
       log("signing in with the stored credential");
       const how = await doSignIn(page, email, password);
-      log(`sign-in form submitted (${how})`);
+      const said = await captureVerdict(page, evidenceDir, `after-sign-in-${Date.now() % 100000}`);
+      log(`sign-in form submitted (${how})${said.length ? `  says: ${said.join(" | ").slice(0, 200)}` : ""}`);
     },
     readCredential: () => readPassword(ref),
     createAccount: async (email) => {
@@ -127,17 +129,15 @@ export function unattendedDeps(o: UnattendedOptions): AuthDeps {
       // The submit is the creation form's own button, by automation id:
       // the utility bar has no "Create Account", but clicking by name is
       // how the sign-in submit was once confused with the utility one.
+      await captureVerdict(page, evidenceDir, "creation-form-filled");
       const how = await submitCredentialForm(page, "createAccountSubmitButton", 20_000);
       log(`creation form submitted (${how})`);
       await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
       await waitForWorkdayReady(page, 25_000).catch(() => undefined);
       // What the tenant said, so a creation that did not take is
       // explained by its own words rather than by the next state.
-      const said: string[] = await page.evaluate(() =>
-        [...document.querySelectorAll('[role="alert"], [data-automation-id*="rror"], [data-automation-id="errorMessage"]')]
-          .filter((e) => e.getClientRects().length > 0)
-          .map((e) => ((e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()).filter(Boolean)).catch(() => []);
-      log(`after Create Account: ${page.url()}${said.length ? `  says: ${[...new Set(said)].join(" | ").slice(0, 300)}` : ""}`);
+      const said = await captureVerdict(page, evidenceDir, "after-create-account");
+      log(`after Create Account: ${page.url()}${said.length ? `  says: ${said.join(" | ").slice(0, 300)}` : ""}  (evidence ${evidenceDir})`);
       await recordCredential(o.db, tenant.host, true);
       await o.db.from("application_events").insert({
         application_id: o.applicationId, event: "WORKDAY_ACCOUNT_CREATED", actor: "worker",

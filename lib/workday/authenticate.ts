@@ -190,6 +190,12 @@ export async function authenticateTenant(
         continue;
       }
       await deps.createAccount(deps.email);
+      // A tenant that answers creation with its sign-in form (UChicago
+      // does) wants the new credential typed once. The credential on
+      // file is now the one just created, so one fresh sign-in attempt
+      // is warranted; a refusal of THAT still stops, because
+      // createAttempted is set and the plan will not create twice.
+      signInAttempted = false;
       continue;
     }
 
