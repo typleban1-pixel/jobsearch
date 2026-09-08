@@ -351,6 +351,71 @@ console.log("\n17. redaction, as the last line of defence:");
   check("the rest of the line survives", redact(line, [pw]).startsWith("signing in to ntrs with "));
 }
 
+// ---------------------------------------------------- unattended creation
+console.log("\n8. creation and verification through the caller's dependencies (2026-09-07 authorisation):");
+{
+  const { authenticateTenant } = await import("../lib/workday/authenticate.ts");
+  const tenant = tenantFromToken("uchicago.wd5.myworkdayjobs.com/External");
+  const url = "https://uchicago.wd5.myworkdayjobs.com/External";
+  // A script of states the tenant will show, in order; hooks record what was called.
+  const script = (states: WorkdayPageState[]) => {
+    const seen: string[] = []; let i = 0;
+    const deps: any = {
+      email: "x@example.com",
+      observe: async () => ({ state: states[Math.min(i++, states.length - 1)], url }),
+      openSignIn: async () => { seen.push("openSignIn"); },
+      signIn: async () => { seen.push("signIn"); },
+      readCredential: async () => null,
+    };
+    return { deps, seen };
+  };
+  {
+    const t = script(["SIGNED_OUT", "SIGN_IN_FORM", "SIGNED_IN"]);
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true });
+    check("creation enabled but no createAccount dependency: still ACCOUNT_REQUIRED, nothing created",
+      r.outcome === "ACCOUNT_REQUIRED" && !t.seen.includes("createAccount"), `${r.outcome} ${t.seen.join(",")}`);
+  }
+  {
+    const t = script(["SIGNED_OUT", "SIGN_IN_FORM", "SIGNED_IN"]);
+    t.deps.createAccount = async () => { t.seen.push("createAccount"); };
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true });
+    check("with the dependency: sign-in opened, account created once, then authenticated",
+      r.outcome === "AUTHENTICATED" && t.seen.join(",") === "openSignIn,createAccount", `${r.outcome} ${t.seen.join(",")}`);
+  }
+  {
+    const t = script(["CREATE_ACCOUNT_FORM", "CREATE_ACCOUNT_FORM", "CREATE_ACCOUNT_FORM"]);
+    t.deps.createAccount = async () => { t.seen.push("createAccount"); };
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true });
+    check("creation that leaves the form on screen is tried once, then handed off",
+      r.outcome === "HANDOFF" && t.seen.filter((x) => x === "createAccount").length === 1, `${r.outcome} ${t.seen.join(",")}`);
+  }
+  {
+    const t = script(["EMAIL_VERIFICATION", "SIGNED_IN"]);
+    t.deps.verifyEmail = async () => { t.seen.push("verifyEmail"); return "ATTEMPTED"; };
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true });
+    check("email verification completed from the inbox, then authenticated",
+      r.outcome === "AUTHENTICATED" && t.seen.join(",") === "verifyEmail", `${r.outcome} ${t.seen.join(",")}`);
+  }
+  {
+    const t = script(["EMAIL_VERIFICATION", "EMAIL_VERIFICATION", "EMAIL_VERIFICATION"]);
+    t.deps.verifyEmail = async () => { t.seen.push("verifyEmail"); return "ATTEMPTED"; };
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true });
+    check("verification tried once; a tenant still asking is a handoff",
+      r.outcome === "HANDOFF" && t.seen.length === 1, `${r.outcome} ${t.seen.join(",")}`);
+  }
+  {
+    const t = script(["EMAIL_VERIFICATION"]);
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true });
+    check("without the inbox dependency, verification is a handoff as before", r.outcome === "HANDOFF", r.outcome);
+  }
+  {
+    const t = script(["CAPTCHA"]);
+    t.deps.createAccount = async () => { t.seen.push("createAccount"); };
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true });
+    check("a CAPTCHA is still a handoff even with creation enabled", r.outcome === "HANDOFF" && t.seen.length === 0, r.outcome);
+  }
+}
+
 console.log(`\n${pass} passed, ${fails.length} failed`);
 if (fails.length) { console.log(fails.map((f) => `  - ${f}`).join("\n")); process.exit(1); }
 console.log("classification stops before it acts; tenants stay separate; secrets stay in the keychain");

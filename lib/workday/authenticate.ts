@@ -64,6 +64,24 @@ export interface AuthDeps {
   readCredential: () => Promise<string | null>;
   /** The verified job-search address. */
   email: string;
+  /**
+   * Create the account, under the person's recorded authorisation.
+   *
+   * Absent (the default) the loop never creates anything and reports
+   * ACCOUNT_REQUIRED, as before. Present, it is called at most once per
+   * run, only when creationEnabled is also set, and it owns the whole
+   * act: the password goes to the keychain first, the form is filled,
+   * the consent control is ticked because the person said so, and the
+   * button is pressed. The next pass observes the result.
+   */
+  createAccount?: (email: string) => Promise<void>;
+  /**
+   * Complete the tenant's email verification from the person's own
+   * inbox. Absent, EMAIL_VERIFICATION is a handoff, as before. Present,
+   * it is tried once; the next pass observes whether the tenant is
+   * satisfied.
+   */
+  verifyEmail?: () => Promise<"ATTEMPTED" | "HANDOFF">;
 }
 
 export interface AuthOptions {
@@ -93,6 +111,7 @@ export async function authenticateTenant(
   const path: WorkdayPageState[] = [];
   let signInAttempted = false;
   let createAttempted = false;
+  let verifyAttempted = false;
   let accountState: AccountState = opts.priorAccountState ?? "UNKNOWN";
 
   const done = (outcome: AuthOutcome, reason: string | null, state: WorkdayPageState): AuthResult => ({
@@ -117,6 +136,17 @@ export async function authenticateTenant(
     }
 
     const hasCredential = (await deps.readCredential()) !== null;
+
+    // Email verification, when the person's inbox is available to the
+    // run. One attempt: if the tenant still asks afterwards, a person
+    // looks. Without the dependency the state is a handoff, as before.
+    if (state === "EMAIL_VERIFICATION" && deps.verifyEmail && !verifyAttempted) {
+      verifyAttempted = true;
+      const r = await deps.verifyEmail();
+      if (r === "ATTEMPTED") continue;
+      return done("HANDOFF", HANDOFF_REASON.EMAIL_VERIFICATION, state);
+    }
+
     const plan = planNext(state, { hasCredential, signInAttempted, createAttempted, creationEnabled });
 
     if (plan.action === "PROCEED") {
@@ -140,12 +170,26 @@ export async function authenticateTenant(
     }
 
     if (plan.action === "CREATE_ACCOUNT") {
-      // Unreachable while creationEnabled is false, and deliberately not
-      // implemented here: creating an account is a separate, explicitly
-      // authorised action, not something an application run may decide.
+      // Unreachable while creationEnabled is false. With it, creation
+      // happens only through a dependency the caller supplied on the
+      // person's authorisation (see AuthDeps.createAccount); an
+      // application run that holds no such dependency still cannot
+      // create anything and reports what is needed.
       createAttempted = true;
-      return done("ACCOUNT_REQUIRED",
-        `account creation is required for ${tenant.host} and is not performed by the application flow`, state);
+      if (!deps.createAccount) {
+        return done("ACCOUNT_REQUIRED",
+          `account creation is required for ${tenant.host} and is not performed by the application flow`, state);
+      }
+      if (state === "SIGNED_OUT") {
+        // The creation form sits behind the utility Sign In button too.
+        await deps.openSignIn();
+        // Leave createAttempted set: the next pass lands on a credential
+        // form and the plan would otherwise re-decide CREATE_ACCOUNT.
+        createAttempted = false;
+        continue;
+      }
+      await deps.createAccount(deps.email);
+      continue;
     }
 
     // SIGN_IN.
