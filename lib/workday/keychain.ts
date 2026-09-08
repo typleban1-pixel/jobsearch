@@ -108,14 +108,21 @@ const run = (args: string[], stdin?: string): Promise<{ code: number; out: strin
  * no value makes security read the secret from stdin instead of argv.
  */
 export async function storePassword(ref: KeychainRef, password: string): Promise<void> {
-  const { code, err } = await run([
-    "add-generic-password", "-U",
-    "-s", ref.service,
-    "-a", ref.account,
-    "-D", "Workday candidate account",
-    "-j", "Created by jobsearch. Safe to read, change or delete here.",
-    "-w",
-  ], `${password}\n${password}\n`);
+  // Interactive mode (-i): security reads whole COMMANDS from stdin, so
+  // the secret rides inside a command line that never touches argv.
+  //
+  // The earlier form, "-w" with no value, made security prompt for the
+  // secret -- but it prompts on the controlling terminal when there is
+  // one, not on stdin. Run from a Terminal window the first unattended
+  // Workday preparation sat at "password data for new item:" waiting for
+  // a person to type, while the generated password was written to a pipe
+  // nobody read. Interactive mode has no such prompt. The password's
+  // alphabet excludes quotes, backslashes and spaces (generatePassword),
+  // so quoting it is exact.
+  const q = (s: string) => `"${s.replace(/["\\]/g, "")}"`;
+  const { code, err } = await run(["-i"],
+    `add-generic-password -U -s ${q(ref.service)} -a ${q(ref.account)} -D ${q("Workday candidate account")} `
+    + `-j ${q("Created by jobsearch. Safe to read, change or delete here.")} -w ${q(password)}\n`);
   // The secret is on stdin, so nothing here can echo it: err is
   // security's own prompt text and never contains the value.
   if (code !== 0) throw new Error(`keychain store failed for ${ref.account}: ${err.trim() || code}`);
