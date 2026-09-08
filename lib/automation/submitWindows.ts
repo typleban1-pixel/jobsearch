@@ -18,7 +18,10 @@ interface Parts { y: number; m: number; d: number; h: number; min: number }
 function partsIn(tz: string, at: Date): Parts {
   const f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
   const get = (type: string) => Number(f.formatToParts(at).find((p) => p.type === type)?.value ?? 0);
-  return { y: get("year"), m: get("month"), d: get("day"), h: get("hour"), min: get("minute") };
+  // Some ICU builds print midnight as "24" even under hourCycle h23. Left
+  // alone, that put the midnight run a day late on the deployed portal
+  // ("next run midnight tonight" at 00:13). Midnight is hour 0.
+  return { y: get("year"), m: get("month"), d: get("day"), h: get("hour") % 24, min: get("minute") };
 }
 /** The instant at which the wall clock in tz reads y-m-d h:00. Day may overflow; Date.UTC normalises it. */
 function zonedToUtc(tz: string, y: number, m: number, d: number, h: number): Date {

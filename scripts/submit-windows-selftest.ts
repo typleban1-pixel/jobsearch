@@ -18,6 +18,8 @@ ok(next.toISOString() === "2026-09-08T12:00:00.000Z" && describeWindow(next, now
 now = at("2026-12-01T23:10:00Z"); next = nextSubmitWindow(now, TZ);
 ok(next.toISOString() === "2026-12-02T05:00:00.000Z", "EST offset respected", next.toISOString());
 ok(windowClock(at("2026-12-02T13:00:00Z"), TZ) === "8:00 AM", "8:00 AM in EST", windowClock(at("2026-12-02T13:00:00Z"), TZ));
+now = at("2026-09-08T04:13:00Z"); next = nextSubmitWindow(now, TZ);   // 12:13 AM local, just after the midnight run
+ok(next.toISOString() === "2026-09-08T12:00:00.000Z" && describeWindow(next, now, TZ) === "at 8:00 AM today", "12:13 AM -> 8:00 AM today, not midnight tomorrow", describeWindow(next, now, TZ));
 ok(isDue(null) && isDue("2020-01-01T00:00:00Z") && !isDue(new Date(Date.now() + 60_000)), "isDue: null and past are due, future is not");
 console.log(bad ? `\n${bad} FAILED` : "\nsubmit-windows-selftest: ALL PASS");
 process.exit(bad ? 1 : 0);
