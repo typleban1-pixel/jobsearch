@@ -191,12 +191,18 @@ export async function clickWorkdayButton(page: Page, name: string, timeout = 25_
  * clickable overlay is its immediately preceding sibling.
  */
 export async function clickSubmit(page: Page, automationId: string, timeout = 25_000): Promise<void> {
+  // The overlay is a sibling of the button, on either side: Northern
+  // Trust renders it before, the University of Chicago after. Looking
+  // only at the preceding sibling left the first unattended run clicking
+  // the hidden button for 25 seconds while the overlay intercepted.
   const overlay = page.locator(
-    `xpath=//*[@data-automation-id="${automationId}"]/preceding-sibling::*[@data-automation-id="click_filter"][1]`)
+    `xpath=//*[@data-automation-id="${automationId}"]/..//*[@data-automation-id="click_filter"]`)
     .locator("visible=true");
   if (await overlay.count()) { await overlay.first().click({ timeout }); return; }
-  // No overlay on this tenant: the button itself is the control.
-  await page.locator(`[data-automation-id="${automationId}"]:visible`).first().click({ timeout });
+  const button = page.locator(`[data-automation-id="${automationId}"]:visible`).first();
+  // No overlay found beside it: click at the button's own position. If an
+  // overlay is there after all, that is exactly what receives the click.
+  await button.click({ timeout, force: true });
 }
 
 /**

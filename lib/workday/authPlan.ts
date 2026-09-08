@@ -33,6 +33,14 @@ export interface AuthContext {
   createAttempted: boolean;
   /** Account creation is switched on. Off by default. */
   creationEnabled: boolean;
+  /**
+   * The stored credential has never opened a session: it was written by
+   * a creation attempt whose outcome was never observed as SIGNED_IN. A
+   * refusal of such a credential means the account was probably never
+   * made, so one creation attempt is allowed; a real existing account
+   * answers that attempt with ACCOUNT_EXISTS, which still stops.
+   */
+  credentialUnproven?: boolean;
 }
 
 export interface AuthDecision {
@@ -98,6 +106,9 @@ export function planNext(state: WorkdayPageState, ctx: AuthContext): AuthDecisio
       return stop(HANDOFF_REASON.ACCOUNT_EXISTS!);
 
     case "INVALID_CREDENTIALS":
+      if (ctx.creationEnabled && ctx.credentialUnproven && !ctx.createAttempted && ctx.signInAttempted) {
+        return { action: "CREATE_ACCOUNT", reason: null, from: state };
+      }
       return stop(HANDOFF_REASON.INVALID_CREDENTIALS!);
 
     case "JOB_POSTING":

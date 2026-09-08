@@ -147,7 +147,8 @@ export async function authenticateTenant(
       return done("HANDOFF", HANDOFF_REASON.EMAIL_VERIFICATION, state);
     }
 
-    const plan = planNext(state, { hasCredential, signInAttempted, createAttempted, creationEnabled });
+    const plan = planNext(state, { hasCredential, signInAttempted, createAttempted, creationEnabled,
+      credentialUnproven: !(opts.everAuthenticated ?? false) });
 
     if (plan.action === "PROCEED") {
       if (state === "SIGNED_IN") return done("AUTHENTICATED", null, state);

@@ -27,7 +27,7 @@ import type { Page } from "playwright";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { WorkdayTenant } from "./tenant.ts";
 import { urlBelongsToTenant } from "./tenant.ts";
-import { observe, waitForWorkdayReady, SEL, signIn as doSignIn, clickWorkdayButton, acceptLegalNotice } from "./probe.ts";
+import { observe, waitForWorkdayReady, SEL, signIn as doSignIn, clickWorkdayButton, clickSubmit, acceptLegalNotice } from "./probe.ts";
 import { generatePassword, keychainRef, storePassword, readPassword } from "./keychain.ts";
 import { ensureTenant, recordCredential } from "./store.ts";
 import type { AuthDeps } from "./authenticate.ts";
@@ -123,9 +123,19 @@ export function unattendedDeps(o: UnattendedOptions): AuthDeps {
       if (!consented) throw new Error("the consent checkbox could not be ticked");
       log("creation form filled; consent ticked under the recorded authorisation");
       verificationRequestedAt = new Date();
-      await clickWorkdayButton(page, "Create Account", 20_000);
+      // The submit is the creation form's own button, by automation id:
+      // the utility bar has no "Create Account", but clicking by name is
+      // how the sign-in submit was once confused with the utility one.
+      await clickSubmit(page, "createAccountSubmitButton", 20_000);
       await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => undefined);
       await waitForWorkdayReady(page, 25_000).catch(() => undefined);
+      // What the tenant said, so a creation that did not take is
+      // explained by its own words rather than by the next state.
+      const said: string[] = await page.evaluate(() =>
+        [...document.querySelectorAll('[role="alert"], [data-automation-id*="rror"], [data-automation-id="errorMessage"]')]
+          .filter((e) => e.getClientRects().length > 0)
+          .map((e) => ((e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()).filter(Boolean)).catch(() => []);
+      log(`after Create Account: ${page.url()}${said.length ? `  says: ${[...new Set(said)].join(" | ").slice(0, 300)}` : ""}`);
       await recordCredential(o.db, tenant.host, true);
       await o.db.from("application_events").insert({
         application_id: o.applicationId, event: "WORKDAY_ACCOUNT_CREATED", actor: "worker",

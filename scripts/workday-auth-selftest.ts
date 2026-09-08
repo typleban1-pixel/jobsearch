@@ -414,6 +414,31 @@ console.log("\n8. creation and verification through the caller's dependencies (2
     const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true });
     check("a CAPTCHA is still a handoff even with creation enabled", r.outcome === "HANDOFF" && t.seen.length === 0, r.outcome);
   }
+  {
+    // A credential written by a creation whose outcome was never seen is
+    // refused: the account was probably never made, so create once.
+    const t = script(["SIGN_IN_FORM", "INVALID_CREDENTIALS", "SIGNED_IN"]);
+    t.deps.readCredential = async () => "stored-but-never-used";
+    t.deps.createAccount = async () => { t.seen.push("createAccount"); };
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true, everAuthenticated: false });
+    check("an unproven credential refused once leads to one creation attempt",
+      r.outcome === "AUTHENTICATED" && t.seen.join(",") === "signIn,createAccount", `${r.outcome} ${t.seen.join(",")}`);
+  }
+  {
+    const t = script(["SIGN_IN_FORM", "INVALID_CREDENTIALS", "SIGNED_IN"]);
+    t.deps.readCredential = async () => "stored-and-proven";
+    t.deps.createAccount = async () => { t.seen.push("createAccount"); };
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true, everAuthenticated: true });
+    check("a credential that once worked and is now refused is a handoff, never a second account",
+      r.outcome === "HANDOFF" && !t.seen.includes("createAccount"), `${r.outcome} ${t.seen.join(",")}`);
+  }
+  {
+    const t = script(["SIGN_IN_FORM", "INVALID_CREDENTIALS", "ACCOUNT_EXISTS"]);
+    t.deps.readCredential = async () => "stored-but-never-used";
+    t.deps.createAccount = async () => { t.seen.push("createAccount"); };
+    const r = await authenticateTenant(tenant, t.deps, { creationEnabled: true, everAuthenticated: false });
+    check("the creation attempt meeting an existing account stops", r.outcome === "HANDOFF" && /already exists/.test(r.reason ?? ""), `${r.outcome} ${r.reason}`);
+  }
 }
 
 console.log(`\n${pass} passed, ${fails.length} failed`);
