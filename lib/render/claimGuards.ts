@@ -170,7 +170,12 @@ export const CLAIM_GUARDS: ClaimGuard[] = [
   },
   {
     subject: "LCCC equipment budget",
-    pattern: /\b(?:budget|equipment)\b[^.]{0,30}\$\s?\d|\$\s?[\d,]+[^.]{0,30}\b(?:equipment|budget)\b/i,
+    // Scoped to the equipment modernization itself. A bare "budget" used to
+    // fire too, which was right while no budget figure anywhere in the
+    // profile was established; since 2026-09-07 the Anytime Picture client
+    // project budgets ($10,000 to $100,000) are an approved metric, and the
+    // grounding checks bind that figure to its own evidence.
+    pattern: /\b(?:equipment|moderni[sz]ation)\b[^.]{0,40}\$\s?\d|\$\s?[\d,]+[^.]{0,40}\b(?:equipment|moderni[sz]ation)\b|\bLCCC\b[^.]{0,60}\bbudget\b[^.]{0,30}\$\s?\d/i,
     reason: "No dollar figure is established for the LCCC equipment budget and none may be stated.",
   },
   {

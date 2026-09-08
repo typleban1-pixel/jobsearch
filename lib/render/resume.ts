@@ -445,6 +445,17 @@ export function composeResume(rows: FrozenRow[], name: NameParts, displayName: s
       { text: "Worked directly with clients to understand business needs, develop solutions, troubleshoot challenges, and deliver finished projects.", sources: [apOld.row_id] },
       { text: "Worked personally on client projects for Cleveland Clinic and Amazon showcasing a new laboratory and a newly opened warehouse, covering planning, filming, editing, motion graphics, and graphic design.", sources: [apOld.row_id] },
       { text: "Supported client acquisition and sales by speaking with prospects, assessing needs, recommending solutions, and closing projects by phone.", sources: [apOld.row_id] },
+      // B2B project coordination, in Ty's words (2026-09-07), recorded on
+      // both Anytime Picture records as accomplishments. He was the
+      // liaison between the client and the video team, a producer-type
+      // role, not a manager of an internal team: the people-management
+      // claim guard stays in force and these lines stay clear of it. The
+      // count and the budget range are approved metrics, cited so their
+      // scope notes travel with them (client budgets, never his revenue).
+      { text: "Served as the liaison between B2B clients and the video team on roughly 50 client projects a year: identified what each client needed and translated it into what production could practically deliver.",
+        sources: [apOld.row_id, metric("Anytime Picture client projects per year").row_id] },
+      { text: "Projects ranged from single-day shoots to months-long productions, with budgets from $10,000 to $100,000; coordinated scope, budget, and timeline between the client and the production team.",
+        sources: [apOld.row_id, metric("Anytime Picture project budget range").row_id] },
     ]),
     linesOf(lccc, [
       // The metric carries the count; the employment record carries the
