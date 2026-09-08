@@ -15,6 +15,7 @@ import { attentionScore, buildAttentionInput, type AttentionResult } from "./att
 import { matchScore, type MatchScoreResult } from "./matchScore.ts";
 import { ontologyDelta, withOntology, makeProfileHas } from "./matchScoreOntology.ts";
 import { FIT_FORMULA_VERSION } from "../scoring/fit.ts";
+import { isPlausibleJob, isTargetFunction } from "../discovery/plausibleFilter.ts";
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { present, factsFromRow, stateHref, STATE_LABEL, type PresentationState } from "./presentationState.ts";
@@ -559,7 +560,18 @@ export async function loadJobCards(db: SupabaseClient): Promise<JobCard[]> {
       variantCount: variantCounts.get(j.canonical_opening_id) ?? 1,
     });
   }
-  return cards;
+  // Off-target exclusion for the ranked list. Two gates, both must pass:
+  //  - isPlausibleJob: not a leadership title and not a clearly-off-target
+  //    occupation (the breadth blocklist).
+  //  - isTargetFunction: the title positively names one of the candidate's
+  //    target functions (the allowlist). This is what removes the finance /
+  //    investment-banking / bare-"Analyst" / consulting residue a blocklist
+  //    can never fully enumerate.
+  // Location is handled upstream by the eligibility gate. Anything wrongly
+  // cut is recoverable by loosening lib/discovery/plausibleFilter.ts.
+  return cards.filter(
+    (c) => isTargetFunction(c.title) && isPlausibleJob({ title: c.title, seniority: c.seniority }).plausible,
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -20,7 +20,14 @@ import { compareToFloor } from "./salary.ts";
 
 // 2: the rules changed. A definitively known salary maximum below the
 // hard floor is now a hard exclusion, and targetStates dropped Wisconsin.
-export const ELIGIBILITY_VERSION = 2;
+// 3: strictLocation. On the user's instruction, a posting that cannot be
+// CONFIRMED from structured fields as either fully-remote (US) or in the
+// target metro is now INELIGIBLE rather than UNCERTAIN. This reverses the
+// gate's usual optimism for location only, and it is a deliberate trade:
+// the large "US city, work arrangement unstated" bucket often hides genuine
+// remote roles that simply never stated it in a parsed field, and those are
+// now ruled out too. Kept as a rule flag so it can be turned off.
+export const ELIGIBILITY_VERSION = 3;
 
 export type EligibilityStatus = "ELIGIBLE" | "UNCERTAIN" | "INELIGIBLE";
 
@@ -44,7 +51,9 @@ export type EligibilityReason =
   | "NON_US_LOCATION"
   | "REMOTE_RESTRICTED_TO_OTHER_REGION"
   | "ONSITE_OUTSIDE_TARGET_METRO"
-  | "HYBRID_OUTSIDE_TARGET_METRO";
+  | "HYBRID_OUTSIDE_TARGET_METRO"
+  // strictLocation (v3): could not confirm fully-remote-US or target metro.
+  | "UNCONFIRMED_REMOTE_OR_METRO";
 
 export interface EligibilityVerdict {
   status: EligibilityStatus;
@@ -95,6 +104,13 @@ export interface EligibilityRules {
   salaryHardFloor: number | null;
   acceptOnsiteInTargetMetro: boolean;
   acceptHybridInTargetMetro: boolean;
+  /**
+   * When true, location that cannot be CONFIRMED as fully-remote-US or in a
+   * target metro is INELIGIBLE, not UNCERTAIN. A fully-remote role with no
+   * stated (and no foreign) scope counts as confirmed remote. This is the
+   * user's "if you can't confirm remote or Chicago, remove" policy.
+   */
+  strictLocation: boolean;
 }
 
 export const PROPOSED_RULES: EligibilityRules = {
@@ -114,6 +130,7 @@ export const PROPOSED_RULES: EligibilityRules = {
   remoteCountry: "US",
   acceptOnsiteInTargetMetro: true,
   acceptHybridInTargetMetro: true,
+  strictLocation: true,
 };
 
 const US_NAMES = /\b(u\.?s\.?a?\.?|united states|usa|us-remote|remote us|americas|north america|nationwide)\b/i;
@@ -260,6 +277,11 @@ function assessOneLocation(
   const mentionsNonUs = NON_US_MARKERS.test(haystack);
   const mentionsUs = US_NAMES.test(haystack) || job.state !== null || countryIsUs;
   const policy = (job.remotePolicy ?? "UNCLEAR").toUpperCase();
+  const strict = rules.strictLocation;
+  // Under strictLocation, a location the structured fields cannot confirm as
+  // remote-US or target-metro is refused rather than left to extraction.
+  const unconfirmed = (detail: string): EligibilityVerdict =>
+    ({ status: "INELIGIBLE", reason: "UNCONFIRMED_REMOTE_OR_METRO", detail });
 
   // A multi-location posting that names the target metro among others is
   // eligible on the strength of that one, whatever else it lists.
@@ -299,14 +321,23 @@ function assessOneLocation(
       // extraction resolves it from the description body.
       const scoped = usStatesIn(job.remoteRestriction ?? "");
       if (scoped.length > 0 && !scoped.some((st) => rules.targetStates.includes(st))) {
+        // Remote scoped to specific non-target US states: an anchor office vs
+        // a residency requirement. Optimistically UNCERTAIN by default;
+        // under strictLocation it cannot be confirmed usable, so it is out.
+        if (strict) return unconfirmed(`remote but scope names ${scoped.join(", ")} (no target state); unconfirmed`);
         return { status: "UNCERTAIN", reason: "REMOTE_STATE_RESTRICTED_UNVERIFIED",
                  detail: `remote but scope names ${scoped.join(", ")}; residency requirement vs anchor office unresolved` };
       }
       return { status: "ELIGIBLE", reason: "REMOTE_US_ELIGIBLE",
                detail: job.remoteRestriction ? `remote, scope: ${truncate(job.remoteRestriction)}` : "remote, US" };
     }
-    // Says remote, names no geography at all. Common, and genuinely
-    // unresolvable from the structured fields.
+    // Says remote, names no geography at all. A fully-remote role with no
+    // stated scope (and no foreign markers, checked above) is confirmed
+    // remote enough to keep under strictLocation; otherwise UNCERTAIN.
+    if (strict) {
+      return { status: "ELIGIBLE", reason: "REMOTE_US_ELIGIBLE",
+               detail: "fully remote, no geographic scope stated (treated as remote-US)" };
+    }
     return { status: "UNCERTAIN", reason: "REMOTE_SCOPE_UNSTATED",
              detail: "remote with no stated geographic scope" };
   }
@@ -317,6 +348,7 @@ function assessOneLocation(
                detail: `${policy} at ${truncate(haystack) || "unstated location"}` };
     }
     if (job.city === null && job.state === null && job.metro === null) {
+      if (strict) return unconfirmed(`${policy} but no location resolved; not confirmable as target metro`);
       return { status: "UNCERTAIN", reason: "LOCATION_UNKNOWN",
                detail: `${policy} but no location resolved` };
     }
@@ -340,13 +372,16 @@ function assessOneLocation(
              detail: `no remote language, country ${job.country}` };
   }
   if (job.city === null && job.state === null) {
+    if (strict) return unconfirmed("no location and no work-arrangement language; unconfirmable");
     return { status: "UNCERTAIN", reason: "LOCATION_UNKNOWN",
              detail: "no location and no work-arrangement language" };
   }
-  // A US city with no remote, hybrid or onsite language anywhere. This is
-  // the largest uncertain bucket and it must stay uncertain: the posting
-  // may well be remote and simply never says so in a field we parse.
-  // Extraction resolves it from the description body.
+  // A US city with no remote, hybrid or onsite language anywhere. Absent
+  // strictLocation this stays UNCERTAIN (it may well be remote and simply
+  // never say so in a parsed field, resolved later by extraction). Under
+  // strictLocation the user has chosen to refuse the unconfirmable: unless
+  // the city is in a target metro (handled far above), it is out.
+  if (strict) return unconfirmed(`US location ${truncate(job.locationRaw ?? haystack)}, work arrangement unstated; not confirmable as remote or target metro`);
   return { status: "UNCERTAIN", reason: "US_LOCATION_POLICY_UNSTATED",
            detail: `US location ${truncate(job.locationRaw ?? haystack)}, work arrangement unstated` };
 }
