@@ -24,7 +24,10 @@ export interface ReviewAnswer {
   blockedReason: string | null;
 }
 
-export interface ReviewCheck { label: string; state: "PASS" | "PENDING" | "FAIL"; detail?: string }
+export interface ReviewCheck { label: string; state: "PASS" | "PENDING" | "FAIL"; detail?: string
+  /** The same fact said as a failure, for a summary line. */
+  whenFailed?: string;
+}
 
 export interface ReviewData {
   applicationId: string;
@@ -255,10 +258,13 @@ export async function loadReview(db: SupabaseClient, applicationId: string): Pro
   const contentLines = Array.isArray((resume?.content as any)?.lines) ? (resume!.content as any).lines.length : 0;
   const hasArtifact = Boolean((artifactRows ?? 0) > 0 && resume?.artifact_sha256);
 
+  // Each check carries how to say it when it FAILS. The review step used to
+  // print the failing checks by their pass-wording ("Tailored resume
+  // created" under a warning sign), which read as three things done.
   const resumeChecks: ReviewCheck[] = [
-    { label: "Tailored resume created", state: resume ? "PASS" : "FAIL" },
-    { label: "Resume claims passed grounding checks", state: resume?.grounding_version ? "PASS" : "FAIL" },
-    { label: "Exact PDF saved for this application", state: hasArtifact ? "PASS" : "FAIL" },
+    { label: "Tailored resume created", state: resume ? "PASS" : "FAIL", whenFailed: "no tailored resume has been made yet" },
+    { label: "Resume claims passed grounding checks", state: resume?.grounding_version ? "PASS" : "FAIL", whenFailed: "grounding checks have not run" },
+    { label: "Exact PDF saved for this application", state: hasArtifact ? "PASS" : "FAIL", whenFailed: "no PDF is saved" },
   ];
   const applicationChecks: ReviewCheck[] = [
     { label: "All required questions answered", state: unansweredRequired === 0 ? "PASS" : "FAIL" },

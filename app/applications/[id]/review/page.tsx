@@ -175,7 +175,7 @@ export default async function ReviewPage(props: {
                 <span className="stepno" aria-hidden="true">1</span>
                 <h3>Resume</h3>
                 <span className={`stepstatus ${resumeOk ? "ok" : "warn"}`}>
-                  {resumeOk ? "\u2713 Tailored and ready" : `\u26a0 ${resumeProblems.map((c) => c.label).join("; ")}`}
+                  {resumeOk ? "\u2713 Tailored and ready" : `\u26a0 ${resumeProblems.map((c) => c.whenFailed ?? c.label).join("; ")}`}
                 </span>
               </div>
               {r.resume.hasArtifact ? (
@@ -197,7 +197,9 @@ export default async function ReviewPage(props: {
                   </details>
                 </details>
               ) : (
-                <p className="bad">No saved PDF is bound to this application.</p>
+                <p className="bad">{r.resume.linesAccepted > 0 || r.resume.contentSha256
+                  ? "No saved PDF is bound to this application."
+                  : "Nothing has been prepared for this application yet, so there is no resume to review."}</p>
               )}
             </li>
 
