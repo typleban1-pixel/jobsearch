@@ -53,7 +53,7 @@ const check = revalidateBeforeSubmit({
   hardMet: (verdicts?.[0] as any)?.hard_met ?? null, hardTotal: (verdicts?.[0] as any)?.hard_total ?? null,
   humanApproved: true, humanApprovedAt: now, authorizationMode: "HUMAN_APPROVED",
   allFieldsConfident: Boolean(app.all_fields_confident),
-  blockedAnswers: rows.filter((a: any) => a.confidence_state === "BLOCKED").length,
+  blockedAnswers: rows.filter((a: any) => (a.is_required ?? true) && a.confidence_state === "BLOCKED").length,   // required-blocked only; an optional blank never blocks (matches the submitter and portal)
   requiredUnanswered: rows.filter((a: any) => a.is_required && a.answer_text == null).length,
   jobVersionIsCurrent: Boolean(version?.is_current),
   storedArtifactSha256: resume?.artifact_sha256 ?? null, approvedArtifactSha256: resume?.artifact_sha256 ?? null,
