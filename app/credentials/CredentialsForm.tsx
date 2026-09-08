@@ -42,6 +42,7 @@ export function CredentialsForm({
 }) {
   const router = useRouter();
   const [companyId, setCompanyId] = useState(presetCompanyId ?? "");
+  const [query, setQuery] = useState(() => employers.find((e) => e.id === (presetCompanyId ?? ""))?.name ?? "");
   const [username, setUsername] = useState(defaultUsername);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -87,11 +88,29 @@ export function CredentialsForm({
   return (
     <form onSubmit={save} className="cred-form">
       <label>Employer
-        <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} required>
-          <option value="">Select…</option>
-          {employers.map((e) => <option key={e.id} value={e.id}>{e.name}{e.ats ? ` · ${e.ats}` : ""}</option>)}
-        </select>
+        <input
+          type="text" autoComplete="off" placeholder="Type to search employers…"
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setCompanyId(""); }}
+        />
       </label>
+      {query.trim() && !companyId && (() => {
+        const matches = employers.filter((e) => e.name.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 8);
+        return (
+          <ul className="cred-emp-list">
+            {matches.length === 0
+              ? <li className="muted">No employer matches &ldquo;{query}&rdquo;.</li>
+              : matches.map((e) => (
+                <li key={e.id}>
+                  <button type="button" className="link-btn" onClick={() => { setCompanyId(e.id); setQuery(e.name); }}>
+                    {e.name}{e.ats ? ` · ${e.ats}` : ""}
+                  </button>
+                </li>
+              ))}
+          </ul>
+        );
+      })()}
+      {companyId && <p className="muted small">Selected: {emp?.name}</p>}
       <label>Username / email
         <input type="text" autoComplete="off" value={username} onChange={(e) => setUsername(e.target.value)} required />
       </label>
